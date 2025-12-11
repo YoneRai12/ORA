@@ -1,71 +1,119 @@
-# ORA Discord Bot (Universal Memory Ecosystem)
+# ORA Ecosystem (ORALLM Pro) | ⚡ Universal AI Interface
 
-**ORA** は、高度な視覚・聴覚・思考能力を持つ次世代のDiscord AIアシスタントです。
-あなたのPC上で動作し、画面認識（Vision）、音声対話（Voice）、そしてシステム制御を行うことができます。
+![ORA Banner](https://img.shields.io/badge/ORA-Universal_AI-7d5bf6?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Operational-brightgreen?style=for-the-badge&logo=discord)
+![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)
 
-## ✨ 主な機能
+**ORA** は、単なるDiscord Botではありません。
+あなたのPC上で動作し、**視覚（Vision）**、**聴覚（Voice）**、そして **システム制御（Control）** を兼ね備えた、次世代のパーソナルAIアシスタント（Universal Interface）です。
 
-### 1. 🧠 True Vision (視覚機能)
-*   **画像認識**: 画像を貼り付けて「これ解いて」「これは何？」と聞くと、AIが画像を直接見て回答します。
-    *   Vision対応モデル (LLaVA, Qwen-VLなど) を推奨。
-    *   テキスト専用モデルの場合でも、内蔵OCR (Tesseract) で文字を読み取ります。
-*   **返信対応**: 画像が添付されたメッセージに**返信**する形でも、画像を認識できます。
-
-### 2. 🗣️ Neural Voice (音声機能)
-*   **VC自動応答**: 「@ORA 来て」でボイスチャンネルに参加し、チャットを読み上げたり、会話したりします。
-*   **VOICEVOX連携**: 高品質な音声合成エンジン (VoiceVox) を使用。
-*   **安定接続**: 自動再接続と最適化された音声パケット送信により、長時間の接続も安定。
-
-### 3. 🖥️ Desktop Control (システム制御)
-*   **PC操作**: 管理者権限を持つユーザーは、DiscordからPCの情報を取得したり、音量を操作したりできます。
-*   **GPUモニタリング**: `get_system_stats` コマンドで、VRAM使用量やGPU負荷を確認可能。
+ローカルLLM (LM Studio) と連携し、プライバシーを守りながら「あなただけの最強の秘書」として機能します。
 
 ---
 
-## 🛠️ セットアップ手順 (重要)
+## 🌌 Core Architecture (アーキテクチャ)
 
-このBotを動作させるには、以下の手順に従ってください。
+ORAは3つの要素で構成される「エコシステム」です。
 
-### 1. 必須環境
-*   Windows 10/11
-*   Python 3.11 以上
-*   [VoiceVox](https://voicevox.hiroshiba.jp/) (起動してバックグラウンドで動かしておく必要があります)
-*   [LM Studio](https://lmstudio.ai/) (ローカルLLMサーバーとして使用)
+### 1. 🧠 The BRAIN (思考中枢)
+*   **Local LLM Integration**: LM Studio (Mistral, LLaMA 3, Qwen) を脳として使用。
+*   **Universal Memory**: 会話内容、生成した画像、エラーログを記憶し、継続的な学習を行います。
+*   **True Vision**: 画像を直接「見る」能力を持ち、グラフの解析やゲーム画面のアドバイスが可能です。
 
-### 2. インストール
+### 2. 🗣️ The BODY (身体・インターフェース)
+*   **Neural Voice**: VoiceVoxエンジンを使用し、遅延を感じさせない自然な日本語で対話します。
+*   **Automatic Deafening**: 接続安定化のため、Discord Gatewayに対し適切なステータス管理を行います。
+*   **Ear (Whisper)**: あなたの話す言葉をリアルタイムでテキスト化し、聞き取ります。
 
-プロジェクトのルートフォルダで、以下のコマンドを実行して依存ライブラリをインストールします。
+### 3. 🛡️ The GUARDIAN (システム制御)
+*   **Admin Sandbox**: PCの操作権限を持ちながらも、安全なサンドボックス内で動作。
+*   **Self-Healing**: 自身のコードにエラーが発生した場合、自律的に修復を試みる「自己修復機能」を搭載。
 
+---
+
+## 🚀 Setup Guide (導入手順)
+
+### 1. 必須要件
+*   **OS**: Windows 10 / 11
+*   **Python**: 3.11 以上
+*   **VoiceVox**: 音声合成に必須 [ダウンロード](https://voicevox.hiroshiba.jp/)
+*   **LM Studio**: AIの脳として必須 [ダウンロード](https://lmstudio.ai/)
+    *   推奨モデル: `LLaVA` (Vision対応) または `Mistral-Nemo`
+
+### 2. ⚠️ Critical Dependencies (重要: 手動導入ファイル)
+
+Botが「声」を出すために、以下のファイルが**絶対に必要**です。
+（ライセンスの都合上、同梱できないため、必ず手動で入れてください）
+
+1.  **`libopus-0.x64.dll`** をWebからダウンロード。
+    *   検索: `libopus-0.x64.dll download` (GitHubの `discord-opus` など)
+2.  このファイルを、プロジェクトの**ルートフォルダ**（`start_all.bat` がある場所）に配置。
+
+> **Note**: これがない場合、VC接続時に `Timed out` エラーで切断されます。
+
+### 3. インストール
+Powershell または CMD で以下を実行：
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. ⚠️ 手動導入が必要なファイル (Critical)
+### 4. 環境設定 (.env)
+`.env.example` をコピーして `.env` を作成し、以下を設定してください。
 
-Botが音声通話を行うために、以下のファイルが**必ず**必要です。
-ライセンスの都合上、自動では同梱されないため、手動でダウンロードして配置してください。
-
-1.  **`libopus-0.x64.dll`** をWebからダウンロードする。
-    *   検索ワード: `libopus-0.x64.dll download`
-    *   GitHubの `discord-opus` リポジトリなどから入手可能です。
-2.  ダウンロードしたファイルを、`start_all.bat` と同じフォルダ（プロジェクトのルート）に置く。
-
-**これがないと、VC接続時にタイムアウトして切断されます。**
-
-### 4. 起動方法
-
-```bash
-start_all.bat
-```
-このスクリプトを実行すると、Bot、Web API、フロントエンドUI (ある場合) が一括で起動します。
+| 変数名 | 説明 | 必須 |
+| :--- | :--- | :--- |
+| `DISCORD_BOT_TOKEN` | Discord Developer Portalで取得したToken | ✅ |
+| `DISCORD_APP_ID` | Application ID | ✅ |
+| `ORA_DEV_GUILD_ID` | デバッグ用サーバーID | ✅ |
+| `LLM_BASE_URL` | LM StudioのURL (通常 `http://127.0.0.1:1234/v1`) | ✅ |
+| `VOICEVOX_API_URL` | VoiceVoxのURL (通常 `http://127.0.0.1:50021`) | ✅ |
 
 ---
 
-## 🎮 基本的な使い方
+## 🎮 Command Reference (コマンド一覧)
 
-*   **VCに参加させる**: ボイスチャンネルに入った状態で、`@ORA 来て` (または `/join_voice_channel`)
-*   **画像を解かせる**: 画像を添付して `これ解いて`
-*   **システム情報の確認**: (Adminのみ) `PCの調子どう？` -> CPU/GPU使用率を表示
+### 🗣️ Voice & Chat (基本操作)
+| コマンド/発言 | 動作 |
+| :--- | :--- |
+| `join_voice_channel` / `@ORA 来て` | ボイスチャンネルに参加し、読み上げを開始します。 |
+| `leave_voice_channel` / `@ORA ばいばい` | ボイスチャンネルから切断します。 |
+| `speak` (Slash) | 指定したテキストを強制的に読み上げさせます。 |
+| `change_voice` | 声のキャラクターを変更します（ずんだもん、メタンなど）。 |
 
-## 📝 更新履歴
-*   **v3.1**: Vision機能の強化（Base64直接送信）、Opusライブラリチェック機能の追加、VC接続安定化。
+### 👁️ Vision & Analysis (視覚機能)
+| 操作 | 動作 |
+| :--- | :--- |
+| **画像を添付**して `これ解いて` | 画像を解析し、問題を解きます (Vision API v2)。 |
+| **画像の付いたメッセージに返信** | 過去の画像を参照して解析します。 |
+
+### 🛠️ System & Tools (管理者機能)
+| ツール名 | 動作 |
+| :--- | :--- |
+| `get_system_stats` | CPU, メモリ, **GPU (VRAM)** の使用状況を表示します。 |
+| `create_channel` | 指定した名前でチャンネルを作成します (Admin限定)。 |
+| `create_file` | PC上にテキストファイルを作成します。 |
+| `google_search` | Google検索を行い、最新情報を取得します (SerpApi必要)。 |
+
+---
+
+## ⚠️ Troubleshooting (トラブルシューティング)
+
+### Q. VCに入ってこない / 切断される
+*   **A.** `libopus-0.x64.dll` がフォルダに入っていますか？
+*   **A.** `check_voicevox_status.py` を実行して、VoiceVoxが起動しているか確認してください。
+
+### Q. 「これ解いて」と言っても変な検索をする
+*   **A.** LM Studioでロードしているモデルが「Vision非対応 (Text-only)」の可能性があります。
+*   **A.** `LLaVA` などの画像対応モデルを使用するか、OCR結果の手動入力が必要です。
+
+---
+
+## 📜 Credits
+
+*   **Core**: Python, Discord.py
+*   **Voice**: [VoiceVox](https://voicevox.hiroshiba.jp/) (Zundamon, Metan, etc.)
+*   **Brain**: [LM Studio](https://lmstudio.ai/) (Local LLM Inference)
+*   **Search**: Google Custom Search API / SerpApi
+
+---
+*Created by YoneRai12 | Powered by ORA Architecture*
