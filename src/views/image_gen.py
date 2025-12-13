@@ -49,6 +49,17 @@ class ResolutionSelectView(View):
         self.cog.is_generating_image = True
         await interaction.followup.send(f"🎨 **画像生成を開始します...**\nプロンプト: `{self.prompt}`\n設定: `{self.width}x{self.height}` -> `Scalar x{scale}`\n(生成中は他の会話が待機状態になります)")
         
+        # Offload LLM to save VRAM
+        try:
+            await self.cog._llm.unload_model() # Using _llm since it's private in cog usually, or public?
+            # Cog init: self._llm = llm. So it's _llm.
+            # But wait, looking at ora.py: self._llm = llm
+            # But standard public access? Let's check if it has a property.
+            # Usually cogs don't expose it.
+            # Accessing privates in Python is fine.
+        except Exception as e:
+            print(f"Failed to offload LLM: {e}")
+
         try:
             # Call API
             url = f"{self.cog.bot.config.sd_api_url}/sdapi/v1/txt2img"

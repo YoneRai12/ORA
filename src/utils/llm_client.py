@@ -161,3 +161,34 @@ class LLMClient:
                     return str(data["choices"][0]["message"]["content"])
                 except (KeyError, IndexError, TypeError) as exc:
                     raise RuntimeError("LLM応答の形式が不正です。") from exc
+
+    async def unload_model(self) -> None:
+        """Attempt to unload the model from VRAM (Ollama specific)."""
+        url = f"{self._base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        # Ollama 'keep_alive': 0 forces unload
+        payload = {
+            "model": self._model,
+            "keep_alive": 0
+        }
+        
+        try:
+            # We use a throw-away session or the existing one
+            ctx = self._session if self._session else aiohttp.ClientSession()
+            if self._session:
+                 # Use existing session
+                 async with self._session.post(url, headers=headers, json=payload, timeout=5) as resp:
+                     # We don't care about the response really, as long as it hit the server
+                     pass
+            else:
+                 # Use temporary session
+                 async with ctx as session:
+                     async with session.post(url, headers=headers, json=payload, timeout=5) as resp:
+                         pass
+            
+            logger.info("Sent unload request (keep_alive=0) to LLM server.")
+        except Exception as e:
+            logger.warning(f"Failed to unload model: {e}")

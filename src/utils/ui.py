@@ -2,12 +2,16 @@ import discord
 import asyncio
 from typing import List, Optional
 
-# Emojis
-EMOJI_LOAD = "<a:ld_load:864751547368079400>"
-EMOJI_DONE = "<a:ld_accept:864751671510564885>"
+
 
 class StatusManager:
     """Manages the interactive 'Thinking' status message."""
+    
+    
+    # Custom Emojis (User Uploaded)
+    # Added 'a' prefix for Animated GIFs
+    EMOJI_PROCESSING = "<a:rode:1449406298788597812>" 
+    EMOJI_DONE = "<a:conp:1449406158883389621>" # Assuming Checkmark is also animated based on user feedback.
     
     def __init__(self, channel: discord.abc.Messageable):
         self.channel = channel
@@ -15,7 +19,7 @@ class StatusManager:
         self.steps: List[dict] = [] # List of {"label": str, "done": bool}
         self._lock = asyncio.Lock()
 
-    async def start(self, label: str = "思考中..."):
+    async def start(self, label: str = "思考中"):
         """Send the initial status message."""
         self.steps = [{"label": label, "done": False}]
         content = self._build_content()
@@ -74,8 +78,9 @@ class StatusManager:
     def _build_content(self) -> str:
         lines = []
         for step in self.steps:
-            icon = EMOJI_DONE if step["done"] else EMOJI_LOAD
-            lines.append(f"{icon} {step['label']}")
+            icon = self.EMOJI_DONE if step["done"] else self.EMOJI_PROCESSING
+            # User Preference: "Icon Label" (Left aligned) looks better
+            lines.append(f"{icon} **{step['label']}**")
         return "\n".join(lines)
 
 class EmbedFactory:
