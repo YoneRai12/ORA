@@ -12,7 +12,8 @@
 
 ## ✨ v2.0 Update Highlights (最新アップデート)
 *   **💳 Visual Card Responses**: 全ての回答が美しい「カード形式 (Discord Embed)」に進化しました。文字だけの地味なBotとはおさらばです。
-*   **💭 Interactive Thoughts**: 「思考中...」「検索中...」といったBotの内部状態がアニメーションアイコンでリアルタイムに表示されます。
+*   **💭 Interactive Thoughts**: 「思考中」「検索中」といったBotの内部状態が**アニメーションアイコン**でリアルタイムに表示されます。
+*   **🧠 Smart VRAM Management**: 画像生成時にはLLMを自動的にVRAMから退避させ、Stable Diffusionのパフォーマンスを最大化する機能を搭載しました。
 *   **👀 Reply Vision**: Botが生成した画像や、過去のメッセージに含まれる画像に対し、返信機能を使って「これ見て」と言うだけで認識できるようになりました。
 
 ---

@@ -662,12 +662,21 @@ class ORACog(commands.Cog):
         
         # Process strictly in order
         while self.message_queue:
-            msg = self.message_queue.pop(0)
+            # Queue now stores (message, prompt) tuples
+            item = self.message_queue.pop(0)
+            if isinstance(item, tuple):
+                msg, prompt = item
+            else:
+                # Fallback for old queue items if any (shouldn't happen after restart)
+                msg = item
+                prompt = msg.content # Best effort
+            
             try:
                 # Add a small delay to prevent rate limits
                 await asyncio.sleep(1)
                 await msg.reply("お待たせしました！回答を作成します。", mention_author=True)
-                await self.handle_prompt(msg)
+                # Correctly pass the preserved prompt
+                await self.handle_prompt(msg, prompt)
             except Exception as e:
                 logger.error(f"Error processing queued message from {msg.author}: {e}")
 
@@ -1968,7 +1977,8 @@ class ORACog(commands.Cog):
         # 1. Check for Generation Lock
         if self.is_generating_image:
             await message.reply("🎨 現在、画像生成を実行中です... 完了次第、順次回答しますので少々お待ちください！ (Waiting for image generation...)", mention_author=True)
-            self.message_queue.append(message)
+            # CRITICAL FIX: Queue the PROMPT too, otherwise it's lost and causes TypeError later
+            self.message_queue.append((message, prompt))
             return
 
         # 2. Privacy Check
@@ -1985,7 +1995,7 @@ class ORACog(commands.Cog):
              except:
                  pass
         
-        await status_manager.start("思考中...")
+        await status_manager.start("思考中")
 
         # Voice Feedback: "Generating..." (Smart Delay)
         voice_feedback_task = None
@@ -2216,7 +2226,7 @@ class ORACog(commands.Cog):
                     })
                     
                     # Update Status for Next Think
-                    await status_manager.next_step("回答生成中...")
+                    await status_manager.next_step("回答生成中")
                     
                     new_content = await self._llm.chat(messages=messages, temperature=0.7)
                     
