@@ -10,6 +10,8 @@
 [![Structure](https://img.shields.io/badge/Architecture-Hybrid%20MoE-FF0055?style=for-the-badge)](https://github.com/vllm-project/vllm)
 [![GPU](https://img.shields.io/badge/GPU-RTX%205090%20Optimized-76B900?style=for-the-badge&logo=nvidia)](https://www.nvidia.com/)
 
+**[ 🇺🇸 English ](README.md) | [ 🇯🇵 日本語 ](README_JP.md)**
+
 </div>
 
 ---
@@ -18,33 +20,72 @@
 
 ORA is a **fully autonomous AI Operating System** running locally on your hardware. It integrates the world's most advanced open-source models into a seamless, unified experience inside Discord.
 
-### ✨ Highlights
+### ✨ Why ORA? (Key Benefits)
+- **💰 Zero Monthly Fees**: Unlike ChatGPT Plus ($20/mo) or Midjourney ($10/mo), ORA runs **100% locally**. You own the AI.
+- **🔒 Complete Privacy**: No data leaves your PC. Your chats, images, and voice are processed on your RTX 5090.
+- **⚡ High Performance**: Optimized for RTX 5090 (32GB VRAM), ensuring maximum speed and quality.
+
+### 🌟 Technical Highlights
 - **🧠 Dual-Brain Architecture**: Automatically switches between a fast "Instruct Model" (Qwen3-VL-30B) for chat/vision and a deep "Reasoning Model" (Thinker) for math/logic.
 - **👁️ True Vision (Multimodal)**: Can see video and images with human-level understanding (powered by Qwen & SAM 3).
-- **🎨 Hollywood-Grade Art**: Generates 4K images using **FLUX.2** ensuring photo-realism and style adherence.
+- **🎨 Hollywood-Grade Art**: Generates 4K images using **FLUX.1-dev** (State of the Art) ensuring photo-realism.
 - **🗣️ Human-Like Voice**: Listens to you in VC (Faster-Whisper) and speaks back (T5Gemma/VoiceVox).
-- **⚡ Zero-Latency Gaming**: Automatically detects when you play games (Valorant/Apex) and hot-swaps to a lightweight model to save FPS.
+- **🎮 Zero-Latency Gaming**: Automatically detects games (Apex/Valorant) and shrinks VRAM usage to save FPS.
+
+---
+
+## 💡 Practical Use Cases
+
+| Scenario | How ORA Helps |
+| :--- | :--- |
+| **🤖 Gaming Companion** | "Hey ORA, look at my screen. Where is the enemy?" (Vision) |
+| **🎨 Creative Studio** | "Generate a Youtube thumbnail for Minecraft, anime style." (Image Gen) |
+| **📚 Homework Helper** | "Solve this calculus problem step-by-step." (Reasoning Model) |
+| **🎙️ Vtuber / Stream** | Can act as a fully voiced co-host that reads chat and responds. |
+| **🔍 Research** | "Search the web for RTX 5090 benchmarks and summarize." (Tools) |
 
 
-ORA operates on a sophisticated **5-Layer Stack** designed for the RTX 5090 (32GB VRAM).
+## 🏗️ System Architecture (Logic Flow)
+
+This system uses an **Automatic Semantic Router** to dynamically assign tasks to the most appropriate AI model.
 
 ```mermaid
 graph TD
-    Launcher[Start ORA Bot] --> ResourceManager
-    ResourceManager -->| Allocates VRAM | vLLM[vLLM Inference Server]
-    ResourceManager -->| Allocates VRAM | Comfy[ComfyUI Server]
-    vLLM --> Bot[Discord Bot Output]
-    Comfy --> Bot
-    User -->|Discord| Bot
+    User[User Input (Discord)] --> Router{Auto Router<br>(Context Analysis)}
+
+    %% Routing Logic
+    Router -- "Chat / Logic" --> LLM[Qwen3-VL-30B-Instruct<br>(vLLM - Port 8001)]
+    Router -- "Image Upload" --> Vision[Qwen3-VL (Vision)<br>(Native Analysis)]
+    Router -- "Generate Image" --> ImageGen[Flux.1-dev<br>(ComfyUI - Port 8188)]
+    Router -- "Video/Object Search" --> SAM2[SAM 2 (Meta)<br>(Object Segmentation)]
+    
+    %% Voice Path
+    Router -- "Speak/TTS" --> VoiceRouter{Voice Selector}
+    VoiceRouter -- "Standard" --> VV[VOICEVOX<br>(Port 50021)]
+    VoiceRouter -- "Human-like" --> T5[T5Gemma-TTS<br>(Resources Loaded)]
+
+    %% Future/Reserved
+    Router -- "Video Gen?" --> VideoGen[Reserved / Future<br>(Port 8189)]
+
+    %% Styling
+    style Router fill:#f9f,stroke:#333,stroke-width:2px
+    style LLM fill:#ccf,stroke:#333
+    style ImageGen fill:#cfc,stroke:#333
 ```
 
-1.  **Launcher Layer** (`start_vllm.bat`): Orchestrates boot, environment checks, and crash recovery.
-2.  **Resource Layer** (`ResourceManager`): The "Guard Dog". Monitors VRAM and enforces **Exclusive Context** to prevent OOM.
-3.  **Inference Layer**:
-    -   **vLLM**: Serving Qwen3-VL-30B (A3B/AWQ).
-    -   **ComfyUI**: Serving FLUX.2 (FP8).
-4.  **Application Layer**: Python Discord Bot & FastAPI.
-5.  **Interface Layer**: Discord Client & Web Dashboard (`ora-ui`).
+### 🧩 Component Breakdown
+
+| Feature | Model / Engine | Provider | Status |
+| :--- | :--- | :--- | :--- |
+| **LLM (Chat)** | `Qwen3-VL-30B-Instruct` | vLLM (Local) | 🟢 Active |
+| **Vision (Eyes)** | `Qwen3-VL` (Native) | vLLM (Local) | 🟢 Active |
+| **Image Gen** | `Flux.1-dev` (FP8) | ComfyUI | 🟢 Active |
+| **Video Rec** | `SAM 2` (Segment Anything) | Meta (Facebook) | 🟡 Loaded |
+| **TTS (Std)** | `VOICEVOX` | Docker / Local | 🟢 Active |
+| **TTS (Real)** | `Aratako_T5Gemma-TTS` | Transformers | 🟡 On Demand |
+| **Video Gen** | *(Planned / Reserved)* | *(TBD)* | ⚪ Future |
+
+This architecture ensures high performance by loading heavy models (like Flux or SAM 2) only when needed, while the core LLM handles the orchestration.
 
 ---
 
