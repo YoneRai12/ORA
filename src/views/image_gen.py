@@ -42,7 +42,8 @@ class StyleSelectView(View):
         if style != "raw":
             final_prompt += style_suffix
 
-        # Translate to English if needed (Simple heuristic: Non-ASCII)
+        # Translate to English if needed
+        mode_label = "Native"
         if self.cog.llm and any(ord(c) > 128 for c in final_prompt):
             try:
                 translation_prompt = (
@@ -54,6 +55,7 @@ class StyleSelectView(View):
                     temperature=0.1
                 )
                 final_prompt = translated.strip()
+                mode_label = "Translated"
             except Exception as e:
                 # Log error but proceed with original
                 print(f"Translation failed: {e}")
