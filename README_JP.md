@@ -10,7 +10,13 @@
 [![Structure](https://img.shields.io/badge/Architecture-Hybrid%20MoE-FF0055?style=for-the-badge)](https://github.com/vllm-project/vllm)
 [![GPU](https://img.shields.io/badge/GPU-RTX%205090%20Optimized-76B900?style=for-the-badge&logo=nvidia)](https://www.nvidia.com/)
 
-**[ 🇺🇸 English ](README.md) | [ 🇯🇵 日本語 ](README_JP.md)**
+
+<div align="center">
+
+[![English](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](README.md)
+[![Japanese](https://img.shields.io/badge/言語-日本語-red?style=for-the-badge)](README_JP.md)
+
+</div>
 
 </div>
 
