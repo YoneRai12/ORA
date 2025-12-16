@@ -56,6 +56,7 @@ ORA is a **fully autonomous AI Operating System** running locally on your hardwa
 This system uses an **Automatic Semantic Router** to dynamically assign tasks to the most appropriate AI model.
 
 ```mermaid
+%%{init: { 'theme': 'dark' }}%%
 graph TD
     User["User Input (Discord)"] --> Router{"Auto Router<br>(Context Analysis)"}
 
@@ -73,10 +74,16 @@ graph TD
     %% Future/Reserved
     Router -- "Video Gen?" --> VideoGen["Reserved / Future<br>(Port 8189)"]
 
-    %% Styling
-    style Router fill:#f9f,stroke:#333,stroke-width:2px
-    style LLM fill:#ccf,stroke:#333
-    style ImageGen fill:#cfc,stroke:#333
+    %% Styling for better dark mode readability
+    style Router fill:#ff1493,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style LLM fill:#1e90ff,stroke:#ffffff,stroke-width:1px,color:#ffffff
+    style ImageGen fill:#32cd32,stroke:#ffffff,stroke-width:1px,color:#ffffff
+    style Vision fill:#00bfff,stroke:#ffffff,stroke-width:1px,color:#ffffff
+    style SAM2 fill:#ff4500,stroke:#ffffff,stroke-width:1px,color:#ffffff
+    style VoiceRouter fill:#da70d6,stroke:#ffffff,stroke-width:1px,color:#ffffff
+    style VV fill:#ffd700,stroke:#ffffff,stroke-width:1px,color:#000000
+    style T5 fill:#dda0dd,stroke:#ffffff,stroke-width:1px,color:#000000
+    style VideoGen fill:#9370db,stroke:#ffffff,stroke-width:1px,color:#ffffff
 ```
 
 ### 🧩 Component Breakdown
