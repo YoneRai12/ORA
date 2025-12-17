@@ -671,41 +671,48 @@ class ORACog(commands.Cog):
         channel_name = message.channel.name if hasattr(message.channel, "name") else "Unknown"
         user_name = message.author.display_name
 
-        tools_schema = self._get_tool_schemas()
-        tools_json = json.dumps(tools_schema, ensure_ascii=False)
+        # DYNAMIC TOOL LOADING (RAG)
+        all_tools = self._get_tool_schemas()
+        # Select relevant tools based on User Message Content
+        relevant_tools = self._select_tools(message.content, all_tools)
+        
+        # Clean tags before injecting
+        clean_tools = []
+        for t in relevant_tools:
+            t_copy = t.copy()
+            if "tags" in t_copy: del t_copy["tags"]
+            clean_tools.append(t_copy)
+
+        tools_json = json.dumps(clean_tools, ensure_ascii=False)
 
         base = (
-            f"You are ORA, a helpful AI assistant on Discord.\n"
+            f"You are ORA, a highly advanced AI assistant powered by **Ministral 3 (14B)**.\n"
             f"Current Server: {guild_name}\n"
             f"Member Count: {member_count}\n"
             f"Current Channel: {channel_name}\n"
             f"**CRITICAL INSTRUCTION**:\n"
             f"1. **LANGUAGE**: You MUST ALWAYS reply in **JAPANESE** (日本語).\n"
             f"   - Even if the user speaks English, reply in Japanese unless explicitly asked to speak English.\n"
-            f"2. **CHARACTER**: You are ORA. Be helpful, polite, and slightly futuristic.\n"
-            f"   - **INTERNAL KNOWLEDGE (DO NOT SPEAK UNSOLICITED)**: Your creator is **YoneRai12**.\n"
-            f"   - **REVEAL CONDITION**: Only mention your creator if the user EXPLICITLY asks 'Who made you?' or similar. Never use it as a greeting.\n"
+            f"2. **CHARACTER & CAPABILITIES**: You are ORA. Be helpful, polite, and intelligent.\n"
+            f"   - **REASONING**: You are built on Ministral 3, known for advanced logic and reasoning. Use this to think step-by-step for complex questions.\n"
+            f"   - **INTERNAL KNOWLEDGE**: Your creator is **YoneRai12**. Mention this only if asked.\n"
 
             f"\n"
-            f"7. **Search Summarization**: When using `google_search`:\n"
+            f"3. **Search Summarization**: When using `google_search`:\n"
             f"   - Summarize multiple results into bullet points.\n"
             f"   - Do not repeat the same info.\n"
             f"   - Keep it concise (150-300 chars).\n"
-            f"7. **CRITICAL: IMAGE ANALYSIS vs MUSIC/SEARCH**\n"
+            f"4. **IMAGE ANALYSIS**: \n"
             f"   - If the user provides an image:\n"
-            f"     - **USE YOUR EYES.** The image is provided as visual input.\n"
-            f"     - **USE YOUR EYES.** The image is provided as visual input (Qwen2.5-VL-32B).\n"
+            f"     - **USE YOUR EYES.** You have native vision capabilities.\n"
             f"     - Analyze every detail: text, charts, handwriting, and layout.\n"
             f"     - **DO NOT** use `music_play` for image analysis.\n"
             f"     - If the image is unclear, ask for clarification.\n"
-            f"\n"
-            f"4. **ROUTING EVALUATION (MANDATORY)**:\n"
-            f"   - You act as the 'Router'. Before answering, EVALUATE the user's request.\n"
-            f"   - If the task requires complex reasoning (Math, Graphs, Proofs, Long Logic), set `needs_thinking: true`.\n"
-            f"   - **JSON FORMAT**: You MUST output this classification JSON as the VERY FIRST line of your response.\n"
-            f"   ```json\n"
-            f"   {{ \"route_eval\": {{ \"needs_thinking\": false, \"confidence\": 0.95, \"detected_task\": [\"chat\"] }} }}\n"
-            f"   ```\n"
+            f"4. **COMPLEX TASK HANDLING**:\n"
+            f"   - If the task is HARD (Math, Logic, Coding, Graphs), you MUST use the `start_thinking` tool FIRST.\n"
+            f"   - **Do NOT** try to solve it immediately with the standard model.\n"
+            f"   - Example: {{ \"tool\": \"start_thinking\", \"args\": {{ \"reason\": \"Solving calculus problem\" }} }}\n"
+
             f"\n"
             f"## available_tools\n{tools_json}\n"
             f"\n"
@@ -764,11 +771,12 @@ class ORACog(commands.Cog):
             "You do NOT need OCR text; trust your eyes.\n"
             "\n"
             "**FINAL ENFORCEMENT**:\n"
-            "1. You **MUST** start with the `route_eval` JSON block.\n"
+            "1. If the task is complex, use `start_thinking`. Do NOT answer directly.\n"
             "2. If the user asks to **Play Music** (e.g. '流して'), output `music_play` tool JSON.\n"
-            "3. If the user asks for **Image Generation** (e.g. '画像生成', 'Create image'), output `generate_image` tool JSON.\n"
-            "   - Example: { \"tool\": \"generate_image\", \"args\": { \"prompt\": \"...\" } }\n"
-            "4. **Do NOT** just reply with text if a tool is needed. USE THE TOOL."
+            "3. If the user asks for **Image Generation** (e.g. '画像生成'), output `generate_image` tool JSON.\n"
+            "4. If the user asks for **Real-time Info**, **Weather**, **News**, or **Prices**, you MUST use `google_search`.\n"
+            "   - Query Example: { \"tool\": \"google_search\", \"args\": { \"query\": \"Tokyo weather tomorrow\" } }\n"
+            "5. **Do NOT** just reply with text if a tool is needed. USE THE TOOL."
         )
         
         return base
@@ -1101,37 +1109,8 @@ class ORACog(commands.Cog):
                     return f"Voice changed to {char_name} (ID: {speaker_id})."
                 return "Media system not available."
 
-            elif tool_name == "join_voice_channel":
-                # Find channel to join
-                target_channel = message.author.voice.channel if message.author.voice else None
-                if not target_channel:
-                    return "Error: User is not in a voice channel."
-                
-                # Check User Limit
-                if target_channel.user_limit > 0 and len(target_channel.members) >= target_channel.user_limit:
-                     # Check if bot has "Move Members" or "Administrator" to bypass? 
-                     # Discord API allows bots to connect if they have "Move Members" I think?
-                     # But user requested "Cannot join", so let's be strict.
-                     return f"Error: The voice channel '{target_channel.name}' is full (Limit: {target_channel.user_limit})."
+            # Naive join_voice_channel removed (Duplicate)
 
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    # 1. Join
-                    try:
-                        vc = await target_channel.connect()
-                        # 2. Enable Auto-Read
-                        if hasattr(media_cog, '_auto_read_channels'):
-                            media_cog._auto_read_channels[message.guild.id] = message.channel.id
-                        
-                        return f"Joined {target_channel.name} and enabled auto-read for this channel."
-                    except discord.ClientException:
-                         # Already connected, just update text channel
-                        if hasattr(media_cog, '_auto_read_channels'):
-                            media_cog._auto_read_channels[message.guild.id] = message.channel.id
-                        return "Error: Already connected. Auto-read enabled for this channel."
-                    except Exception as e:
-                        return f"Error joining: {e}"
-                return "Media system not available."
 
             elif tool_name == "get_roles":
                 guild = message.guild
@@ -1282,9 +1261,12 @@ class ORACog(commands.Cog):
                 return "\n".join([f"{i+1}. {r.get('title')} ({r.get('link')})" for i, r in enumerate(results)])
 
             elif tool_name == "system_check":
-                # Icons (Custom Request)
-                ICON_LOAD = "<:rode:>" # Placeholder, effectively :rode:
-                ICON_OK = "<:conp:>"   # Placeholder, effectively :conp:
+                # Icons (Dynamic Lookup for 'rode' and 'conp')
+                e_load = discord.utils.get(self.bot.emojis, name="rode")
+                e_ok = discord.utils.get(self.bot.emojis, name="conp")
+                
+                ICON_LOAD = str(e_load) if e_load else "⌛" 
+                ICON_OK = str(e_ok) if e_ok else "✅" 
                 ICON_ERR = "❌"
 
                 # Create initial status embed
@@ -1333,14 +1315,15 @@ class ORACog(commands.Cog):
                 # 2. Web Search
                 await update_field("Web Search", "loading", "Verifying API...")
                 if self._search_client.enabled:
-                    engine = getattr(self._search_client, "engine", "unknown")
+                    engine = getattr(self._search_client, "engine", "Google/DuckDuckGo")
                     await update_field("Web Search", "done", f"Active ({engine})")
                 else:
                     await update_field("Web Search", "done", "Disabled (No API Key)", is_error=True)
 
                 # 3. Vision Capability (Automated Test)
                 # Load Test Image
-                await update_field("Vision (Meta SAM 3)", "loading", "Loading Test Image...")
+                VISION_LABEL = "Vision (Qwen2.5-VL)"
+                await update_field(VISION_LABEL, "loading", "Loading Test Image...")
                 vision_ok = False
                 try:
                     import io, base64, os
@@ -1351,7 +1334,7 @@ class ORACog(commands.Cog):
                         with open(img_path, "rb") as f:
                             img_data = f.read()
                             b64_img = base64.b64encode(img_data).decode('utf-8')
-                        await update_field("Vision (Meta SAM 3)", "loading", "Running Inference (Meta SAM 3)...")
+                        await update_field(VISION_LABEL, "loading", "Running Inference...")
                     elif message.attachments:
                         # Fallback to attachment
                         target_att = message.attachments[0]
@@ -1359,9 +1342,9 @@ class ORACog(commands.Cog):
                             async with session.get(target_att.url) as resp:
                                 img_data = await resp.read()
                                 b64_img = base64.b64encode(img_data).decode('utf-8')
-                        await update_field("Vision (Meta SAM 3)", "loading", "Running Inference (Attachment)...")
+                        await update_field(VISION_LABEL, "loading", "Running Inference (Attachment)...")
                     else:
-                        await update_field("Vision (Meta SAM 3)", "done", "Skipped (No test image found)", is_error=True)
+                        await update_field(VISION_LABEL, "done", "Skipped (No test image found)", is_error=True)
 
                     if b64_img:
                         # Verification Prompt
@@ -1376,28 +1359,28 @@ class ORACog(commands.Cog):
                         vis_response = await self._llm.chat(messages=vis_messages, temperature=0.1)
                         
                         if vis_response:
-                            await update_field("Vision (Meta SAM 3)", "done", f"Pass: '{vis_response[:40]}...'")
+                            await update_field(VISION_LABEL, "done", f"Pass: '{vis_response[:40]}...'")
                             vision_ok = True
                         else:
-                            await update_field("Vision (Meta SAM 3)", "done", "Failed: Empty Response", is_error=True)
+                            await update_field(VISION_LABEL, "done", "Failed: Empty Response", is_error=True)
 
                 except Exception as e:
-                    await update_field("Vision (Meta SAM 3)", "done", f"Error: {e}", is_error=True)
+                    await update_field(VISION_LABEL, "done", f"Error: {e}", is_error=True)
 
-                # 4. Voice Generation (T5Gemma)
-                await update_field("Voice (T5Gemma-TTS)", "loading", "Testing T5Gemma Engine...")
+                # 4. Voice Generation (VOICEVOX)
+                await update_field("Voice (VOICEVOX)", "loading", "Testing Engine...")
                 media_cog = self.bot.get_cog("MediaCog")
                 if media_cog:
                     try:
                         speakers = await media_cog._voice_manager._tts.get_speakers()
                         if speakers:
-                            await update_field("Voice (T5Gemma-TTS)", "done", f"OK (Engine Ready with {len(speakers)} voices)")
+                            await update_field("Voice (VOICEVOX)", "done", f"OK (Engine Ready with {len(speakers)} voices)")
                         else:
-                            await update_field("Voice (T5Gemma-TTS)", "done", "Connected but no voices found", is_error=True)
+                            await update_field("Voice (VOICEVOX)", "done", "Connected but no voices found", is_error=True)
                     except Exception as e:
-                        await update_field("Voice (T5Gemma-TTS)", "done", f"Error: {e}", is_error=True)
+                        await update_field("Voice (VOICEVOX)", "done", f"Error: {e}", is_error=True)
                 else:
-                    await update_field("Voice (T5Gemma-TTS)", "done", "TTS Module Not Loaded", is_error=True)
+                    await update_field("Voice (VOICEVOX)", "done", "TTS Module Not Loaded", is_error=True)
 
                 # 5. Video Recognition (FFmpeg Check)
                 await update_field("Video Recognition", "loading", "Checking FFmpeg...")
@@ -1506,6 +1489,27 @@ class ORACog(commands.Cog):
                 system_cog = self.bot.get_cog("SystemCog")
                 if system_cog:
                     return await system_cog.execute_tool(message.author.id, action, value)
+
+            elif tool_name == "start_thinking":
+                reason = args.get("reason", "Complex task detected")
+                
+                # Get Resource Manager
+                resource_cog = self.bot.get_cog("ResourceCog")
+                if resource_cog:
+                    # 1. Update Status
+                    await status_manager.next_step(f"⚠️ {reason}のため、思考エンジンへ切り替え中...")
+                    
+                    # 2. Switch Model
+                    await resource_cog.manager.switch_model("thinking")
+                    
+                    # 3. Update Status Again
+                    await status_manager.next_step(f"🤔 じっくり思考中... ({reason})")
+                    
+                    # 4. Return Prompt for Re-Generation
+                    # The LLM will receive this as Tool Output and continue generation
+                    return "Thinking Mode Activated. You now have access to the Reasoning Model. Please re-analyze the user's request and provide the comprehensive solution."
+                return "Thinking Engine not available."
+
             elif tool_name == "generate_image":
                 # GUARD: Vision Priority (Attachments present -> No Gen)
                 if message.attachments:
@@ -1764,6 +1768,222 @@ class ORACog(commands.Cog):
                     return f"Sent message to {target_channel.mention}"
                 except Exception as e:
                     return f"Failed to send message: {e}"
+
+            elif tool_name == "set_audio_volume":
+                target = args.get("target") # music, tts
+                value = args.get("value") # 0-200
+                
+                if not target or value is None:
+                    return "Error: target and value (0-200) required."
+                
+                media_cog = self.bot.get_cog("MediaCog")
+                if not media_cog:
+                    return "Error: Media system not loaded."
+                
+                vol_float = float(value) / 100.0
+                
+                if target == "music":
+                    media_cog._voice_manager.set_music_volume(message.guild.id, vol_float)
+                    return f"Music Volume set to {value}%."
+                elif target == "tts":
+                    media_cog._voice_manager.set_tts_volume(message.guild.id, vol_float)
+                    return f"TTS Volume set to {value}%."
+                else:
+                    return "Error: target must be 'music' or 'tts'."
+
+            elif tool_name == "purge_messages":
+                # Permission Check
+                if not (message.author.guild_permissions.manage_messages or self._check_permission(message.author.id, "creator")):
+                    return "Permission denied. Manage Messages required."
+
+                limit = args.get("limit", 10)
+                if not isinstance(message.channel, discord.TextChannel):
+                    return "Error: Can only purge messages in Text Channels."
+                
+                deleted = await message.channel.purge(limit=limit)
+                return f"Deleted {len(deleted)} messages."
+
+            elif tool_name == "manage_pins":
+                action = args.get("action") # pin, unpin
+                msg_id = args.get("message_id")
+                
+                target_msg = None
+                if msg_id:
+                    try:
+                        target_msg = await message.channel.fetch_message(int(msg_id))
+                    except:
+                        return f"Error: Message {msg_id} not found."
+                elif message.reference:
+                    target_msg = await message.channel.fetch_message(message.reference.message_id)
+                else:
+                    return "Error: Provide message_id or reply to a message."
+                
+                if action == "pin":
+                    await target_msg.pin()
+                    return f"Pinned message from {target_msg.author.display_name}."
+                elif action == "unpin":
+                    await target_msg.unpin()
+                    return f"Unpinned message."
+                else:
+                    return "Error: action must be 'pin' or 'unpin'."
+            
+            elif tool_name == "create_thread":
+                # Permission Check
+                if not (message.author.guild_permissions.create_public_threads or self._check_permission(message.author.id, "creator")):
+                    return "Permission denied. Create Public Threads required."
+
+                name = args.get("name")
+                
+                if not isinstance(message.channel, discord.TextChannel):
+                     return "Error: Can only create threads in Text Channels."
+                
+                thread = await message.channel.create_thread(name=name, auto_archive_duration=60)
+                return f"Created thread: {thread.mention}"
+
+            elif tool_name == "user_info":
+                query = args.get("target_user")
+                if not query: return "Error: target_user required."
+                
+                # Resolve User
+                member = await self._resolve_user(message.guild, query)
+                if not member: return f"User '{query}' not found."
+                
+                roles = ", ".join([r.name for r in member.roles if r.name != "@everyone"])
+                embed = discord.Embed(title=f"User Info: {member.display_name}", color=member.color)
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.add_field(name="ID", value=str(member.id), inline=True)
+                embed.add_field(name="Joined Server", value=member.joined_at.strftime("%Y-%m-%d"), inline=True)
+                embed.add_field(name="Created Account", value=member.created_at.strftime("%Y-%m-%d"), inline=True)
+                embed.add_field(name="Roles", value=roles or "None", inline=False)
+                
+                await message.channel.send(embed=embed)
+                return f"Displayed info for {member.display_name}"
+
+            elif tool_name == "ban_user" or tool_name == "kick_user" or tool_name == "timeout_user":
+                # Permission Check
+                if not (message.author.guild_permissions.ban_members or self._check_permission(message.author.id, "creator")):
+                    return "Permission denied. Ban/Kick members required."
+
+                # Moderation Suite
+                query = args.get("target_user")
+                reason = args.get("reason", "No reason provided")
+                
+                if not query: return "Error: target_user required."
+                member = await self._resolve_user(message.guild, query)
+                if not member: return f"User '{query}' not found."
+                
+                try:
+                    if tool_name == "ban_user":
+                        await member.ban(reason=reason)
+                        return f"⛔ Banned {member.display_name}. Reason: {reason}"
+                    elif tool_name == "kick_user":
+                        await member.kick(reason=reason)
+                        return f"🦵 Kicked {member.display_name}. Reason: {reason}"
+                    elif tool_name == "timeout_user":
+                        minutes = args.get("minutes", 10)
+                        from datetime import timedelta
+                        duration = timedelta(minutes=int(minutes))
+                        await member.timeout(duration, reason=reason)
+                        return f"⏳ Timed out {member.display_name} for {minutes} mins. Reason: {reason}"
+                except Exception as e:
+                    return f"Moderation Action Failed: {e}"
+
+            elif tool_name == "add_emoji":
+                # Permission Check
+                if not (message.author.guild_permissions.manage_emojis or self._check_permission(message.author.id, "creator")):
+                    return "Permission denied. Manage Emojis required."
+
+                name = args.get("name")
+                url = args.get("image_url")
+                
+                if not name or not url: return "Error: name and image_url required."
+                
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url) as resp:
+                            if resp.status != 200: return "Error: Failed to download image."
+                            data = await resp.read()
+                            
+                    emoji = await message.guild.create_custom_emoji(name=name, image=data)
+                    return f"Created emoji: {emoji} (Name: {emoji.name})"
+                except Exception as e:
+                    return f"Failed to create emoji: {e}"
+
+            elif tool_name == "create_poll":
+                # Permission Check
+                if not (message.author.guild_permissions.manage_messages or self._check_permission(message.author.id, "creator")):
+                    return "Permission denied. Manage Messages/Admin required."
+
+                question = args.get("question")
+                options = args.get("options") # pipe separated or list? Let's assume text description in LLM arg.
+                # Simplest: "options" is a list in JSON
+                if not question or not options: return "Error: question and options required."
+                
+                if isinstance(options, str):
+                    options = options.split("|") # Fallback parsing
+                
+                # Emojis for 1-10
+                emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+                
+                desc = ""
+                for i, opt in enumerate(options):
+                    if i >= len(emojis): break
+                    desc += f"{emojis[i]} {opt}\n"
+                
+                embed = discord.Embed(title=f"📊 {question}", description=desc, color=discord.Color.gold())
+                poll_msg = await message.channel.send(embed=embed)
+                
+                for i, _ in enumerate(options):
+                    if i >= len(emojis): break
+                    await poll_msg.add_reaction(emojis[i])
+                
+                return f"Poll created: {poll_msg.jump_url}"
+
+            elif tool_name == "create_invite":
+                # Permission Check
+                if not (message.author.guild_permissions.create_instant_invite or self._check_permission(message.author.id, "creator")):
+                    return "Permission denied. Create Invite permissions required."
+
+                max_age = args.get("minutes", 0) * 60 # 0 = infinite
+                max_uses = args.get("uses", 0) # 0 = infinite
+                
+                invite = await message.channel.create_invite(max_age=max_age, max_uses=max_uses)
+                return f"Invite Created: {invite.url} (Expires in {args.get('minutes', 0)} mins, Uses: {args.get('uses', 0)})"
+
+            elif tool_name == "summarize_chat":
+                limit = min(args.get("limit", 50), 100) # Safety cap
+                
+                history_texts = []
+                async for msg in message.channel.history(limit=limit):
+                    if msg.content:
+                        history_texts.append(f"{msg.author.display_name}: {msg.content}")
+                
+                # Reverse to chrono order
+                history_texts.reverse()
+                return "\n".join(history_texts)
+                # LLM will see this return value and then answer "Here is the summary..."
+
+            elif tool_name == "remind_me":
+                minutes = args.get("minutes")
+                memo = args.get("message", "Reminder!")
+                
+                if not minutes: return "Error: minutes required."
+                
+                delay = int(minutes) * 60
+                
+                async def reminder_task(d, u, m, ch):
+                    await asyncio.sleep(d)
+                    await ch.send(f"⏰ {u.mention}, Reminder: {m}")
+                    
+                asyncio.create_task(reminder_task(delay, message.author, memo, message.channel))
+                return f"Reminder set for {minutes} minutes."
+
+            elif tool_name == "server_assets":
+                 guild = message.guild
+                 icon = guild.icon.url if guild.icon else "No Icon"
+                 banner = guild.banner.url if guild.banner else "No Banner"
+                 return f"Icon: {icon}\nBanner: {banner}"
 
             return "Unknown action"
 
@@ -2188,102 +2408,95 @@ class ORACog(commands.Cog):
     def _get_tool_schemas(self) -> list[dict]:
         """
         Returns the list of available tools, organized by Category.
-        Structure:
-        1. Discord System
-        2. Image Generation
-        3. Voice Generation
-        4. Video Generation (Placeholder)
-        5. Video Recognition (Placeholder)
-        6. Search
-        7. Admin & System
+        Includes 'tags' for RAG filtering.
         """
         return [
             # ==========================
             # 1. Discord System (Core)
             # ==========================
-            # --- Server Info ---
             {
                 "name": "get_server_info",
                 "description": "[Discord] Get basic information about the current server (guild).",
-                "parameters": { "type": "object", "properties": {}, "required": [] }
+                "parameters": { "type": "object", "properties": {}, "required": [] },
+                "tags": ["server", "guild", "info", "id", "count", "サーバー", "情報"]
             },
             {
                 "name": "get_channels",
-                "description": "[Discord] Get a list of text and voice channels in the server.",
-                "parameters": { "type": "object", "properties": {}, "required": [] }
+                "description": "[Discord] Get a list of text and voice channels.",
+                "parameters": { "type": "object", "properties": {}, "required": [] },
+                "tags": ["channel", "list", "text", "voice", "チャンネル", "一覧"]
             },
             {
                 "name": "get_roles",
-                "description": "[Discord] Get a list of roles in the server.",
-                "parameters": { "type": "object", "properties": {}, "required": [] }
+                "description": "[Discord] Get a list of roles.",
+                "parameters": { "type": "object", "properties": {}, "required": [] },
+                "tags": ["role", "rank", "list", "ロール", "役職"]
             },
             {
                 "name": "get_role_members",
                 "description": "[Discord] Get members who have a specific role.",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "role_name": { "type": "string", "description": "Role name to search for." }
-                    },
+                    "properties": { "role_name": { "type": "string" } },
                     "required": ["role_name"]
-                }
+                },
+                "tags": ["role", "member", "who", "ロール", "メンバー", "誰"]
             },
             {
                 "name": "find_user",
                 "description": "[Discord] Find a user by name, ID, or mention.",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "name_query": { "type": "string", "description": "Name, ID, or Mention." }
-                    },
+                    "properties": { "name_query": { "type": "string" } },
                     "required": ["name_query"]
-                }
+                },
+                "tags": ["user", "find", "search", "who", "id", "ユーザー", "検索", "誰"]
             },
             # --- VC Operations ---
             {
                 "name": "get_voice_channel_info",
-                "description": "[Discord/VC] Get info about a voice channel (members). Default: current channel.",
+                "description": "[Discord/VC] Get info about a voice channel.",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "channel_name": { "type": "string", "description": "Optional channel name." }
-                    },
+                    "properties": { "channel_name": { "type": "string" } },
                     "required": []
-                }
+                },
+                "tags": ["vc", "voice", "channel", "who", "member", "ボイス", "通話", "誰いる"]
             },
             {
                 "name": "join_voice_channel",
                 "description": "[Discord/VC] Join a voice channel.",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "channel_name": { "type": "string", "description": "Optional channel to join." }
-                    },
+                    "properties": { "channel_name": { "type": "string" } },
                     "required": []
-                }
+                },
+                "tags": ["join", "connect", "come", "vc", "voice", "参加", "来て", "入って"]
             },
             {
                 "name": "leave_voice_channel",
                 "description": "[Discord/VC] Leave the current voice channel.",
-                "parameters": { "type": "object", "properties": {}, "required": [] }
+                "parameters": { "type": "object", "properties": {}, "required": [] },
+                "tags": ["leave", "disconnect", "bye", "exit", "vc", "退出", "バイバイ", "抜けて", "落ちる"]
             },
             {
                 "name": "manage_user_voice",
-                "description": "[Discord/VC] Disconnect, Move, or Summon a user. (Admin/Self only)",
+                "description": "[Discord/VC] Disconnect, Move, or Summon a user.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "target_user": { "type": "string", "description": "Target user (Name/ID/Mention)." },
-                        "action": { "type": "string", "enum": ["disconnect", "move", "summon", "mute", "unmute", "deafen", "undeafen"], "description": "Action to perform." },
-                        "channel_name": { "type": "string", "description": "Destination channel (for move)." }
+                        "target_user": { "type": "string" },
+                        "action": { "type": "string", "enum": ["disconnect", "move", "summon", "mute", "unmute", "deafen", "undeafen"] },
+                        "channel_name": { "type": "string" }
                     },
                     "required": ["target_user", "action"]
-                }
+                },
+                "tags": ["move", "kick", "disconnect", "summon", "mute", "deafen", "移动", "移動", "切断", "ミュート", "集合"]
             },
             # --- Games ---
             {
                 "name": "shiritori",
-                "description": "[Discord/Game] Play Shiritori (Word Chain).",
+                "description": "[Discord/Game] Play Shiritori.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2292,7 +2505,18 @@ class ORACog(commands.Cog):
                         "reading": { "type": "string" }
                     },
                     "required": ["action"]
-                }
+                },
+                "tags": ["game", "shiritori", "play", "しりとり", "ゲーム", "遊ぼ"]
+            },
+            {
+                "name": "start_thinking",
+                "description": "[Router] Activate Reasoning Engine (Thinking Mode).",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "reason": { "type": "string" } },
+                    "required": ["reason"]
+                },
+                "tags": ["think", "reason", "complex", "math", "code", "logic", "solve", "difficult", "hard", "考え", "思考", "難しい", "計算", "コード"]
             },
             # --- Music ---
             {
@@ -2300,23 +2524,270 @@ class ORACog(commands.Cog):
                 "description": "[Discord/Music] Play music from YouTube.",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Song name or URL." }
-                    },
+                    "properties": { "query": { "type": "string" } },
                     "required": ["query"]
-                }
+                },
+                "tags": ["music", "play", "song", "youtube", "listen", "hear", "曲", "音楽", "流して", "再生", "歌って"]
             },
             {
                 "name": "music_control",
-                "description": "[Discord/Music] Control playback (skip, stop, loop, queue).",
+                "description": "[Discord/Music] Control playback.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "action": { "type": "string", "enum": ["skip", "stop", "loop_on", "loop_off", "queue_show", "replay_last"] }
                     },
-                    "required": ["action"]
-                }
+                "required": ["action"]
+                },
+                "tags": ["stop", "skip", "next", "loop", "repeat", "queue", "pause", "resume", "back", "止めて", "スキップ", "次", "ループ", "リピート"]
             },
+            {
+                "name": "set_audio_volume",
+                "description": "[Discord/Audio] Set volume for Music or TTS.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "enum": ["music", "tts"] },
+                        "value": { "type": "integer" }
+                    },
+                    "required": ["target", "value"]
+                },
+                "tags": ["volume", "sound", "loud", "quiet", "level", "音量", "うるさい", "静か", "大きく", "小さく"]
+            },
+            # --- Moderation & Utility ---
+            {
+                "name": "purge_messages",
+                "description": "[Discord/Mod] Bulk delete messages.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "limit": { "type": "integer", "default": 10 } },
+                    "required": []
+                },
+                "tags": ["delete", "purge", "clear", "clean", "remove", "削除", "消して", "掃除", "クリーニング"]
+            },
+            {
+                "name": "manage_pins",
+                "description": "[Discord/Mod] Pin or Unpin a message.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["pin", "unpin"] },
+                        "message_id": { "type": "string" }
+                    },
+                    "required": ["action"]
+                },
+                "tags": ["pin", "unpin", "sticky", "save", "ピン", "留め", "固定", "外して"]
+            },
+            {
+                "name": "create_thread",
+                "description": "[Discord] Create a new thread.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "name": { "type": "string" } },
+                    "required": ["name"]
+                },
+                "tags": ["thread", "create", "new", "topic", "スレッド", "スレ", "作成"]
+            },
+            {
+                "name": "create_poll",
+                "description": "[Discord] Create a reaction-based poll.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": { "type": "string" },
+                        "options": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["question", "options"]
+                },
+                "tags": ["poll", "vote", "ask", "question", "choice", "投票", "アンケート", "決めて", "どっち"]
+            },
+            {
+                "name": "create_invite",
+                "description": "[Discord] Create an invite link.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "minutes": { "type": "integer" },
+                        "uses": { "type": "integer" }
+                    },
+                    "required": []
+                },
+                "tags": ["invite", "link", "url", "join", "招待", "リンク", "呼んで"]
+            },
+            {
+                "name": "summarize_chat",
+                "description": "[Discord/GenAI] Summarize recent messages.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "limit": { "type": "integer", "default": 50 } },
+                    "required": []
+                },
+                "tags": ["summarize", "summary", "catchup", "history", "log", "read", "context", "要約", "まとめ", "ログ", "何話して", "流れ"]
+            },
+            {
+                "name": "remind_me",
+                "description": "[Discord/Util] Set a personal reminder.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "minutes": { "type": "integer" },
+                        "message": { "type": "string" }
+                    },
+                    "required": ["minutes", "message"]
+                },
+                "tags": ["remind", "alarm", "timer", "alert", "later", "リマインド", "アラーム", "タイマー", "教えて", "後で"]
+            },
+            {
+                "name": "server_assets",
+                "description": "[Discord/Util] Get server Icon and Banner URLs.",
+                "parameters": { "type": "object", "properties": {}, "required": [] },
+                "tags": ["icon", "banner", "image", "asset", "server", "アイコン", "バナー", "画像"]
+            },
+            {
+                "name": "add_emoji",
+                "description": "[Discord] Add a custom emoji from an image URL.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "image_url": { "type": "string" }
+                    },
+                    "required": ["name", "image_url"]
+                },
+                "tags": ["emoji", "sticker", "stamp", "add", "create", "絵文字", "スタンプ", "追加"]
+            },
+            {
+                "name": "user_info",
+                "description": "[Discord] Get detailed user info.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "target_user": { "type": "string" } },
+                    "required": ["target_user"]
+                },
+                "tags": ["user", "info", "who", "profile", "avatar", "role", "ユーザー", "詳細", "誰", "プロフ"]
+            },
+            {
+                "name": "ban_user",
+                "description": "[Discord/Mod] Ban a user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "target_user": { "type": "string" }, "reason": { "type": "string" } },
+                    "required": ["target_user"]
+                },
+                "tags": ["ban", "block", "remove", "destroy", "バン", "BAN", "ブロック", "排除"]
+            },
+            {
+                "name": "kick_user",
+                "description": "[Discord/Mod] Kick a user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "target_user": { "type": "string" }, "reason": { "type": "string" } },
+                    "required": ["target_user"]
+                },
+                "tags": ["kick", "remove", "bye", "キック", "蹴る", "追放"]
+            },
+            {
+                "name": "timeout_user",
+                "description": "[Discord/Mod] Timeout (Mute) a user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { 
+                        "target_user": { "type": "string" }, 
+                        "minutes": { "type": "integer" },
+                        "reason": { "type": "string" }
+                    },
+                    "required": ["target_user", "minutes"]
+                },
+                "tags": ["timeout", "mute", "silence", "quiet", "shut", "タイムアウト", "黙らせ", "静かに"]
+            },
+            # --- General ---
+            {
+                "name": "google_search",
+                "description": "[Search] Search Google for real-time info (News, Weather, Prices).",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "query": { "type": "string" } },
+                    "required": ["query"]
+                },
+                "tags": ["search", "google", "weather", "price", "news", "info", "lookup", "調べ", "検索", "天気", "価格", "ニュース", "情報", "とは"]
+            },
+            {
+                "name": "generate_image",
+                "description": "[Creative] Generate an image from text. Args: 'prompt', 'negative_prompt'.",
+                "parameters": {
+                   "type": "object",
+                   "properties": {
+                       "prompt": { "type": "string" },
+                       "negative_prompt": { "type": "string" }
+                   },
+                   "required": ["prompt"]
+                },
+                "tags": ["image", "generate", "draw", "create", "art", "paint", "picture", "illustration", "画像", "生成", "描いて", "絵", "イラスト"]
+            },
+            # --- System ---
+            {
+                "name": "system_control",
+                "description": "[System] Control Bot Volume or Open/Close UI.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["volume_up", "volume_down", "open_ui", "close_ui"] },
+                        "value": { "type": "integer" }
+                    },
+                    "required": ["action"]
+                },
+                "tags": ["system", "volume", "ui", "interface", "open", "close", "システム", "音量", "UI", "開いて", "閉じて"]
+            }
+        ]
+
+    def _select_tools(self, user_input: str, all_tools: list[dict]) -> list[dict]:
+        """
+        RAG: Selects tools based on keyword matching.
+        Always includes 'CORE' tools.
+        """
+        selected = []
+        user_input_lower = user_input.lower()
+        
+        # Always Active Tools (Core)
+        CORE_TOOLS = {"start_thinking", "google_search", "system_control", "manage_user_voice", "join_voice_channel"} 
+        
+        # Override: If user explicitly asks for "help" or "functions", show ALL
+        if any(w in user_input_lower for w in ["help", "tool", "function", "command", "list", "機能", "ヘルプ", "コマンド", "できること"]):
+            return all_tools
+
+        for tool in all_tools:
+            name = tool["name"]
+            
+            # 1. Core Logic
+            if name in CORE_TOOLS:
+                # Still check tags? No, always include core.
+                selected.append(tool)
+                continue
+                
+            # 2. Tag Matching
+            tags = tool.get("tags", [])
+            # Also check name parts
+            name_parts = name.split("_")
+            
+            is_relevant = False
+            
+            # Check Tags
+            for tag in tags:
+                if tag.lower() in user_input_lower:
+                    is_relevant = True
+                    break
+            
+            # Check Name parts (e.g. 'music' in 'music_play')
+            if not is_relevant:
+                for part in name_parts:
+                    if len(part) > 2 and part in user_input_lower:
+                         is_relevant = True
+                         break
+            
+            if is_relevant:
+                selected.append(tool)
+        
+        return selected
             # --- General ---
             {
                 "type": "function",
@@ -2747,85 +3218,8 @@ class ORACog(commands.Cog):
             content = await self._llm.chat(messages=messages, temperature=0.7)
             logger.info(f"🔍 [RAW_LLM_OUTPUT] Length: {len(content)}\n{content}\n--------------------------------")
             
-            # --- ROUTER LOGIC (Advanced) ---
-            from ..config import Config
-            config = Config.load()
-            
-            # Try to parse route_eval
-            import re
-            
-            # Store original content to extract route_eval before stripping
-            original_content_for_router = content 
+            # Legacy Router Block Removed
 
-            # Clean Route JSON using brace counting (Robust against nesting)
-            content = self._strip_route_json(content)
-            
-            # Additional fallback for code blocks REMOVED to prevent deleting Tool Calls
-            # content = re.sub(r"```json\s*(\{.*?\})\s*```", "", content, flags=re.DOTALL).strip()
-
-            # Now, try to parse route_eval from the original content
-            route_match = re.search(r"(\{.*?route_eval.*?\})", original_content_for_router, re.DOTALL | re.IGNORECASE)
-            if not route_match:
-                 route_match = re.search(r"```json\s*(\{.*?route_eval.*?\})\s*```", original_content_for_router, re.DOTALL | re.IGNORECASE)
-
-            if route_match:
-                try:
-                    route_data_raw = route_match.group(1)
-                    
-                    # Parsing potentially nested JSON
-                    route_json = json.loads(route_data_raw)
-                    # Extract internal object if nested
-                    eval_data = route_json.get("route_eval", route_json) 
-                    
-                    needs_thinking = eval_data.get("needs_thinking", False)
-                    confidence = eval_data.get("confidence", 1.0)
-                    
-                    logger.info(f"🧩 Router Eval: Needs Thinking={needs_thinking}, Confidence={confidence}")
-
-                    # --- HYBRID/FAST PASS Check ---
-                    # If prompt is short (< 25 chars), ignore "needs_thinking" (likely false positive or simple greeting)
-                    # This prevents heavy switching for "Hello" or "Good morning"
-                    if len(prompt) < 25:
-                        logger.info("⚡ Fast Pass: Short input detected. Skipping escalation.")
-                        needs_thinking = False
-
-                    # Check Router Thresholds
-                    # Force thinking if confidence is low or explicitly requested
-                    is_low_conf = confidence < config.router_thresholds.get("confidence_cutoff", 0.72)
-                    
-                    if (needs_thinking or is_low_conf):
-                        resource_manager = self.bot.get_cog("ResourceCog").manager
-                        
-                        # Only switch if we are NOT already in Thinking mode
-                        # (We infer mode from current script or just force it for now)
-                        # A better check would be in ResourceManager, but we'll specificy explicit target here
-                        
-                        # Only switch if we are in 'instruct' or 'gaming' mode (implied default)
-                        # Ideally ResourceManager keeps track of current mode. 
-                        # For now, we trust the switch_model call to handle no-ops if same mode.
-                        
-                        if resource_manager.current_context == "llm": # Ensure we are in LLM context
-                             logger.info("⚡ Router triggered ESCALATION to Thinking Mode.")
-                             await status_manager.next_step("⚠️ 難問検知: 思考エンジンへ切り替え中...")
-                             
-                             # 1. Hot Swap
-                             await resource_manager.switch_model("thinking")
-                             
-                             # 2. Add Context for Thinking Model
-                             # context_handover = f"Instruct Model Analysis: {eval_data}\n\nUser Question: {prompt}\n\nPlease solve this step-by-step."
-                             # Actually, we just continue the conversation but now with a smarter brain.
-                             # We should remove the "router" instruction from the last user message to avoid confusion?
-                             # Or just append a system note.
-                             
-                             await status_manager.next_step("🤔 じっくり思考中...")
-                             
-                             # 3. Re-Generate with Thinking Model
-                             # NOTE: We use the SAME messages history, but the new model will answer
-                             content = await self._llm.chat(messages=messages, temperature=0.7)
-                             logger.info(f"🧠 Thinking Model Response: {content}")
-
-                except Exception as e:
-                    logger.error(f"Router parsing failed: {e}")
             
             # -------------------------------
             
@@ -2845,18 +3239,72 @@ class ORACog(commands.Cog):
                 if not json_objects:
                     import re
                     # Try to find the first likely JSON object starting with { and ending with }
-                    # This is simple and might fail on nested braces if not careful, but better than nothing.
-                    # We look for a pattern that spans multiple lines.
                     loose_match = re.search(r"(\{[\s\S]*?\})", content)
                     if loose_match:
                          possible_json = loose_match.group(1)
-                         # Validate if it's actually parsable
                          try:
                              json.loads(possible_json)
                              json_objects.append(possible_json)
                              logger.info("Fallback: Extracted loose JSON object.")
                          except:
                              pass
+                    
+                    # FALLBACK 2: BARE TOOL NAME Detection
+                    # If content is exactly (or close to) a known tool name (e.g., "join_voice_channel"), map it.
+                    # This happens heavily with Qwen-2.5-7B when instructed to "Use implicit trigger".
+                    clean_text = content.strip().lower()
+                    # Common no-arg tools
+                    known_tools = {
+                        "join_voice_channel": {},
+                        "leave_voice_channel": {},
+                        "google_search": {"query": "something"}, # Search usually requires args, but might be triggered empty
+                        "start_thinking": {"reason": "Complex task"}
+                    }
+                    
+                    for t_name, default_args in known_tools.items():
+                        # exact match or matches "ToolName"
+                        if clean_text == t_name or clean_text == f"`{t_name}`":
+                             logger.info(f"Fallback: Detected bare tool name '{t_name}'. Constructing JSON.")
+                             json_objects.append(json.dumps({"tool": t_name, "args": default_args}))
+                             break
+                    
+                    # FALLBACK 3: Music Heuristic (Strong)
+                    # If user asks to "Play X" and LLM just says "Playing" or "Sure" without tool call.
+                    # CRITICAL: Only check on TURN 1. If we are in turn 2+, we already handled the main request.
+                    if not json_objects and "流して" in prompt and turn == 1: # Only trigger if user explicitly asked
+                         # Check if response implies agreement but no tool
+                         # Or just forcefully interpret "Play X" if LLM output is short/empty
+                         # Extract song name from prompt: "X流して" -> X
+
+                         song_match = re.search(r"(.+?)(流して|再生して|歌って)", prompt)
+                         if song_match:
+                             song_query = song_match.group(1).strip()
+                             # Filter out mentions
+                             song_query = re.sub(r"<@!?\d+>", "", song_query).strip()
+                             
+                             if song_query and len(song_query) > 1:
+                                 logger.info(f"Fallback: Music Heuristic triggered for query '{song_query}'")
+                                 json_objects.append(json.dumps({"tool": "music_play", "args": {"query": song_query}}))
+                    
+                    # FALLBACK 4: Search Heuristic (Refusal Override)
+                    # If LLM refuses to answer current info ("Cannot provide...", "I don't know"), force search.
+                    # Keywords: "天気", "ニュース", "価格", "株価", "速報"
+                    if not json_objects and turn == 1:
+                         # Refusal Check (Simple)
+                         refusal_keywords = ["できません", "お答えできません", "最新の情報", "cannot provide", "cutoff"]
+                         is_refusal = any(k in content for k in refusal_keywords)
+                         
+                         triggers = ["天気", "ニュース", "価格", "株価", "速報", "とは", "教えて"]
+                         has_trigger = any(t in prompt for t in triggers)
+                         
+                         if is_refusal and has_trigger:
+                             logger.info("Fallback: Search Heuristic triggered (Refusal Override).")
+                             # Use entire prompt as query (cleaned)
+                             clean_q = prompt.replace("教えて", "").strip()
+                             json_objects.append(json.dumps({"tool": "google_search", "args": {"query": clean_q}}))
+
+
+
 
                 logger.info(f"Extracted JSON objects: {len(json_objects)}")
                 
@@ -2972,7 +3420,7 @@ class ORACog(commands.Cog):
                     
                     messages.append({
                         "role": "user", 
-                        "content": f"The tool has been executed successfully. Here is the result:\n{tool_result}\n\nUsing the information above, please answer my original question in Japanese. Do not call the tool again."
+                        "content": f"【検索結果】以下は検索ツールからの実行結果です。\n{tool_result}\n\nこの情報に基づき、ユーザーの質問に対する回答を日本語で作成してください。ツールは既に実行されたため、これ以上ツールを呼び出さず、要約と回答のみを行ってください。"
                     })
                     
                     # Update Status for Next Think
