@@ -1,0 +1,34 @@
+# Environment Variables
+.env
+
+# Phoenix CLI Artifacts
+.phoenix_cli/
+.phoenix_cli/run.log
+.phoenix_cli/backups/
+.phoenix_cli/reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Data (Keep sample, ignore others)
+data/*
+!data/sample.jsonl
+!data/.gitkeep
+
+# Checkpoints
+checkpoints/
+
+# Tests
+.pytest_cache/
+test_output.txt
+
+# IDE
+.vscode/
+.idea/

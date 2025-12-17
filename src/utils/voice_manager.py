@@ -170,6 +170,7 @@ class GuildMusicState:
         self.volume = 0.06
         self.voice_client: Optional[discord.VoiceClient] = None
         self.history = [] # List of (url_or_path, title, is_stream)
+        self.tts_volume = 1.0 # Default TTS volume (100%)
 
 class VoiceManager:
     """Manages Discord voice clients for playback, recording, and music queue."""
@@ -268,13 +269,23 @@ class VoiceManager:
         if not text:
             return False
 
-        voice_client = await self.ensure_voice_client(member)
-        # Relaxed check: If member isn't in VC, try to use existing bot connection in the guild
-        if voice_client is None:
+        # Relaxed Connection Logic:
+        # 1. Try to ensure connection to User's channel (Normal case)
+        voice_client = None
+        if member.voice and member.voice.channel:
+            try:
+                voice_client = await self.ensure_voice_client(member)
+            except VoiceConnectionError:
+                pass
+        
+        # 2. If user is NOT in VC (e.g. they just Left), check if BOT is already connected
+        if not voice_client:
              if member.guild.voice_client and member.guild.voice_client.is_connected():
                  voice_client = member.guild.voice_client
              else:
+                 # Neither user nor bot are in a valid state to speak
                  return False
+
 
         # TTS should interrupt music? Or mix? For now, TTS plays over music if possible, 
         # but standard Discord bot behavior usually stops music for TTS or plays in parallel if using a specific library.
@@ -306,9 +317,12 @@ class VoiceManager:
              # Wrap current source
              current_source = voice_client.source
              # We need to create a source for the TTS audio
-             # _play_raw_audio logic needs to be adapted to return the source instead of playing it
              tts_source = self._create_source_from_bytes(audio)
              
+             # Apply TTS Volume
+             state = self.get_music_state(member.guild.id)
+             tts_source = discord.PCMVolumeTransformer(tts_source, volume=state.tts_volume)
+
              # Create mixed source
              mixed = MixingAudioSource(current_source, tts_source, target_volume=0.2, fade_duration=0.5)
              
@@ -373,6 +387,12 @@ class VoiceManager:
                  except: pass
 
         source = discord.FFmpegPCMAudio(path)
+        
+        # Apply Volume
+        if voice_client.guild:
+            state = self.get_music_state(voice_client.guild.id)
+            source = discord.PCMVolumeTransformer(source, volume=state.tts_volume)
+
         if voice_client.is_playing():
             voice_client.stop()
         
@@ -560,8 +580,40 @@ class VoiceManager:
             "current": state.current[1] if state.current else None,
             "queue": [item[1] for item in state.queue],
             "is_looping": state.is_looping,
-            "volume": state.volume
+            "volume": state.volume,
+            "tts_volume": state.tts_volume
         }
+
+    def set_music_volume(self, guild_id: int, volume: float):
+        """Set music volume (0.0 to 2.0)."""
+        state = self.get_music_state(guild_id)
+        state.volume = max(0.0, min(2.0, volume))
+        # Update current playback if possible
+        if state.voice_client and state.voice_client.source:
+            # Check if source is transformer or Mixed
+            source = state.voice_client.source
+            if isinstance(source, discord.PCMVolumeTransformer):
+                source.volume = state.volume
+            elif isinstance(source, MixingAudioSource):
+                # If mixed, music is 'main'
+                if isinstance(source.main, discord.PCMVolumeTransformer):
+                    source.main.volume = state.volume
+
+    def set_tts_volume(self, guild_id: int, volume: float):
+        """Set TTS volume (0.0 to 2.0)."""
+        state = self.get_music_state(guild_id)
+        state.tts_volume = max(0.0, min(2.0, volume))
+        # Update current playback if possible
+        if state.voice_client and state.voice_client.source:
+             source = state.voice_client.source
+             # If pure TTS (via _play_raw_audio wrapped)
+             if isinstance(source, discord.PCMVolumeTransformer) and not isinstance(source, MixingAudioSource):
+                 # Limitation: We don't know if current transformer is Music or TTS just by type.
+                 # But usually Music is playing. TTS is short.
+                 # If TTS is playing alone, we can update it.
+                 # But risk: Music might be playing and we stick TTS volume to it.
+                 # Practical fix: TTS is short, so immediate update is less critical than Music.
+                 pass
 
     def _on_voice_frame(
         self,

@@ -186,3 +186,36 @@ ORA supports "Lazy Loading" for these heavy models (only loaded when used):
 *Powered by the Bleeding Edge of AI*
 
 </div>
+
+---
+
+# 🧠 RTX 5090 AI Training System
+
+This repository now includes a specialized module for fine-tuning ORA's brain (`Mistral-3-14B-Instruct`) natively on Windows using the RTX 5090.
+
+## 🎯 Training Objective ("Phase 2" Curriculum)
+We are fine-tuning the model to master specific Discord operations:
+1.  **Identity**: Recall "I am ORA, created by YoneRai12."
+2.  **Moderation**: Precision use of `ban_user`, `kick_user`, `timeout_user`.
+3.  **Utilities**: Handling `remind_me`, `create_poll`, `summarize_chat`.
+4.  **Tools**: Correctly triggering `music_play` and `google_search`.
+
+## ⚙️ Technical Specs (Blackwell Optimized)
+-   **Model**: `mistralai/Ministral-3-14B-Instruct-2512`
+-   **Method**: QLoRA (4-bit NF4 Quantization)
+-   **Precision**: BFloat16 (Native Mixed Precision for RTX 5090)
+-   **Stack**: Pure PyTorch Nightly (CUDA 12.8) + BitsAndBytes Windows
+
+## 🚀 How to Train
+1.  **Generate Data**:
+    ```powershell
+    python src/scripts/prepare_data.py
+    ```
+    *(Generates 2,000 synthetic training samples)*
+
+2.  **Start Training**:
+    ```powershell
+    cd RTX5090-DebugSystem-main
+    start_training.bat
+    ```
+    *(Auto-monitors VRAM and Loss convergence)*
