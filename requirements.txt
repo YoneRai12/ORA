@@ -4,11 +4,13 @@ aiosqlite>=0.19,<1.0
 # Additional dependencies for media and search
 google-auth-oauthlib
 python-multipart
+websocket-client
 httpx
 aiofiles
 edge-tts
 gTTS
 python-dotenv
+pytest-asyncio
 
 
 
