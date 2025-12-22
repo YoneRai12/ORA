@@ -738,6 +738,28 @@ m the working environment (`.venv`).
 - [ ] **Deployment**
     - [ ] **LoRA Adapter**: Load the trained adapter into vLLM (`--enable-lora`).
 
+### Phase 19: The "Bleeding Edge" Upgrade (Dec 2025)
+*Goal: Incorporate the latest papers/models provided by user.*
+- [ ] **Real-time Vision (Discord Stream)**
+    - [ ] **Investigation**: Can bots watch streams? (Likely need User App or Screenshot-Bot).
+    - [ ] **Alternative**: "Snapshot" mode via screenshare.
+- [ ] **UI Polish**
+    - [ ] **Font**: Integrate `Google Sans Flex` into `ora-ui`.
+    - [ ] **Overlay**: Implement "Desktop Overlay" (Qiita reference).
+- [ ] **Model Upgrades**
+    - [ ] **Tool Router**: Evaluate `FunctionGemma` (Gemma 3 270M) for fast json routing.
+    - [ ] **Gaming Mode**: Replace Qwen 7B with `NVIDIA Nemotron 3 Nano` (381 t/s).
+    - [ ] **Main Brain**: Investigate `BU-30B-A3B-Preview` (Unknown model? Likely Qwen/Miqu variant).
+- [ ] **Creative Tools**
+    - [x] **Layering**: Implement `Qwen-Image-Layered` (`/layer` command - Image to PSD/RGBA).
+        - [x] **Server**: `src/services/layer_server.py` (Port 8003).
+        - [x] **Client**: `src/cogs/creative.py` (@ORA layer / /layer).
+    - [ ] **3D Generation**: Implement `Microsoft TRELLIS.2` or `ML-Sharp` (`/3d` command).
+
+- [ ] **Training Optimization (ELYZA Method)**
+    - [ ] **Hyperparams**: Update LoRA config (High LR, MLP Target, Low Rank).
+
+
 
 
 

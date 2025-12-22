@@ -719,24 +719,21 @@ class ORACog(commands.Cog):
             f"\n"
             f"## Tool Usage Instruction\n"
             f"1. **WHEN TO USE**: Use a tool ONLY if you need to perform an action (Search, System Control, etc.).\n"
-            f"2. **IMPLICIT TRIGGERS** (Action = Tool):\n"
-            f"   - 'Come here', 'Join', 'きて' -> `join_voice_channel`\n"
-            f"   - 'Leave', 'Bye', 'バイバイ' -> `leave_voice_channel`\n"
-            f"   - 'Play X', 'Sing X', 'X流して' -> `music_play` (args: {{ \"query\": \"X\" }})\n"
-            f"   - 'Repeat', 'Loop', 'リピート' -> `music_control` (args: {{ \"action\": \"loop_on\" }})\n"
-            f"   - 'Skip', 'Next', 'スキップ' -> `music_control` (args: {{ \"action\": \"skip\" }})\n"
-            f"   - 'Stop', 'Pause', '止めて' -> `music_control` (args: {{ \"action\": \"stop\" }})\n"
-            f"   - 'Play previous', 'Play last song', 'Go back' -> `music_control` (args: {{ \"action\": \"replay_last\" }})\n"
-            f"   - 'Who is X', 'Xとは', 'Xの詳細', 'X's info' -> `find_user` (args: {{ \"name_query\": \"X\" }})\n"
-            f"   - 'Search X', 'Google X', '調べて' -> `google_search`\n"
-            f"   - 'Volume X', 'Open X' -> `system_control`\n"
-            f"   - 'Volume X', 'Open X' -> `system_control`\n"
-            f"   - 'Shiritori', 'しりとりしよう' -> `shiritori` (args: {{ \"action\": \"start\" }})\n"
+            f"2. **STRICT TRIGGERS** (You MUST use the tool, DO NOT chat):\n"
+            f"   - **Music Play**: 'Play X', 'X流して', 'Xかけて', 'X再生' -> `music_play` (args: {{ \"query\": \"X\" }})\n"
+            f"     - Example: 'ライラック流して' -> `music_play` {{ \"query\": \"ライラック\" }}\n"
+            f"   - **Music Control**: 'Stop'/'止めて' -> `music_control` (stop). 'Skip'/'スキップ' -> `music_control` (skip).\n"
+            f"   - **Join/Leave**: 'Join'/'きて' -> `join_voice_channel`. 'Leave'/'バイバイ' -> `leave_voice_channel`.\n"
+            f"   - **User Info**: 'Who is X'/'Xとは' -> `find_user`.\n"
+            f"   - **Search**: 'Search X'/'調べて' -> `google_search`.\n"
+            f"   - **Layer**: 'Layer this'/'レイヤー分けして' -> `layer`.\n"
+            f"   - **SHIRITORI**: 'Start Shiritori'/'しりとり' -> `shiritori` (start).\n"
             f"   - **IMAGE GENERATION RULE (STRICT)**:\n"
             f"     - **KEYWORD REQUIRED**: You MUST ONLY use `generate_image` if the user's message contains the Japanese keyword '画像生成'.\n"
             f"     - **VISION PRIORITY**: If the user attaches an image, DO NOT generate an image. Use your vision capabilities to analyze it instead.\n"
             f"     - **TRANSLATION**: If triggered, translate the prompt to English.\n"
             f"     - Example: '画像生成 猫' -> args: {{ \"prompt\": \"cat, masterpiece...\" }}\n"
+
             f"   - **SHIRITORI GAME RULES**:\n"
             f"     - ALWAYS use the `shiritori` tool when the user plays a word. Args: `action='play'`, `word`, `reading`.\n"
             f"     - If the tool says 'User Move Valid', YOU MUST generate a response word starting with the specified character.\n"
@@ -998,7 +995,42 @@ class ORACog(commands.Cog):
                     return "Image Generation Menu Displayed."
                 except Exception as e:
                     logger.error(f"Failed to launch image gen view: {e}")
+                    logger.error(f"Failed to launch image gen view: {e}")
                     return f"Error: {e}"
+
+            elif tool_name == "layer":
+                # Logic reused from CreativeCog
+                if not message.attachments and not (message.reference and message.reference.resolved and message.reference.resolved.attachments):
+                     return "Error: No image found to layer. Please attach an image or reply to one."
+                
+                target_img = message.attachments[0] if message.attachments else message.reference.resolved.attachments[0]
+                
+                try:
+                    await message.add_reaction("⏳")
+                    # We can try to invoke the command directly if we can access CreativeCog
+                    creative_cog = self.bot.get_cog("CreativeCog")
+                    if creative_cog:
+                        # Manually triggering the logic (bypass command context)
+                        # Re-implementing logic here is safer than mocking Interaction
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            original_bytes = await target_img.read()
+                            data = aiohttp.FormData()
+                            data.add_field("file", original_bytes, filename=target_img.filename)
+                            
+                            # Standard Port 8003
+                            async with session.post("http://127.0.0.1:8003/decompose", data=data) as resp:
+                                if resp.status == 200:
+                                    zip_data = await resp.read()
+                                    f = discord.File(io.BytesIO(zip_data), filename=f"layers_{target_img.filename}.zip")
+                                    await message.reply("✅ レイヤー分解完了 (Layer Decomposition Complete)", file=f)
+                                    return "Success: Sent ZIP file."
+                                else:
+                                    return f"Layer Service Error: {resp.status}"
+                    else:
+                        return "CreativeCog not loaded."
+                except Exception as e:
+                    return f"Layer Failed: {e}"
             
             elif tool_name == "get_current_model":
                 return "Current Model: FLUX.2 (ComfyUI backend)"
@@ -2189,7 +2221,7 @@ class ORACog(commands.Cog):
                     try:
                         await media_cog._voice_manager.ensure_voice_client(message.author)
                         media_cog._voice_manager.auto_read_channels[message.guild.id] = message.channel.id
-                        await media_cog._voice_manager.play_tts(message.author, "はい、行きます！")
+                        await media_cog._voice_manager.play_tts(message.author, "接続しました")
                         await message.add_reaction("⭕")
                     except Exception as e:
                          # Likely user not in VC
@@ -2629,6 +2661,16 @@ class ORACog(commands.Cog):
                 },
                 "tags": ["think", "reason", "complex", "math", "code", "logic", "solve", "difficult", "hard", "考え", "思考", "難しい", "計算", "コード"]
             },
+            {
+                "name": "layer",
+                "description": "[Creative] Decompose an image into separate layers (PSD/ZIP).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                },
+                "tags": ["layer", "psd", "decompose", "split", "zip", "レイヤー", "分解", "分け", "素材"]
+            },
             # --- Music ---
             {
                 "name": "music_play",
@@ -2913,20 +2955,53 @@ class ORACog(commands.Cog):
             return
 
         # 1.5 DIRECT BYPASS: "画像生成" Trigger (Zero-Shot UI Launch)
-        if prompt and (prompt.startswith("画像生成") or "画像生成" in prompt[:10]):
-            gen_prompt = prompt.replace("画像生成", "", 1).strip()
-            if not gen_prompt: gen_prompt = "artistic masterpiece" 
+        # 1.5 DIRECT BYPASS: Creative Triggers (Image Gen / Layer)
+        if prompt:
+             # Image Gen
+             if any(k in prompt for k in ["画像生成", "描いて", "イラスト", "絵を描いて"]):
+                gen_prompt = prompt.replace("画像生成", "").replace("描いて", "").replace("イラスト", "").replace("絵を描いて", "").strip()
+                if not gen_prompt: gen_prompt = "artistic masterpiece"
+                
+                try:
+                     from ..views.image_gen import AspectRatioSelectView
+                     view = AspectRatioSelectView(self, gen_prompt, "", model_name="FLUX.2")
+                     await message.reply(f"🎨 **画像生成アシスタント**\nPrompt: `{gen_prompt}`\nアスペクト比を選択して生成を開始してください。", view=view)
+                     return # STOP
+                except Exception as e:
+                     logger.error(f"Image Bypass Failed: {e}")
             
-            try:
-                 from ..views.image_gen import AspectRatioSelectView
-                 logger.info(f"Directly accessing image gen for prompt: {gen_prompt}")
-                 # NOTE: Model name is Flux.2 by default
-                 view = AspectRatioSelectView(self, gen_prompt, "", model_name="FLUX.2")
-                 await message.reply(f"🎨 **画像生成アシスタント (Direct)**\nPrompt: `{gen_prompt}`\nアスペクト比を選択して生成を開始してください。", view=view)
-                 return # STOP HERE. NO LLM CHAT.
-            except Exception as e:
-                 logger.error(f"Direct bypass failed: {e}")
-                 # Fallback to normal flow
+             # Layer
+             if any(k in prompt for k in ["レイヤー", "分解", "layer", "psd"]):
+                 # Check attachments
+                 if message.attachments or message.reference:
+                     logger.info("Direct Layer Bypass Triggered")
+                     await self._execute_tool(message, "layer", {}) # Force Tool Call
+                     return
+
+        # 1.6 DIRECT BYPASS: "Music" Trigger (Force Tool Call)
+        # Why? LLM sometimes chats ("OK I will play") without calling tool.
+        music_keywords = ["流して", "再生", "かけて"]
+        stop_keywords = ["止めて", "停止", "ストップ"]
+        
+        # Check Stop first
+        if any(kw in prompt for kw in stop_keywords) and len(prompt) < 10:
+             logger.info("Direct Music Bypass: STOP")
+             await self._execute_tool(message, "music_control", {"action": "stop"})
+             return
+             
+        # Check Play
+        for kw in music_keywords:
+             if kw in prompt:
+                 # Extract query ("ライラック" from "ライラック流して")
+                 query = prompt.replace(kw, "").replace("曲", "").strip()
+                 if query and len(query) < 50: # Avoid long conversational triggers
+                     logger.info(f"Direct Music Bypass: PLAY '{query}'")
+                     result = await self._execute_tool(message, "music_play", {"query": query})
+                     # _execute_tool returns a string (result message). 
+                     # We should technically use it, but music_play usually replies to interaction/message itself.
+                     # If it returns a string, we might want to log it.
+                     return
+
 
         # 2. Privacy Check
         await self._store.ensure_user(message.author.id, self._privacy_default)
