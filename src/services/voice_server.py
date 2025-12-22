@@ -24,19 +24,17 @@ DTYPE = torch.bfloat16
 # Global State
 model = None
 processor = None
-SPEAKER_EMBEDDINGS = {} # Cache for "Doppelganger" embeddings
+LAST_USED = 0
 
-@app.on_event("startup")
-async def load_model():
-    global model, processor
-    try:
-        logger.info(f"Loading Voice Engine from {MODEL_PATH}...")
-        start_time = time.time()
+async def get_model():
+    global model, processor, LAST_USED
+    LAST_USED = time.time()
+    
+    if model is not None:
+        return model, processor
         
-        # Aratako T5Gemma-TTS usage
-        # Note: Since it's custom, we might need specific code from the repo.
-        # For now, assuming AutoModelForSeq2SeqLM works or we fallback to custom loading.
-        # If it requires 'trust_remote_code=True', we enable it.
+    logger.info(f"Lazy Loading Voice Engine from {MODEL_PATH}...")
+    try:
         processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
         model = AutoModelForSeq2SeqLM.from_pretrained(
             MODEL_PATH,
@@ -44,23 +42,45 @@ async def load_model():
             torch_dtype=DTYPE,
             trust_remote_code=True
         ).eval()
-        
-        logger.info(f"Voice Engine Loaded in {time.time() - start_time:.2f}s")
+        logger.info("Voice Engine Loaded.")
     except Exception as e:
-        logger.error(f"Failed to load Voice Engine: {e}")
+        logger.error(f"Failed to load: {e}")
+        return None, None
+        
+    return model, processor
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Service Started. Model will load on first request.")
+    # Start background cleaner
+    import asyncio
+    asyncio.create_task(vocab_garbage_collector())
+
+async def vocab_garbage_collector():
+    global model, processor
+    while True:
+        await asyncio.sleep(60) # Check every minute
+        if model and (time.time() - LAST_USED > 300): # 5 minutes idle
+            logger.info("Unloading Voice Engine to free VRAM...")
+            del model
+            del processor
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+            model = None
+            processor = None
 
 @app.post("/speak")
 async def speak(
     text: str = Form(...),
-    speaker_id: str = Form(None), # For cloning
-    reference_audio: UploadFile = File(None) # Zero-shot prompt
+    speaker_id: str = Form(None), 
+    reference_audio: UploadFile = File(None)
 ):
-    """
-    Generates audio from text using Aratako TTS.
-    Supports 'Doppelganger' cloning if speaker_id or reference_audio is provided.
-    """
+    model, processor = await get_model() # Lazy Load
+    
     if not model or not processor:
-        return {"error": "Voice Engine not loaded."}
+        return {"error": "Voice Engine failed to load."}
+
     
     try:
         inputs = None
