@@ -37,6 +37,23 @@ CREATE TABLE IF NOT EXISTS datasets (
   source_url TEXT,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS google_users (
+  google_sub TEXT PRIMARY KEY,
+  email TEXT,
+  refresh_token TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS media_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  google_sub TEXT,
+  discord_user_id TEXT,
+  platform TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  mime_type TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_assets_owner ON media_assets(google_sub, discord_user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL,
@@ -443,9 +460,41 @@ class Store:
             else:
                 query = "SELECT * FROM conversations ORDER BY created_at DESC LIMIT ?"
                 params = (limit,)
-            
+
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def get_cross_platform_conversations(
+        self,
+        *,
+        discord_user_id: Optional[str] = None,
+        google_sub: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Fetch conversation history across Discord/Google identifiers."""
+
+        identifiers: list[str] = []
+        if google_sub:
+            identifiers.append(google_sub)
+        if discord_user_id:
+            identifiers.append(str(discord_user_id))
+
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            if identifiers:
+                placeholders = ",".join("?" for _ in identifiers)
+                query = (
+                    f"SELECT * FROM conversations WHERE user_id IN ({placeholders}) "
+                    "ORDER BY created_at DESC LIMIT ?"
+                )
+                params: tuple[object, ...] = (*identifiers, limit)
+            else:
+                query = "SELECT * FROM conversations ORDER BY created_at DESC LIMIT ?"
+                params = (limit,)
+
+            async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
 
@@ -457,51 +506,30 @@ class Store:
             return cursor.rowcount
 
     async def upsert_google_user(self, google_sub: str, email: str | None, credentials) -> None:
-        """Update or insert Google user info."""
-        # credentials is a google.oauth2.credentials.Credentials object
-        refresh_token = credentials.refresh_token
-        
+        """Update or insert Google user info and keep refresh tokens fresh."""
+
+        refresh_token_raw = getattr(credentials, "refresh_token", None)
+        if isinstance(refresh_token_raw, bytes):
+            refresh_token = refresh_token_raw.decode()
+        elif isinstance(refresh_token_raw, str):
+            refresh_token = refresh_token_raw
+        else:
+            refresh_token = None
+        now = int(time.time())
+
         async with aiosqlite.connect(self._db_path) as db:
-            # We might need a separate table for google users if we want to store email
-            # But for now, let's assume we map it to the 'users' table via some mechanism
-            # OR we just update the existing users table if we can find the user?
-            # The current schema has 'users' keyed by 'discord_user_id'.
-            # If we don't have a discord_user_id yet, we can't insert into 'users' easily unless we allow null discord_id
-            # or use a different table.
-            
-            # However, the 'users' table schema is:
-            # discord_user_id TEXT PRIMARY KEY, google_sub TEXT, ...
-            
-            # The Web Auth flow gets Google info FIRST, then links to Discord.
-            # So we might need to store Google info temporarily or allow looking up by google_sub.
-            
-            # For this implementation, let's assume we are updating an existing user OR 
-            # we need a way to store "Unlinked Google Users".
-            # But the 'link_discord_google' method implies we link them later.
-            
-            # Let's just store the refresh token if we can find the user, or do nothing?
-            # Wait, the user's snippet says:
-            # await store.upsert_google_user(google_sub=google_sub, email=email, credentials=creds)
-            # await store.link_discord_google(discord_user_id, google_sub)
-            
-            # This implies 'upsert_google_user' might create a record.
-            # But our 'users' table requires discord_user_id as PK.
-            
-            # Let's modify 'users' table or add a 'google_users' table?
-            # Given the constraints, I will implement 'link_discord_google' to do the heavy lifting
-            # and 'upsert_google_user' to maybe just log or update if the user exists.
-            
-            # ACTUALLY, looking at the schema:
-            # CREATE TABLE IF NOT EXISTS users (discord_user_id TEXT PRIMARY KEY, google_sub TEXT, ...)
-            
-            # If we don't have discord_id, we can't insert.
-            # But the auth flow has 'state' which contains 'discord_user_id'.
-            # So 'link_discord_google' is the one that matters.
-            
-            # Let's make 'upsert_google_user' a no-op or just helper if we had a google_users table.
-            # BUT, if the user logs in via Web and we want to show their data, we need to know who they are.
-            # If they are already linked, we can update their refresh token.
-            pass
+            await db.execute(
+                (
+                    "INSERT INTO google_users(google_sub, email, refresh_token, created_at, updated_at) "
+                    "VALUES(?, ?, ?, ?, ?) "
+                    "ON CONFLICT(google_sub) DO UPDATE SET "
+                    "email=excluded.email, "
+                    "refresh_token=COALESCE(excluded.refresh_token, google_users.refresh_token), "
+                    "updated_at=excluded.updated_at"
+                ),
+                (google_sub, email, refresh_token, now, now),
+            )
+            await db.commit()
 
     async def link_discord_google(self, discord_user_id: int | str, google_sub: str) -> None:
         """Link a Discord user to a Google Subject ID."""
@@ -509,7 +537,7 @@ class Store:
             # Check if user exists
             async with db.execute("SELECT 1 FROM users WHERE discord_user_id=?", (str(discord_user_id),)) as cursor:
                 exists = await cursor.fetchone()
-            
+
             if exists:
                 await db.execute(
                     "UPDATE users SET google_sub=? WHERE discord_user_id=?",
@@ -523,7 +551,72 @@ class Store:
                 )
             await db.commit()
 
+        # Mirror the association on the Google side so other clients can find it
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                (
+                    "INSERT INTO google_users(google_sub, created_at, updated_at) "
+                    "VALUES(?, ?, ?) ON CONFLICT(google_sub) DO UPDATE SET updated_at=?"
+                ),
+                (google_sub, int(time.time()), int(time.time()), int(time.time())),
+            )
             await db.commit()
+
+    async def add_media_asset(
+        self,
+        *,
+        google_sub: Optional[str],
+        discord_user_id: Optional[str],
+        platform: str,
+        file_path: str,
+        mime_type: Optional[str],
+    ) -> int:
+        """Record a stored media asset for Google/Discord-linked accounts."""
+
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                (
+                    "INSERT INTO media_assets(google_sub, discord_user_id, platform, file_path, mime_type, created_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?)"
+                ),
+                (google_sub, discord_user_id, platform, file_path, mime_type, int(time.time())),
+            )
+            await db.commit()
+            assert cursor.lastrowid is not None
+            return int(cursor.lastrowid)
+
+    async def list_media_assets(
+        self,
+        *,
+        google_sub: Optional[str] = None,
+        discord_user_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """List media assets stored for a Google or Discord identifier."""
+
+        filters: list[str] = []
+        params: list[str] = []
+
+        if google_sub:
+            filters.append("google_sub=?")
+            params.append(google_sub)
+        if discord_user_id:
+            filters.append("discord_user_id=?")
+            params.append(str(discord_user_id))
+
+        where_clause = f"WHERE {' OR '.join(filters)}" if filters else ""
+
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            query = (
+                "SELECT * FROM media_assets "
+                f"{where_clause} ORDER BY created_at DESC LIMIT ?"
+            )
+            params.append(limit)
+
+            async with db.execute(query, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
 
     async def get_points(self, discord_user_id: int) -> int:
         """Get the current point balance for a user."""

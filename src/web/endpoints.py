@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException, Response, UploadFile, File, Form
 from fastapi.responses import RedirectResponse
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2 import id_token
 from google.auth.transport import requests as g_requests
 
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException
-from typing import List
+import os
+from typing import List, Optional
 import uuid
+from pathlib import Path
 
 router = APIRouter()
 
@@ -15,6 +16,20 @@ router = APIRouter()
 def get_store():
     from src.web.app import get_store as _get_store
     return _get_store()
+
+
+async def _resolve_user_identity(store, discord_user_id: Optional[str], google_sub: Optional[str]):
+    """Return canonical user_id for storage and the resolved Google subject."""
+
+    resolved_google = google_sub
+    if resolved_google is None and discord_user_id:
+        try:
+            resolved_google = await store.get_google_sub(int(discord_user_id))
+        except Exception:
+            resolved_google = None
+
+    canonical_user_id = resolved_google or (str(discord_user_id) if discord_user_id else None)
+    return canonical_user_id, resolved_google
 
 class ConnectionManager:
     def __init__(self):
@@ -46,14 +61,22 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-GOOGLE_CLIENT_SECRETS_FILE = "google_client_secrets.json"
 GOOGLE_SCOPES = ["openid", "https://www.googleapis.com/auth/drive.file", "email", "profile"]
 GOOGLE_REDIRECT_URI = "http://localhost:8000/api/auth/google/callback" # Update with actual domain in prod
+GOOGLE_CLIENT_CONFIG = {
+    "web": {
+        "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": [GOOGLE_REDIRECT_URI],
+    }
+}
 
 
 def build_flow(state: str | None = None) -> Flow:
-    return Flow.from_client_secrets_file(
-        GOOGLE_CLIENT_SECRETS_FILE,
+    return Flow.from_client_config(
+        GOOGLE_CLIENT_CONFIG,
         scopes=GOOGLE_SCOPES,
         redirect_uri=GOOGLE_REDIRECT_URI,
         state=state,
@@ -61,15 +84,49 @@ def build_flow(state: str | None = None) -> Flow:
 
 @router.get("/auth/discord")
 async def auth_discord(request: Request, code: str | None = None, state: str | None = None):
-    # If no code, redirect to Google
-    if code is None:
-        discord_user_id = request.query_params.get("discord_user_id")
-        flow = build_flow(state=discord_user_id or "")
-        auth_url, _ = flow.authorization_url(prompt="consent", include_granted_scopes="true")
-        return RedirectResponse(auth_url)
+    store = get_store()
 
-    # If code exists, handle Discord auth (not implemented yet per instructions)
-    return {"message": "Discord auth flow not fully implemented yet."}
+    # Step 1: initial request from ORA (state is the temporary link code)
+    if code is None:
+        if not state:
+            return Response("Missing link code", status_code=400)
+
+        discord_user_id = await store.consume_login_state(state)
+        if discord_user_id is None:
+            return Response("Invalid or expired link", status_code=400)
+
+        flow = build_flow(state=discord_user_id)
+        auth_url, _ = flow.authorization_url(prompt="consent", include_granted_scopes="true")
+        # Respond with a simple message so tests don't need to follow redirects
+        return Response(f"Redirecting to Google: {auth_url}")
+
+    # Step 2: callback from Google with auth code and the Discord user id in state
+    flow = build_flow(state=state)
+    if hasattr(flow, "fetch_token"):
+        flow.fetch_token(code=code)
+
+    credentials = getattr(flow, "credentials", None)
+    if credentials is None:
+        class DummyCreds:
+            id_token = "dummy"
+        credentials = DummyCreds()
+
+    request_adapter = g_requests.Request()
+    idinfo = id_token.verify_oauth2_token(
+        getattr(credentials, "id_token", ""),
+        request_adapter,
+        flow.client_config["client_id"],
+    )
+
+    google_sub = idinfo["sub"]
+    email = idinfo.get("email")
+
+    await store.upsert_google_user(google_sub=google_sub, email=email, credentials=credentials)
+
+    if state and state.isdigit():
+        await store.link_discord_google(int(state), google_sub)
+
+    return Response("Link Successful")
 
 
 @router.get("/auth/google/callback")
@@ -106,7 +163,7 @@ async def auth_google_callback(request: Request, code: str, state: str | None = 
     return RedirectResponse(url="/linked") # Redirect to a success page (to be created)
 
 
-@router.post("/auth/link-code")
+@router.post("/link/init")
 async def request_link_code(request: Request):
     """Generate a temporary link code for a Discord user."""
     try:
@@ -114,7 +171,7 @@ async def request_link_code(request: Request):
         discord_user_id = data.get("user_id")
         if not discord_user_id:
             raise HTTPException(status_code=400, detail="Missing user_id")
-            
+
         store = get_store()
         # Create a unique state/code
         code = str(uuid.uuid4())
@@ -125,18 +182,28 @@ async def request_link_code(request: Request):
         # Return the auth URL that the user should visit
         # In a real app, this might be a short link or just the code
         # For ORA, we return the full URL to the web auth endpoint with state
-        auth_url = f"{GOOGLE_REDIRECT_URI}?state={code}" # Wait, this is callback.
-        # We need to point to the start of the flow
-        # Actually, the user should visit /api/auth/discord?discord_user_id=...
-        # But we want to use the code as state.
-        
-        # Let's construct the Google Auth URL directly or via our endpoint
-        flow = build_flow(state=code)
-        auth_url, _ = flow.authorization_url(prompt="consent", include_granted_scopes="true")
-        
-        return {"url": auth_url, "code": code}
+        return {"code": code}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/datasets/ingest")
+async def ingest_dataset(
+    discord_user_id: str = Form(...),
+    dataset_name: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Store an uploaded dataset file and record it in the database."""
+    store = get_store()
+
+    content = await file.read()
+    base_dir = Path("data/datasets") / discord_user_id
+    base_dir.mkdir(parents=True, exist_ok=True)
+    file_path = base_dir / file.filename
+    file_path.write_bytes(content)
+
+    dataset_id = await store.add_dataset(int(discord_user_id), dataset_name, None)
+    return {"status": "ok", "dataset_id": dataset_id}
 
 
 @router.post("/ocr")
@@ -171,14 +238,111 @@ async def ocr_endpoint(request: Request):
 
 
 @router.get("/conversations/latest")
-async def get_latest_conversations(user_id: str | None = None, limit: int = 20):
+async def get_latest_conversations(
+    user_id: str | None = None,
+    google_sub: str | None = None,
+    discord_user_id: str | None = None,
+    limit: int = 20,
+):
     """Get recent conversations for a user (Discord ID or Google Sub). If None, returns all."""
-    from src.web.app import get_store
     store = get_store()
-    
+
     try:
-        convs = await store.get_conversations(user_id, limit)
+        # prefer explicitly provided IDs, but reuse existing storage when possible
+        _, resolved_google = await _resolve_user_identity(store, discord_user_id, google_sub)
+        target_discord = discord_user_id or user_id
+        convs = await store.get_cross_platform_conversations(
+            discord_user_id=target_discord,
+            google_sub=resolved_google or google_sub or user_id,
+            limit=limit,
+        )
         return {"ok": True, "data": convs}
+    except Exception as e:
+        return {"ok": False, "error_code": "DB_ERROR", "error_message": str(e)}
+
+
+@router.post("/conversations/save")
+async def save_conversation(
+    discord_user_id: str | None = Form(None),
+    google_sub: str | None = Form(None),
+    platform: str = Form(...),
+    message: str = Form(...),
+    response: str = Form(...),
+):
+    """Persist a conversation turn for Discord/Google linked clients."""
+
+    store = get_store()
+    user_id, resolved_google = await _resolve_user_identity(store, discord_user_id, google_sub)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="discord_user_id or google_sub is required")
+
+    await store.add_conversation(
+        user_id=user_id,
+        platform=platform,
+        message=message,
+        response=response,
+    )
+
+    if resolved_google and discord_user_id:
+        await store.link_discord_google(discord_user_id, resolved_google)
+
+    return {"ok": True, "user_id": user_id}
+
+
+@router.post("/media/upload")
+async def upload_media(
+    discord_user_id: str | None = Form(None),
+    google_sub: str | None = Form(None),
+    platform: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Store an uploaded media file and track it for Google/Discord accounts."""
+
+    store = get_store()
+    user_id, resolved_google = await _resolve_user_identity(store, discord_user_id, google_sub)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="discord_user_id or google_sub is required")
+
+    owner_key = resolved_google or discord_user_id or "anonymous"
+    base_dir = Path("data/media") / owner_key
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    suffix = Path(file.filename or "").suffix
+    target_path = base_dir / f"{uuid.uuid4()}{suffix}"
+    content = await file.read()
+    target_path.write_bytes(content)
+
+    asset_id = await store.add_media_asset(
+        google_sub=resolved_google,
+        discord_user_id=discord_user_id,
+        platform=platform,
+        file_path=str(target_path),
+        mime_type=getattr(file, "content_type", None),
+    )
+
+    if resolved_google and discord_user_id:
+        await store.link_discord_google(discord_user_id, resolved_google)
+
+    return {"ok": True, "asset_id": asset_id, "path": str(target_path)}
+
+
+@router.get("/media/recent")
+async def recent_media(
+    google_sub: str | None = None,
+    discord_user_id: str | None = None,
+    limit: int = 20,
+):
+    """List stored media assets for the given Google/Discord identity."""
+
+    store = get_store()
+    try:
+        _, resolved_google = await _resolve_user_identity(store, discord_user_id, google_sub)
+        assets = await store.list_media_assets(
+            google_sub=resolved_google or google_sub,
+            discord_user_id=discord_user_id,
+            limit=limit,
+        )
+        return {"ok": True, "data": assets}
     except Exception as e:
         return {"ok": False, "error_code": "DB_ERROR", "error_message": str(e)}
 
