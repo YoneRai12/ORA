@@ -1,17 +1,26 @@
-import json
-import uuid
-import websocket
-import urllib.request
-import urllib.parse
-import random
-import os
-import io
 import asyncio
+import json
 import logging
-from typing import Optional, Dict, List, Any
-
+import os
+import random
 import time
-import logging
+import urllib.parse
+import urllib.request
+import uuid
+from typing import Any, Dict, List, Optional
+
+try:
+    import aiohttp
+except ImportError:  # pragma: no cover - optional dependency
+    aiohttp = None
+
+try:
+    import websocket
+except ImportError:  # pragma: no cover - optional dependency
+    websocket = None
+    logging.getLogger(__name__).warning(
+        "websocket-client is not installed; ComfyUI WebSocket features are disabled."
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +59,10 @@ class ComfyWorkflow:
         Executes the workflow with the given prompts using WebSocket.
         Returns the raw image bytes of the first generated image.
         """
+        if websocket is None:
+            logger.error("websocket-client is not available; cannot generate images.")
+            return None
+
         if not self.workflow_data:
             logger.error("Workflow data is empty.")
             return None
@@ -62,7 +75,7 @@ class ComfyWorkflow:
         # 5: Negative Prompt (CLIPTextEncode)
         # 6: Empty Latent Image (Width, Height)
         # 7: KSampler (Seed, Steps)
-        
+
         # 1. Update Positive Prompt
         if "4" in prompt_workflow and "inputs" in prompt_workflow["4"]:
             prompt_workflow["4"]["inputs"]["text"] = positive_prompt
@@ -86,11 +99,11 @@ class ComfyWorkflow:
         # 4. Update Seed & Steps
         if seed is None:
             seed = random.randint(0, 1000000000)
-        
+
         if "7" in prompt_workflow and "inputs" in prompt_workflow["7"]:
-             prompt_workflow["7"]["inputs"]["seed"] = seed
-             prompt_workflow["7"]["inputs"]["steps"] = steps
-        
+            prompt_workflow["7"]["inputs"]["seed"] = seed
+            prompt_workflow["7"]["inputs"]["steps"] = steps
+
         # 4. Queue Prompt via WebSocket
         try:
             ws = websocket.WebSocket()
@@ -175,7 +188,7 @@ class ComfyWorkflow:
             # Debug: Log what keys ARE present
             logger.error(f"No image output found in history (Node 9). Available output keys: {list(outputs.keys())}")
             if "outputs" in history: # Double check structure
-                 logger.error(f"Full Outputs Dump: {history['outputs']}")
+                logger.error(f"Full Outputs Dump: {history['outputs']}")
             return None
 
         except Exception as e:
@@ -185,6 +198,9 @@ class ComfyWorkflow:
 
     async def unload_models(self):
         """Attempts to unload models from ComfyUI VRAM."""
+        if aiohttp is None:
+            logger.warning("aiohttp is not installed; cannot call ComfyUI unload endpoints.")
+            return
         try:
             # Strategies for Unloading (based on ComfyUI versions/branches)
             # 1. Official/Manager /free endpoint (Most reliable if available)
@@ -208,9 +224,6 @@ class ComfyWorkflow:
                          pass
             
             logger.warning("⚠️ Could not explicitly free ComfyUI VRAM (All endpoints failed).")
-
-        except Exception as e:
-            logger.warning(f"Failed to unload ComfyUI models: {e}")
 
         except Exception as e:
             logger.warning(f"Failed to unload ComfyUI models: {e}")
