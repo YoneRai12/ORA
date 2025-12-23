@@ -102,8 +102,10 @@ async def robust_json_request(
                 except asyncio.CancelledError:
                     raise # Propagate immediately
                 except Exception as e:
-                    last_err = e
                     logger.warning(f"Request failed (Attempt {attempt}/{max_attempts}): {e}")
+                    if isinstance(e, TransientHTTPError) and "exceeds budget" in str(e):
+                        raise
+                    last_err = e
                     # Fallthrough to retry logic
                     
         except asyncio.CancelledError:
@@ -123,7 +125,9 @@ async def robust_json_request(
             await _sleep_func(sleep_time)
             backoff *= 2.0
             
-    raise last_err or RuntimeError("Max attempts reached")
+    if last_err and not isinstance(last_err, TransientHTTPError):
+        raise last_err
+    raise RuntimeError("Max attempts reached")
 
 class LLMClient:
     """Minimal async client for OpenAI-compatible chat completions."""
@@ -162,92 +166,87 @@ class LLMClient:
                 except (KeyError, IndexError, TypeError) as exc:
                     raise RuntimeError("LLM応答の形式が不正です。") from exc
 
-    async def unload_model(self) -> None:
-        """Attempt to unload the model from VRAM (LM Studio / Ollama)."""
-        # Try LM Studio specific endpoint first
+    async def _unload_model_via_api(self) -> bool:
+        """Attempt to unload the model via LM Studio/Ollama HTTP APIs and CLI fallbacks."""
         urls = [
-            f"{self._base_url}/internal/model/unload", # LM Studio
-            f"{self._base_url}/chat/completions"       # Ollama fallback (keep_alive=0)
+            f"{self._base_url}/internal/model/unload",  # LM Studio
+            f"{self._base_url}/chat/completions",  # Ollama fallback (keep_alive=0)
         ]
-        
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }
-        
-        # Ollama payload
-        ollama_payload = {
-            "model": self._model,
-            "keep_alive": 0
-        }
+
+        ollama_payload = {"model": self._model, "keep_alive": 0}
+        success = False
 
         # Use throw-away session or existing
-        ctx = self._session if self._session else aiohttp.ClientSession()
-        
+        session = self._session or aiohttp.ClientSession()
+        owns_session = self._session is None
+
         try:
-            # We need to handle session context manager manually depending on if we own it
-            session = ctx
-            if not self._session:
-                 await session.__aenter__()
+            if owns_session:
+                await session.__aenter__()
 
+            # 1. Try LM Studio Unload
             try:
-                # 1. Try LM Studio Unload
-                try:
-                    async with session.post(urls[0], headers=headers, json={}, timeout=2) as resp:
-                        if resp.status == 200:
-                            logger.info("✅ LM Studio Model Unloaded.")
-                            return
-                except:
-                    pass
+                async with session.post(urls[0], headers=headers, json={}, timeout=2) as resp:
+                    if resp.status == 200:
+                        logger.info("✅ LM Studio Model Unloaded.")
+                        return True
+            except Exception as exc:
+                logger.debug(f"LM Studio unload failed: {exc}")
 
-                # 2. Try Ollama Unload
-                try:
-                    async with session.post(urls[1], headers=headers, json=ollama_payload, timeout=2) as resp:
-                        if resp.status == 200:
-                            logger.info("✅ Ollama Model Unloaded (keep_alive=0).")
-                            return
-                except:
-                    pass
-                
-                
-                logger.warning("Could not unload model (API did not respond to known offload commands).")
-
-            finally:
-                if not self._session:
-                    await session.__aexit__(None, None, None)
-
-            # 3. Try 'lms' CLI (Definitive Fix for LM Studio 0.3+)
+            # 2. Try Ollama Unload
             try:
-                # Run 'lms unload --all' asynchronously
-                proc = await asyncio.create_subprocess_exec(
-                    "lms", "unload", "--all",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await proc.communicate()
-                
-                if proc.returncode == 0:
-                     logger.info("✅ 'lms unload --all' executed successfully.")
-                else:
-                     logger.warning(f"'lms' CLI failed with code {proc.returncode}: {stderr.decode()}")
-            except Exception as cli_e:
-                 logger.warning(f"Failed to run 'lms' CLI: {cli_e}")
+                async with session.post(urls[1], headers=headers, json=ollama_payload, timeout=2) as resp:
+                    if resp.status == 200:
+                        logger.info("✅ Ollama Model Unloaded (keep_alive=0).")
+                        return True
+            except Exception as exc:
+                logger.debug(f"Ollama unload failed: {exc}")
 
-            # 4. NUCLEAR OPTION: Taskkill
-            # User request: "VRAMからkillしてよ" (Kill from VRAM)
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "taskkill", "/F", "/IM", "LM Studio.exe",
-                    stdout=asyncio.subprocess.PIPE, 
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
-                logger.info("☢️ Nuclear Option Executed: Killed 'LM Studio.exe'")
-            except Exception as tk_e:
-                logger.warning(f"Failed to taskkill: {tk_e}")
-                
-        except Exception as e:
-            logger.warning(f"Failed to unload model: {e}")
+        finally:
+            if owns_session:
+                await session.__aexit__(None, None, None)
+
+        # 3. Try 'lms' CLI (Definitive Fix for LM Studio 0.3+)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "lms",
+                "unload",
+                "--all",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode == 0:
+                logger.info("✅ 'lms unload --all' executed successfully.")
+                success = True
+            else:
+                logger.warning(f"'lms' CLI failed with code {proc.returncode}: {stderr.decode()}")
+        except Exception as cli_e:
+            logger.debug(f"Failed to run 'lms' CLI: {cli_e}")
+
+        # 4. NUCLEAR OPTION: Taskkill
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "taskkill",
+                "/F",
+                "/IM",
+                "LM Studio.exe",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+            logger.info("☢️ Nuclear Option Executed: Killed 'LM Studio.exe'")
+            success = True
+        except Exception as tk_e:
+            logger.debug(f"Failed to taskkill LM Studio: {tk_e}")
+
+        return success
 
     async def start_service(self) -> None:
         """Starts the LLM service (vLLM on WSL2)."""
@@ -278,22 +277,35 @@ class LLMClient:
         except Exception as e:
             logger.error(f"Failed to start LLM service: {e}")
 
-    async def unload_model(self):
+    async def _stop_vllm_service(self) -> bool:
         """Stops the LLM service (vLLM) to free VRAM."""
         try:
             logger.info("🛑 Stopping vLLM Service (pkill)...")
-            # Kill python3 process running vllm
             cmd = "wsl -d Ubuntu-22.04 pkill -f vllm"
-            
+
             proc = await asyncio.create_subprocess_shell(
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
             logger.info("✅ vLLM Stopped.")
-            
+            return True
         except Exception as e:
-            logger.warning(f"Failed to stop vLLM: {e}")
+            logger.debug(f"Failed to stop vLLM: {e}")
+            return False
+
+    async def unload_model(self) -> None:
+        """Best-effort VRAM release across both API-based and vLLM services."""
+        try:
+            api_released = await self._unload_model_via_api()
+            service_stopped = await self._stop_vllm_service()
+
+            if api_released or service_stopped:
+                return
+
+            logger.warning("Could not unload model (no API or service stop succeeded).")
+        except Exception as e:
+            logger.warning(f"Failed to unload model: {e}")
 
 

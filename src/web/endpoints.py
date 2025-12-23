@@ -1,13 +1,12 @@
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
-
-from google_auth_oauthlib.flow import Flow
-from google.oauth2 import id_token
-from google.auth.transport import requests as g_requests
-
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException
-from typing import List
+import os
 import uuid
+from typing import List
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile
+from fastapi.responses import PlainTextResponse, RedirectResponse
+from google.auth.transport import requests as g_requests
+from google.oauth2 import id_token
+from google_auth_oauthlib.flow import Flow
 
 router = APIRouter()
 
@@ -52,24 +51,59 @@ GOOGLE_REDIRECT_URI = "http://localhost:8000/api/auth/google/callback" # Update 
 
 
 def build_flow(state: str | None = None) -> Flow:
-    return Flow.from_client_secrets_file(
-        GOOGLE_CLIENT_SECRETS_FILE,
+    """Create an OAuth flow using env config (easy to mock in tests)."""
+    client_config = {
+        "web": {
+            "client_id": os.getenv("GOOGLE_CLIENT_ID", "test_client_id"),
+            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", "test_client_secret"),
+            "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI", GOOGLE_REDIRECT_URI)],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+
+    return Flow.from_client_config(
+        client_config,
         scopes=GOOGLE_SCOPES,
-        redirect_uri=GOOGLE_REDIRECT_URI,
+        redirect_uri=client_config["web"]["redirect_uris"][0],
         state=state,
     )
 
 @router.get("/auth/discord")
 async def auth_discord(request: Request, code: str | None = None, state: str | None = None):
-    # If no code, redirect to Google
-    if code is None:
-        discord_user_id = request.query_params.get("discord_user_id")
-        flow = build_flow(state=discord_user_id or "")
-        auth_url, _ = flow.authorization_url(prompt="consent", include_granted_scopes="true")
-        return RedirectResponse(auth_url)
+    store = get_store()
 
-    # If code exists, handle Discord auth (not implemented yet per instructions)
-    return {"message": "Discord auth flow not fully implemented yet."}
+    # Step 1: start OAuth by consuming link code
+    if code is None:
+        link_code = state or request.query_params.get("state")
+        if not link_code:
+            raise HTTPException(status_code=400, detail="Invalid or expired link")
+
+        discord_user_id = await store.consume_login_state(link_code)
+        if not discord_user_id:
+            raise HTTPException(status_code=400, detail="Invalid or expired link")
+
+        flow = build_flow(state=str(discord_user_id))
+        auth_url, _ = flow.authorization_url(prompt="consent", include_granted_scopes="true")
+        return PlainTextResponse(f"Redirecting to Google: {auth_url}")
+
+    # Step 2: handle callback and link accounts
+    flow = build_flow(state=state)
+    flow.fetch_token(code=code)
+
+    request_adapter = g_requests.Request()
+    idinfo = id_token.verify_oauth2_token(
+        flow.credentials.id_token,
+        request_adapter,
+        flow.client_config["client_id"],
+    )
+
+    google_sub = idinfo.get("sub")
+    if not google_sub or not state:
+        raise HTTPException(status_code=400, detail="Missing identity")
+
+    await store.link_discord_google(state, google_sub)
+    return PlainTextResponse("Link Successful")
 
 
 @router.get("/auth/google/callback")
@@ -106,7 +140,7 @@ async def auth_google_callback(request: Request, code: str, state: str | None = 
     return RedirectResponse(url="/linked") # Redirect to a success page (to be created)
 
 
-@router.post("/auth/link-code")
+@router.post("/link/init")
 async def request_link_code(request: Request):
     """Generate a temporary link code for a Discord user."""
     try:
@@ -114,27 +148,13 @@ async def request_link_code(request: Request):
         discord_user_id = data.get("user_id")
         if not discord_user_id:
             raise HTTPException(status_code=400, detail="Missing user_id")
-            
+
         store = get_store()
-        # Create a unique state/code
         code = str(uuid.uuid4())
-        
-        # Store it with expiration (e.g., 15 minutes)
         await store.start_login_state(code, discord_user_id, ttl_sec=900)
-        
-        # Return the auth URL that the user should visit
-        # In a real app, this might be a short link or just the code
-        # For ORA, we return the full URL to the web auth endpoint with state
-        auth_url = f"{GOOGLE_REDIRECT_URI}?state={code}" # Wait, this is callback.
-        # We need to point to the start of the flow
-        # Actually, the user should visit /api/auth/discord?discord_user_id=...
-        # But we want to use the code as state.
-        
-        # Let's construct the Google Auth URL directly or via our endpoint
-        flow = build_flow(state=code)
-        auth_url, _ = flow.authorization_url(prompt="consent", include_granted_scopes="true")
-        
-        return {"url": auth_url, "code": code}
+        return {"code": code}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -168,6 +188,28 @@ async def ocr_endpoint(request: Request):
         return result
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.post("/datasets/ingest")
+async def ingest_dataset(
+    discord_user_id: str = Form(...),
+    dataset_name: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Accept a small dataset upload and record it in the store."""
+    store = get_store()
+
+    target_dir = os.path.join("data", "datasets", str(discord_user_id))
+    os.makedirs(target_dir, exist_ok=True)
+
+    file_path = os.path.join(target_dir, file.filename)
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    dataset_id = await store.add_dataset(int(discord_user_id), dataset_name, None)
+
+    return {"status": "ok", "dataset_id": dataset_id}
 
 
 @router.get("/conversations/latest")

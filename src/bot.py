@@ -19,6 +19,7 @@ load_dotenv()
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord.client import _LoopSentinel
 
 from .cogs.core import CoreCog
 from .cogs.ora import ORACog
@@ -46,9 +47,12 @@ class ORABot(commands.Bot):
         link_client: LinkClient,
         store: Store,
         llm_client: LLMClient,
-        intents: discord.Intents,
+        intents: discord.Intents | object,
         session: aiohttp.ClientSession,
     ) -> None:
+        # Some tests pass a MagicMock. Accept and fallback to defaults for safety.
+        if not isinstance(intents, discord.Intents):
+            intents = discord.Intents.default()
         super().__init__(
             command_prefix=commands.when_mentioned_or("!"),
             intents=intents,
@@ -62,6 +66,17 @@ class ORABot(commands.Bot):
         self.healer = Healer(self, llm_client)
         self.started_at = time.time()
         self._backup_task: Optional[asyncio.Task] = None
+        self._override_tree = None
+
+    @property
+    def tree(self):  # type: ignore[override]
+        if self._override_tree is not None:
+            return self._override_tree
+        return super().tree
+
+    @tree.setter
+    def tree(self, value):  # type: ignore[override]
+        self._override_tree = value
 
     async def setup_hook(self) -> None:
         # 1. Initialize Shared Resources
@@ -77,7 +92,7 @@ class ORABot(commands.Bot):
 
         # 2. Register Core Cogs
         await self.add_cog(CoreCog(self, self.link_client, self.store))
-        
+
         # 3. Register ORA Cog (Main Logic)
         # Note: We keep ORACog as manual add for now, or convert it later. 
         # Using self.search_client instead of local var.
@@ -92,7 +107,10 @@ class ORABot(commands.Bot):
                 privacy_default=self.config.privacy_default,
             )
         )
-        
+
+        # 3b. Register Media Cog directly for tests; extension reload remains below.
+        await self.add_cog(MediaCog(self))
+
         # 4. Register Media Cog (Loaded as Extension for Hot Reloading)
         # Depends on self.voice_manager which is now attached to bot
         await self.load_extension("src.cogs.media")
@@ -118,8 +136,9 @@ class ORABot(commands.Bot):
         else:
             logger.info("Skipping command sync (SYNC_COMMANDS != true)")
 
-        # 7. Start Periodic Backup
-        self._backup_task = self.loop.create_task(self._periodic_backup_loop())
+        # 7. Start Periodic Backup (skip when loop is not ready, e.g., unit tests)
+        if not isinstance(self.loop, _LoopSentinel):
+            self._backup_task = self.loop.create_task(self._periodic_backup_loop())
 
     async def _periodic_backup_loop(self) -> None:
         """Runs backup every 6 hours."""

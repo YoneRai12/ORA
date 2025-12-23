@@ -1,17 +1,21 @@
 import json
 import uuid
-import websocket
-import urllib.request
-import urllib.parse
-import random
-import os
-import io
-import asyncio
-import logging
 from typing import Optional, Dict, List, Any
 
-import time
+import aiohttp
+import asyncio
+import io
 import logging
+import os
+import random
+import time
+import urllib.parse
+import urllib.request
+
+try:
+    import websocket
+except ImportError:  # pragma: no cover - optional dependency for test envs
+    websocket = None
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +49,23 @@ class ComfyWorkflow:
         with urllib.request.urlopen(f"http://{self.server_address}/view?{url_values}") as response:
             return response.read()
 
-    def generate_image(self, positive_prompt: str, negative_prompt: str = "", seed: int = None, steps: int = 20, width: int = 1024, height: int = 1024) -> Optional[bytes]:
+    def generate_image(
+        self,
+        positive_prompt: str,
+        negative_prompt: str = "",
+        seed: int = None,
+        steps: int = 20,
+        width: int = 1024,
+        height: int = 1024,
+    ) -> Optional[bytes]:
         """
         Executes the workflow with the given prompts using WebSocket.
         Returns the raw image bytes of the first generated image.
         """
+        if websocket is None:
+            logger.error("websocket-client is not installed. Skipping image generation.")
+            return None
+
         if not self.workflow_data:
             logger.error("Workflow data is empty.")
             return None
@@ -88,8 +104,8 @@ class ComfyWorkflow:
             seed = random.randint(0, 1000000000)
         
         if "7" in prompt_workflow and "inputs" in prompt_workflow["7"]:
-             prompt_workflow["7"]["inputs"]["seed"] = seed
-             prompt_workflow["7"]["inputs"]["steps"] = steps
+            prompt_workflow["7"]["inputs"]["seed"] = seed
+            prompt_workflow["7"]["inputs"]["steps"] = steps
         
         # 4. Queue Prompt via WebSocket
         try:
@@ -101,7 +117,7 @@ class ComfyWorkflow:
             data = json.dumps(p).encode('utf-8')
             req = urllib.request.Request(f"http://{self.server_address}/prompt", data=data)
             with urllib.request.urlopen(req) as response:
-                 prompt_id = json.loads(response.read())['prompt_id']
+                prompt_id = json.loads(response.read())["prompt_id"]
 
             # Listen for Execution
             # Listen for Execution with Polling Fallback
@@ -155,7 +171,9 @@ class ComfyWorkflow:
                             if is_running:
                                 logger.info(f"ComfyUI Status: RUNNING (Prompt ID: {prompt_id})")
                             elif is_pending:
-                                logger.info(f"ComfyUI Status: PENDING (Prompt ID: {prompt_id}) - Position in queue: {len(params_pending)}")
+                                logger.info(
+                                    f"ComfyUI Status: PENDING (Prompt ID: {prompt_id}) - Position in queue: {len(params_pending)}"
+                                )
                             else:
                                 logger.info(f"ComfyUI Status: UNKNOWN (Prompt ID: {prompt_id} not found in Running/Pending/History)")
                     except Exception as q_e:
@@ -174,8 +192,8 @@ class ComfyWorkflow:
             
             # Debug: Log what keys ARE present
             logger.error(f"No image output found in history (Node 9). Available output keys: {list(outputs.keys())}")
-            if "outputs" in history: # Double check structure
-                 logger.error(f"Full Outputs Dump: {history['outputs']}")
+            if "outputs" in history:  # Double check structure
+                logger.error(f"Full Outputs Dump: {history['outputs']}")
             return None
 
         except Exception as e:
@@ -187,30 +205,26 @@ class ComfyWorkflow:
         """Attempts to unload models from ComfyUI VRAM."""
         try:
             # Strategies for Unloading (based on ComfyUI versions/branches)
-            # 1. Official/Manager /free endpoint (Most reliable if available)
-            # Payload keys: unload_models, free_memory
             payload = {"unload_models": True, "free_memory": True}
             endpoints = ["/free", "/api/free", "/manager/free", "/internal/model/unload"]
-            
+            freed = False
+
             async with aiohttp.ClientSession() as session:
                 for ep in endpoints:
+                    url = f"http://{self.server_address}{ep}"
                     try:
-                        url = f"http://{self.server_address}{ep}"
                         async with session.post(url, json=payload, timeout=2) as resp:
                             if resp.status == 200:
                                 logger.info(f"✅ ComfyUI VRAM Freed via {ep}")
-                                return
-                            elif resp.status != 404: # If 500/405, it might be the wrong method or error
+                                freed = True
+                                break
+                            if resp.status != 404:
                                 text = await resp.text()
                                 logger.warning(f"Failed to free via {ep}: {resp.status} - {text[:50]}")
                     except Exception as e:
-                         # logger.debug(f"Endpoint {ep} failed: {e}")
-                         pass
-            
-            logger.warning("⚠️ Could not explicitly free ComfyUI VRAM (All endpoints failed).")
+                        logger.debug(f"Endpoint {ep} failed: {e}")
 
-        except Exception as e:
-            logger.warning(f"Failed to unload ComfyUI models: {e}")
-
+            if not freed:
+                logger.warning("⚠️ Could not explicitly free ComfyUI VRAM (All endpoints failed).")
         except Exception as e:
             logger.warning(f"Failed to unload ComfyUI models: {e}")

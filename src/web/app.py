@@ -27,12 +27,20 @@ app.add_middleware(
 
 # Mount router
 app.include_router(endpoints.router, prefix="/api")
+app.include_router(endpoints.router)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Simple health endpoint for smoke checks."""
+    return {"message": "ORA Discord Bot API is running"}
 
 
 @app.on_event("startup")
 async def on_startup() -> None:
     global store
-    store = Store(os.getenv("DB_PATH", "data/ora.db"))
+    db_path = os.getenv("ORA_BOT_DB") or os.getenv("DB_PATH", "data/ora.db")
+    store = Store(db_path)
     await store.init()
 
 
