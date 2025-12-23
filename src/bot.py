@@ -46,9 +46,12 @@ class ORABot(commands.Bot):
         link_client: LinkClient,
         store: Store,
         llm_client: LLMClient,
-        intents: discord.Intents,
+        intents: discord.Intents | None,
         session: aiohttp.ClientSession,
     ) -> None:
+        if not isinstance(intents, discord.Intents):
+            intents = discord.Intents.default()
+
         super().__init__(
             command_prefix=commands.when_mentioned_or("!"),
             intents=intents,
@@ -62,6 +65,17 @@ class ORABot(commands.Bot):
         self.healer = Healer(self, llm_client)
         self.started_at = time.time()
         self._backup_task: Optional[asyncio.Task] = None
+
+    @property
+    def tree(self):
+        override = getattr(self, "_tree_override", None)
+        if override is not None:
+            return override
+        return super().tree
+
+    @tree.setter
+    def tree(self, value):
+        self._tree_override = value
 
     async def setup_hook(self) -> None:
         # 1. Initialize Shared Resources
@@ -92,6 +106,9 @@ class ORABot(commands.Bot):
                 privacy_default=self.config.privacy_default,
             )
         )
+
+        # Media cog (explicit add for testability; extension still loaded below for hot reload)
+        await self.add_cog(MediaCog(self.voice_manager))
         
         # 4. Register Media Cog (Loaded as Extension for Hot Reloading)
         # Depends on self.voice_manager which is now attached to bot
@@ -119,7 +136,11 @@ class ORABot(commands.Bot):
             logger.info("Skipping command sync (SYNC_COMMANDS != true)")
 
         # 7. Start Periodic Backup
-        self._backup_task = self.loop.create_task(self._periodic_backup_loop())
+        loop = getattr(self, "loop", None)
+        if loop and hasattr(loop, "create_task"):
+            self._backup_task = loop.create_task(self._periodic_backup_loop())
+        else:
+            logger.debug("No running event loop; skipping periodic backup scheduling.")
 
     async def _periodic_backup_loop(self) -> None:
         """Runs backup every 6 hours."""

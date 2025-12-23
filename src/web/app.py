@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.web import endpoints
@@ -27,6 +27,18 @@ app.add_middleware(
 
 # Mount router
 app.include_router(endpoints.router, prefix="/api")
+
+
+@app.get("/auth/discord")
+async def auth_discord_passthrough(request: Request, code: str | None = None, state: str | None = None):
+    """Expose the auth flow without the /api prefix for compatibility."""
+    return await endpoints.auth_discord(request, code=code, state=state)
+
+
+@app.get("/")
+async def root():
+    """Health check endpoint."""
+    return {"message": "ORA Discord Bot API is running"}
 
 
 @app.on_event("startup")
