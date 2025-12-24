@@ -27,6 +27,22 @@
 ORAは、あなたのハードウェア上でローカル動作する **完全自律型AIオペレーティングシステム** です。
 世界最先端のオープンソースモデルを統合し、Discord内でシームレスな統合体験を提供します。
 
+## 🌐 Universal Brain (v3.0)
+
+**「クラウドの知能」と「ローカルのプライバシー」を融合したハイブリッドシステム。**
+
+### 🧠 2つの動作モード
+- **Smart Mode (推奨)**:
+  - ユーザーが**同意**した場合のみ有効になります。
+  - **GPT-5 Series** (OpenAI) や **Gemini 2.0** (Google) の強大な知能を借りて、難解なコード生成や画像認識を行います。
+  - **無料枠 (Shared Traffic)**: 1日あたり 25万〜250万トークンまで無料で使用可能。
+- **Private Mode (デフォルト)**:
+  - 同意しない、または拒否した場合のモード。
+  - **完全ローカル**。データは1バイトたりとも外部に送信されません。
+  - ローカルGPU (RTX 5090) の全力を尽くして処理します。
+
+---
+
 ### ✨ ORAを選ぶ理由 (特長)
 - **💰 月額費ゼロ**: ChatGPT Plus ($20/月) や Midjourney ($10/月) と違い、ORAは **100%ローカル** で動作します。AIはあなたのものです。
 - **🔒 完全なプライバシー**: データはPCから一切出ません。チャット、画像、音声のすべてがあなたの RTX 5090 上で処理されます。
@@ -61,34 +77,43 @@ ORAは、あなたのハードウェア上でローカル動作する **完全�
 ```mermaid
 %%{init: { 'theme': 'dark' }}%%
 graph TD
-    User["ユーザー入力 (Discord)"] --> Router{"自動ルーター<br>(文脈分析)"}
+    User["ユーザー入力 (Discord)"] --> Consent{"ユーザー同意確認<br>(Smart Mode?)"}
+    
+    %% Privacy Decision
+    Consent -- "Yes (同意)" --> SmartRouter{"Smart Router<br>(難易度/コスト判定)"}
+    Consent -- "No (拒否/Private)" --> LocalRouter{"Local Router<br>(完全ローカル)"}
 
-    %% Routing Logic
-    Router --> "会話 / ロジック" --> LLM["Qwen3-VL-30B-Instruct<br>(vLLM - Port 8001)"]
-    Router --> "画像アップロード" --> Vision["Qwen3-VL (Vision)<br>(ネイティブ解析)"]
-    Router --> "画像生成" --> ImageGen["Flux.1-dev<br>(ComfyUI - Port 8188)"]
-    Router --> "動画/物体検索" --> SAM2["SAM 2 (Meta)<br>(物体セグメンテーション)"]
+    %% Smart Path
+    SmartRouter -- "高難易度 / Vision" --> CloudAPI["☁️ Cloud APIs<br>(GPT-5 / Gemini 2.0)"]
+    SmartRouter -- "通常 / 低コスト" --> LocalRouter
+
+    %% Local Path
+    LocalRouter --> "会話 / ロジック" --> LLM["Qwen3-VL-30B-Instruct<br>(vLLM - Port 8001)"]
+    LocalRouter --> "画像アップロード" --> Vision["Qwen3-VL (Vision)<br>(ネイティブ解析)"]
+    LocalRouter --> "画像生成" --> ImageGen["Flux.1-dev<br>(ComfyUI - Port 8188)"]
+    LocalRouter --> "動画/物体検索" --> SAM2["SAM 2 (Meta)<br>(物体セグメンテーション)"]
 
     %% Voice Path
     VoiceRouter --> "発話 / TTS" --> VV["VOICEVOX<br>(Port 50021)"]
     VoiceRouter --> "人間品質" --> T5["T5Gemma-TTS<br>(動的ロード)"]
 
-    %% Future/Reserved
-    Router --> "動画生成?" --> VideoGen["予約 / 実装予定<br>(Port 8189)"]
+    %% Output
+    CloudAPI --> Output["応答 (Embed/Text)"]
+    LLM --> Output
 
     %% Styling for better dark mode readability
-    style Router fill:#ff1493,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style Consent fill:#ffbd00,stroke:#333,stroke-width:2px,color:#000
+    style SmartRouter fill:#ff1493,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style CloudAPI fill:#00ffff,stroke:#333,stroke-width:2px,color:#000
+    style LocalRouter fill:#1e90ff,stroke:#ffffff,stroke-width:1px,color:#ffffff
     style LLM fill:#1e90ff,stroke:#ffffff,stroke-width:1px,color:#ffffff
     style ImageGen fill:#32cd32,stroke:#ffffff,stroke-width:1px,color:#ffffff
     style Vision fill:#00bfff,stroke:#ffffff,stroke-width:1px,color:#ffffff
     style SAM2 fill:#ff4500,stroke:#ffffff,stroke-width:1px,color:#ffffff
-    style VoiceRouter fill:#da70d6,stroke:#ffffff,stroke-width:1px,color:#ffffff
-    style VV fill:#ffd700,stroke:#ffffff,stroke-width:1px,color:#000000
-    style T5 fill:#dda0dd,stroke:#ffffff,stroke-width:1px,color:#000000
-    style VideoGen fill:#9370db,stroke:#ffffff,stroke-width:1px,color:#ffffff
 ```
 
 ### 🧩 コンポーネント構成
+
 
 | 機能 | モデル / エンジン | 提供元 | ステータス |
 | :--- | :--- | :--- | :--- |

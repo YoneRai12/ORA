@@ -22,6 +22,7 @@ reg delete "HKCR\Directory\Background\shell\ORABot" /f >nul 2>&1
 reg delete "HKCR\Directory\Background\shell\Start ORA Bot" /f >nul 2>&1
 reg delete "HKCU\Software\Classes\Directory\Background\shell\ORA" /f >nul 2>&1
 reg delete "HKCU\Software\Classes\Directory\Background\shell\ORABot" /f >nul 2>&1
+reg delete "HKCU\Software\Classes\Directory\Background\shell\ORAServices" /f >nul 2>&1
 
 :: Register Context Menu (Right Click on Desktop/Background)
 :: Using HKCR (System-wide)
