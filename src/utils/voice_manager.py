@@ -199,6 +199,7 @@ class VoiceManager:
         self._user_speakers: Dict[int, int] = {}  # user_id -> speaker_id
         # Persist auto-read channels here so they survive MediaCog reloads
         self.auto_read_channels: Dict[int, int] = {}  # guild_id -> channel_id
+        self.has_warned_voicevox = False
 
     def get_music_state(self, guild_id: int) -> GuildMusicState:
         return self._music_states[guild_id]
@@ -332,6 +333,13 @@ class VoiceManager:
             speaker_id = self._user_speakers.get(member.id)
             audio = await self._tts.synthesize(text, speaker_id=speaker_id)
         except Exception as exc:
+            # VOICEVOX Failure Handling
+            if not self.has_warned_voicevox:
+                self.has_warned_voicevox = True
+                # Add warning prefix to the text for fallback
+                logger.warning("VoiceVox absent. Adding warning to text.")
+                text = "ずんだ餅が不在です。" + text
+            
             logger.warning(f"VOICEVOX synthesis failed: {exc}. Falling back to Edge TTS.")
             try:
                 audio = await self._edge_tts.synthesize(text)

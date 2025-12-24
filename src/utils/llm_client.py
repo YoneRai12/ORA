@@ -134,14 +134,18 @@ class LLMClient:
         self._model = model
         self._session = session
 
-    async def chat(self, messages: List[Dict[str, Any]], temperature: float = 0.7) -> str:
+    async def chat(self, messages: List[Dict[str, Any]], temperature: float = 0.7, **kwargs) -> str:
         url = f"{self._base_url}/chat/completions"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }
+        
+        # Allow model override
+        model_name = kwargs.get("model", self._model)
+        
         payload: Dict[str, Any] = {
-            "model": self._model,
+            "model": model_name,
             "messages": messages,
             "temperature": temperature,
             "stream": False,

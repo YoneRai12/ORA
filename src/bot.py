@@ -33,6 +33,7 @@ from .utils.stt_client import WhisperClient
 from .utils.voice_manager import VoiceManager
 from .utils.search_client import SearchClient
 from .utils.healer import Healer
+from .utils.logger import GuildLogger
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,15 @@ class ORABot(commands.Bot):
         self._backup_task: Optional[asyncio.Task] = None
 
     async def setup_hook(self) -> None:
+        # 0. Initialize Google Client (Hybrid-Cloud)
+        from .utils.google_client import GoogleClient
+        if self.config.google_api_key:
+            self.google_client = GoogleClient(self.config.google_api_key)
+            logger.info("✅ GoogleClient (Gemini) Initialized.")
+        else:
+            self.google_client = None
+            logger.warning("⚠️ GoogleClient disabled.")
+
         # 1. Initialize Shared Resources
         # Search client using SerpApi or similar
         self.search_client = SearchClient(self.config.search_api_key, self.config.search_engine)
@@ -101,6 +111,8 @@ class ORABot(commands.Bot):
         extensions = [
             "src.cogs.voice_recv",
             "src.cogs.system",
+            "src.cogs.resource_manager",
+            "src.cogs.memory",
         ]
         for ext in extensions:
             try:
@@ -211,6 +223,11 @@ class ORABot(commands.Bot):
             await self.healer.handle_error(interaction, error)
             message = "コマンド実行中にエラーが発生しました。自動修復システムに報告されました。"
 
+        if interaction.guild:
+            GuildLogger.get_logger(interaction.guild.id).error(
+                f"AppCommand Error: {error} | User: {interaction.user} ({interaction.user.id}) | Command: {interaction.command.qualified_name if interaction.command else 'Unknown'}"
+            )
+
         if interaction.response.is_done():
             await interaction.followup.send(message, ephemeral=True)
         else:
@@ -225,6 +242,10 @@ class ORABot(commands.Bot):
         else:
             logger.exception("Command error", exc_info=error)
             # Auto-Healer
+            if ctx.guild:
+                GuildLogger.get_logger(ctx.guild.id).error(
+                    f"Command Error: {error} | User: {ctx.author} ({ctx.author.id}) | Content: {ctx.message.content}"
+                )
             await self.healer.handle_error(ctx, error)
             try:
                 await ctx.reply("エラーが発生しました。", mention_author=False, delete_after=5)

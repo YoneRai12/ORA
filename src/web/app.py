@@ -32,7 +32,7 @@ app.include_router(endpoints.router, prefix="/api")
 @app.on_event("startup")
 async def on_startup() -> None:
     global store
-    store = Store(os.getenv("DB_PATH", "data/ora.db"))
+    store = Store(os.getenv("ORA_BOT_DB", "ora_bot.db"))
     await store.init()
 
 

@@ -21,6 +21,10 @@ start "ComfyUI" cmd /k "cd /d L:\ComfyUI && L:\ORADiscordBOT_Env\Scripts\python.
 timeout /t 5 /nobreak >nul
 start http://localhost:8188
 
+echo Starting Helper Services...
+start "Voice Engine (Port 8002)" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe src/services/voice_server.py"
+start "Layer Service (Port 8003)" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe src/services/layer_server.py"
+
 echo Starting Bot...
 start "ORA Bot" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe main.py"
 

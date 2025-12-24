@@ -8,6 +8,62 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+# --- Cost Management Constants ---
+COST_TZ = "Asia/Tokyo"
+STATE_DIR = r"L:\ORA_State"
+
+# Burn Lane: Gemini Trial ($300 limit)
+# Stable Lane: OpenAI Shared (gp-4o-mini: 2.5M tokens/day!)
+# High Lane: OpenAI Shared High (gpt-4o: 250k tokens/day)
+# BYOK Lane: User Keys (Optional Limits)
+# Burn Lane: Gemini Trial ($300 limit)
+# High Lane: OpenAI Shared High (gpt-5.1/Codex: 250k tokens/day)
+# Stable Lane: OpenAI Shared Low (gpt-5.1-mini: 2.5M tokens/day)
+# BYOK Lane: User Keys (Optional Limits)
+COST_LIMITS = {
+  "high": {
+    "openai": { 
+        "daily_tokens": 250_000, 
+        "hard_stop": True,
+        "models": {
+            "gpt-5.1", "gpt-5.1-codex", "gpt-5", "gpt-5-codex", "gpt-5-chat-latest",
+            "gpt-4.1", "gpt-4o", "o1", "o3"
+        }
+    },
+  },
+  "stable": {
+    "openai": { 
+        "daily_tokens": 2_500_000, 
+        "hard_stop": True,
+        "models": {
+            "gpt-5.1-codex-mini", "gpt-5-mini", "gpt-5-nano",
+            "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini",
+            "o1-mini", "o3-mini", "o4-mini", "codex-mini-latest"
+        }
+    },
+    "gemini_dev": { "daily_tokens": 200_000, "monthly_tokens": 2_000_000, "hard_stop": True },
+  },
+  "burn": {
+      "gemini_trial": { "total_usd": 300.0, "hard_stop": True },
+  },
+  "byok": {
+    "openai": { "hard_stop": False },
+    "claude": { "hard_stop": False },
+    "grok": { "hard_stop": False },
+  }
+}
+
+# --- Router Configuration ---
+ROUTER_CONFIG = {
+    "coding_model": "gpt-5.1-codex",
+    "high_intel_model": "gpt-5.1",
+    "standard_model": "gpt-5.1-codex-mini",
+    "vision_model": "gemini-2.0-flash-exp",
+    "coding_keywords": ["コード", "実装", "バグ", "エラー", "修正", "関数", "変数", "API", "python", "javascript", "program"],
+    "high_intel_keywords": ["解説", "詳しく", "理由", "分析", "なぜ", "とは", "比較", "設計"],
+    "complexity_char_threshold": 50
+}
+
 class ConfigError(RuntimeError):
     """Raised when configuration is invalid."""
 
@@ -41,12 +97,11 @@ class Config:
     # Stable Diffusion Configuration
     sd_api_url: str
     
-    # Gaming Mode
-    gaming_processes: list[str]
-
-    # Model Modes (Router)
-    model_modes: dict[str, str]
-    router_thresholds: dict[str, float]
+    # External API Keys (Phase 29)
+    openai_api_key: Optional[str]
+    gemini_api_key: Optional[str] # Already loaded as GOOGLE_API_KEY in env, but good to have here?
+    # actually GOOGLE_API_KEY is used by google_client directly from os.environ usually.
+    # Let's standardize on Config.
 
     @classmethod
     def load(cls) -> "Config":
@@ -55,6 +110,9 @@ class Config:
         token = os.getenv("DISCORD_BOT_TOKEN")
         if not token:
             raise ConfigError("環境変数 DISCORD_BOT_TOKEN が未設定です。")
+
+        openai_key = os.getenv("OPENAI_API_KEY")
+
 
         app_id_raw = os.getenv("DISCORD_APP_ID")
         if app_id_raw:
@@ -113,6 +171,9 @@ class Config:
         # Search API configuration
         search_api_key = os.getenv("SEARCH_API_KEY")
         search_engine = os.getenv("SEARCH_ENGINE", "google")
+        
+        # Google Cloud (Gemini API)
+        google_api_key = os.getenv("GOOGLE_API_KEY")
 
         # Speech-to-text configuration
         stt_model = os.getenv("STT_MODEL", "tiny")
@@ -177,10 +238,12 @@ class Config:
             stt_model=stt_model,
             speak_search_progress_default=speak_search_progress_default,
             admin_user_id=admin_user_id,
-            sd_api_url=sd_api_url,
+            sd_api_url=os.getenv("SD_API_URL", "http://127.0.0.1:7860"),
             gaming_processes=gaming_processes,
             model_modes=model_modes,
             router_thresholds=router_thresholds,
+            openai_api_key=openai_key,
+            gemini_api_key=os.getenv("GOOGLE_API_KEY"),
         )
 
     def validate(self) -> None:

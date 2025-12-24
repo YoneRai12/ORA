@@ -1,1 +1,199 @@
-{"nodes": [{"id": "ORA", "group": 1, "val": 20}, {"id": "User", "group": 2, "val": 10}, {"id": "Gaming", "group": 3, "val": 5}, {"id": "Valorant", "group": 3, "val": 5}, {"id": "Admin", "group": 2, "val": 10}, {"id": "Python", "group": 3, "val": 5}, {"id": "AI", "group": 3, "val": 5}, {"id": "Gaming", "group": 3, "val": 5}, {"id": "Valorant", "group": 3, "val": 5}, {"id": "System", "group": 3, "val": 5}, {"id": "Voice", "group": 3, "val": 5}], "links": [{"source": "ORA", "target": "User"}, {"source": "User", "target": "Gaming"}, {"source": "User", "target": "Valorant"}, {"source": "ORA", "target": "Admin"}, {"source": "Admin", "target": "Python"}, {"source": "Admin", "target": "AI"}, {"source": "Admin", "target": "Gaming"}, {"source": "Admin", "target": "Valorant"}, {"source": "Admin", "target": "System"}, {"source": "Admin", "target": "Voice"}]}
+{
+  "nodes": [
+    {
+      "id": "ORA",
+      "group": 1,
+      "val": 20
+    },
+    {
+      "id": "1069941291661672498",
+      "name": "10699412",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "1088739071549001749",
+      "name": "10887390",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "1156215844834123857",
+      "name": "11562158",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "1307345055924617317",
+      "name": "13073450",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "918049542421745686",
+      "name": "91804954",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "955772325918310410",
+      "name": "95577232",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "975653307248959498",
+      "name": "97565330",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "996397362501124111",
+      "name": "99639736",
+      "group": 2,
+      "val": 5
+    },
+    {
+      "id": "@orallm",
+      "group": 3,
+      "val": 66
+    },
+    {
+      "id": "光円錐を使い、光速が有限であることを因果の観点から説明して",
+      "group": 3,
+      "val": 2
+    },
+    {
+      "id": "この画像について分析して",
+      "group": 3,
+      "val": 2
+    },
+    {
+      "id": "画像分析ができるの？",
+      "group": 3,
+      "val": 2
+    },
+    {
+      "id": "ヨネライについて検索して",
+      "group": 3,
+      "val": 2
+    },
+    {
+      "id": "現在のシステム状況",
+      "group": 3,
+      "val": 2
+    },
+    {
+      "id": "いつか肉体作って",
+      "group": 3,
+      "val": 1
+    },
+    {
+      "id": "ケーキ食べれるようにしてあげる",
+      "group": 3,
+      "val": 1
+    },
+    {
+      "id": "とクリスマス過ごします",
+      "group": 3,
+      "val": 1
+    },
+    {
+      "id": "23文字？",
+      "group": 3,
+      "val": 1
+    }
+  ],
+  "links": [
+    {
+      "source": "1069941291661672498",
+      "target": "ORA",
+      "value": 64
+    },
+    {
+      "source": "1088739071549001749",
+      "target": "ORA",
+      "value": 53
+    },
+    {
+      "source": "1156215844834123857",
+      "target": "ORA",
+      "value": 4
+    },
+    {
+      "source": "1307345055924617317",
+      "target": "ORA",
+      "value": 12
+    },
+    {
+      "source": "918049542421745686",
+      "target": "ORA",
+      "value": 3
+    },
+    {
+      "source": "955772325918310410",
+      "target": "ORA",
+      "value": 3
+    },
+    {
+      "source": "975653307248959498",
+      "target": "ORA",
+      "value": 3
+    },
+    {
+      "source": "996397362501124111",
+      "target": "ORA",
+      "value": 2
+    },
+    {
+      "source": "ORA",
+      "target": "@orallm",
+      "value": 66
+    },
+    {
+      "source": "ORA",
+      "target": "光円錐を使い、光速が有限であることを因果の観点から説明して",
+      "value": 2
+    },
+    {
+      "source": "ORA",
+      "target": "この画像について分析して",
+      "value": 2
+    },
+    {
+      "source": "ORA",
+      "target": "画像分析ができるの？",
+      "value": 2
+    },
+    {
+      "source": "ORA",
+      "target": "ヨネライについて検索して",
+      "value": 2
+    },
+    {
+      "source": "ORA",
+      "target": "現在のシステム状況",
+      "value": 2
+    },
+    {
+      "source": "ORA",
+      "target": "いつか肉体作って",
+      "value": 1
+    },
+    {
+      "source": "ORA",
+      "target": "ケーキ食べれるようにしてあげる",
+      "value": 1
+    },
+    {
+      "source": "ORA",
+      "target": "とクリスマス過ごします",
+      "value": 1
+    },
+    {
+      "source": "ORA",
+      "target": "23文字？",
+      "value": 1
+    }
+  ]
+}

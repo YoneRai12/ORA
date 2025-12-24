@@ -182,7 +182,7 @@ async def get_latest_conversations(user_id: str | None = None, limit: int = 20):
     except Exception as e:
         return {"ok": False, "error_code": "DB_ERROR", "error_message": str(e)}
 
-@router.get("/api/memory/graph")
+@router.get("/memory/graph")
 async def get_memory_graph():
     """Get the knowledge graph data."""
     import json

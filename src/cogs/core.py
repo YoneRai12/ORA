@@ -281,6 +281,84 @@ class CoreCog(commands.Cog):
             
         await interaction.response.send_message("\n".join(lines), ephemeral=await self._get_privacy(interaction.user.id))
 
+    @app_commands.command(name="debug_logs", description="Retrieve system logs (Admin only).")
+    @app_commands.describe(
+        stream="Log stream to retrieve (all, success, error, guild)",
+        lines="Number of lines to retrieve (default: 50)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def debug_logs(self, interaction: discord.Interaction, stream: str = "all", lines: int = 50):
+        """Retrieve recent log entries."""
+        if not self._check_admin(interaction):
+            return await interaction.response.send_message("Permission denied.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Map stream to filename
+        if stream == "guild":
+            if not interaction.guild:
+                return await interaction.followup.send("Guild logs can only be retrieved within a server.")
+            log_file = os.path.join(r"L:\ORA_Logs\guilds", f"{interaction.guild.id}.log")
+        elif stream == "success":
+            log_file = r"L:\ORA_Logs\ora_success.log"
+        elif stream == "error":
+            log_file = r"L:\ORA_Logs\ora_error.log"
+        else: # default to all
+            log_file = r"L:\ORA_Logs\ora_all.log"
+
+        if not os.path.exists(log_file):
+            return await interaction.followup.send(f"Log file not found: `{log_file}`")
+
+        try:
+            # Read last N lines efficiently
+            # For large files, reading all lines is bad. 
+            # Simple tail implementation:
+            with open(log_file, "rb") as f:
+                # Seek to end
+                f.seek(0, 2)
+                file_size = f.tell()
+                
+                # If file is empty
+                if file_size == 0:
+                    return await interaction.followup.send("Log file is empty.")
+
+                # Read backwards
+                lines_found = 0
+                block_size = 1024
+                blocks = []
+                
+                # Start from end
+                pointer = file_size
+                
+                while pointer > 0 and lines_found < lines:
+                    read_size = min(block_size, pointer)
+                    pointer -= read_size
+                    f.seek(pointer)
+                    block = f.read(read_size)
+                    blocks.append(block)
+                    lines_found += block.count(b'\n')
+                
+                # Decode and split
+                text = b"".join(reversed(blocks)).decode('utf-8', errors='ignore')
+                all_lines = text.splitlines()
+                
+                # Get last N lines
+                result_lines = all_lines[-lines:]
+                content = "\n".join(result_lines)
+
+            # Send as file if too long
+            if len(content) > 1900:
+                # Create a temporary file object in memory
+                from io import BytesIO
+                file_obj = discord.File(BytesIO(content.encode('utf-8')), filename=f"{stream}_tail.log")
+                await interaction.followup.send(f"Log Output ({stream}):", file=file_obj)
+            else:
+                await interaction.followup.send(f"Log Output ({stream}):\n```log\n{content}\n```")
+
+        except Exception as e:
+            logger.exception("Failed to read logs")
+            await interaction.followup.send(f"Failed to read logs: {e}")
+
     @commands.Cog.listener()
     async def on_app_command_completion(
         self, interaction: discord.Interaction, command: app_commands.Command[Any, Any, Any]
