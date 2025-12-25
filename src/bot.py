@@ -14,7 +14,8 @@ import aiohttp
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (Force override system vars, Explicit Path)
+load_dotenv(r"C:\Users\YoneRai12\Desktop\ORADiscordBOT-main3\.env", override=True)
 
 import discord
 from discord import app_commands
@@ -67,12 +68,18 @@ class ORABot(commands.Bot):
     async def setup_hook(self) -> None:
         # 0. Initialize Google Client (Hybrid-Cloud)
         from .utils.google_client import GoogleClient
-        if self.config.google_api_key:
-            self.google_client = GoogleClient(self.config.google_api_key)
+        from .utils.unified_client import UnifiedClient  # Import UnifiedClient
+
+        if self.config.gemini_api_key:
+            self.google_client = GoogleClient(self.config.gemini_api_key)
             logger.info("✅ GoogleClient (Gemini) Initialized.")
         else:
             self.google_client = None
             logger.warning("⚠️ GoogleClient disabled.")
+
+        # 0.5 Initialize Unified Brain (Router)
+        self.unified_client = UnifiedClient(self.config, self.llm_client, self.google_client)
+        logger.info("✅ UnifiedClient (Universal Brain) Initialized.")
 
         # 1. Initialize Shared Resources
         # Search client using SerpApi or similar

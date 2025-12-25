@@ -1,11 +1,17 @@
-
-import google.generativeai as genai
 import os
 import logging
 from typing import Optional, List, Dict, Any, Union
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
+import warnings
+
+# Suppress warnings from google.generativeai (Deprecated package)
+# MUST BE DONE BEFORE IMPORTING google.generativeai
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+warnings.filterwarnings("ignore", category=FutureWarning, module="src.utils.google_client")
+
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +44,11 @@ class GoogleClient:
         prompt: Union[str, List[Any]], 
         model_name: str = "gemini-1.5-pro",
         temperature: float = 0.7
-    ) -> str:
+    ) -> tuple[str, Optional[List[Dict[str, Any]]], Dict[str, Any]]:
         """
         Generate content using Gemini.
         Prompt can be a string or a list (for multimodal: [text, image]).
+        Returns (content, tool_calls, usage_dict)
         """
         try:
             model = genai.GenerativeModel(model_name)
@@ -58,7 +65,17 @@ class GoogleClient:
             # Track Usage
             self._update_usage(response.usage_metadata, model_name)
             
-            return response.text
+            # Construct Usage Dict (OpenAI Format)
+            usage = {
+                "prompt_tokens": response.usage_metadata.prompt_token_count,
+                "completion_tokens": response.usage_metadata.candidates_token_count,
+                "total_tokens": response.usage_metadata.total_token_count
+            }
+            
+            # TODO: Implement Tool Parsing for Gemini
+            tool_calls = None
+            
+            return response.text, tool_calls, usage
             
         except Exception as e:
             logger.error(f"GoogleClient Error: {e}")
@@ -68,18 +85,10 @@ class GoogleClient:
         self, 
         messages: List[Dict[str, str]], 
         model_name: str = "gemini-1.5-pro"
-    ) -> str:
+    ) -> tuple[str, Optional[List[Dict[str, Any]]], Dict[str, Any]]:
         """
         Chat compatible (OpenAI style messages -> Gemini history).
-        Note: Simple conversion.
         """
-        # Convert OpenAI messages to Gemini history
-        # Limitation: Multi-turn history management in pure API is complex.
-        # For now, we condense previous context or just send the last Prompt with context?
-        # Better: Use generate_content with full string context for statelessness, 
-        # or implement true ChatSession if needed.
-        # Given "Hybrid" nature, we often use Cloud for ONE-SHOT heavy tasks.
-        
         prompt_text = ""
         for m in messages:
             prompt_text += f"{m['role']}: {m['content']}\n"

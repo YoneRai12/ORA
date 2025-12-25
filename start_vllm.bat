@@ -1,6 +1,7 @@
 @echo off
 cd /d "%~dp0"
 title ORA Bot Launcher
+taskkill /F /IM python.exe >nul 2>&1
 cls
 echo ===================================================
 echo           ORA BOT - MODEL SELECTOR
@@ -9,7 +10,7 @@ echo.
 echo Please select a mode:
 echo.
 echo [1] Normal / General Use (Instruct)
-echo     - Model: Qwen3-VL-30B-A3B-Instruct
+echo     - Model: Ministral-3-14B-Instruct-2512
 echo     - Best for: Chat, Tools, Long Context
 echo.
 echo [2] Thinking / Math Use (Reasoning)
@@ -46,6 +47,9 @@ start "ORA Web API" cmd /k "L:\ORADiscordBOT_Env\Scripts\uvicorn.exe src.web.app
 
 :: Start Vision UI (Missing Component)
 start "ORA Vision UI" cmd /k "cd /d %~dp0ora-ui && npm run dev"
+:: Open Dashboard in Browser
+timeout /t 10 >nul
+start http://localhost:3333/dashboard
 
 :: Start Bot
 start "ORA Bot" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe main.py"

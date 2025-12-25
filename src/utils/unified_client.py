@@ -3,7 +3,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from .llm_client import LLMClient
 from .google_client import GoogleClient
-from .config import Config
+from src.config import Config
 
 logger = logging.getLogger("ORA.UnifiedClient")
 
@@ -25,42 +25,38 @@ class UnifiedClient:
             self.openai_client = LLMClient(
                 base_url="https://api.openai.com/v1",
                 api_key=self.config.openai_api_key,
-                model="gpt-4o-mini" # Low cost / free tier target
+                model="gpt-5-mini" # Best Performance in Stable Lane (2.5M limit)
             )
             logger.info("✅ UnifiedClient: OpenAI Adapter initialized.")
         else:
             logger.info("ℹ️ UnifiedClient: OpenAI API Key missing. OpenAI Lane disabled.")
 
-    async def chat(self, provider: str, messages: List[Dict[str, Any]], **kwargs) -> Optional[str]:
+    async def chat(self, provider: str, messages: List[Dict[str, Any]], **kwargs) -> tuple[Optional[str], Optional[List[Dict[str, Any]]], Dict[str, Any]]:
         """
         Unified chat interface.
-        provider: 'local', 'gemini_trial', 'openai', 'gemini_dev'
+        Returns: (content, tool_calls, usage_dict)
         """
         try:
             if provider == "local":
+                # Returns (content, tool_calls, usage)
                 return await self.local_llm.chat(messages, **kwargs)
             
             elif provider == "gemini_trial":
                 if not self.google_client:
                     raise RuntimeError("Gemini Client not initialized.")
-                # GoogleClient uses 'gemini-1.5-pro' by default or passed model_name
-                # We force it here or let caller decide?
-                # CostManager/Router logic dictates model usually.
                 model_name = kwargs.get("model_name", "gemini-1.5-pro")
+                # Returns (content, tool_calls, usage)
                 return await self.google_client.chat(messages, model_name=model_name)
 
             elif provider == "openai":
                 if not self.openai_client:
                     raise RuntimeError("OpenAI Client not initialized.")
-                # OpenAI Shared Tier (Chat Only)
-                # Model selection via kwargs (default handled in LLMClient if not passed)
+                # Returns (content, tool_calls, usage)
                 return await self.openai_client.chat(messages, **kwargs)
-            
-            # Add more providers here
             
             else:
                  logger.error(f"Unknown provider: {provider}")
-                 return None
+                 return None, None, {}
 
         except Exception as e:
             logger.error(f"UnifiedClient Error ({provider}): {e}")

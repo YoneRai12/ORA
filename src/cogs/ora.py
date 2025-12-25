@@ -44,6 +44,8 @@ from ..utils.ui import StatusManager, EmbedFactory
 from src.views.image_gen import AspectRatioSelectView
 from ..utils.drive_client import DriveClient
 from ..utils.desktop_watcher import DesktopWatcher
+from ..utils.cost_manager import Usage
+from src.views.onboarding import SelectModeView
 from discord.ext import tasks
 from pathlib import Path
 from duckduckgo_search import DDGS
@@ -118,6 +120,9 @@ def _nonce(length: int = 32) -> str:
 
 
 from ..managers.resource_manager import ResourceManager
+from ..utils.cost_manager import CostManager
+from ..utils.sanitizer import Sanitizer
+from ..utils.user_prefs import UserPrefs
 from ..utils.unified_client import UnifiedClient
 
 class ORACog(commands.Cog):
@@ -143,6 +148,9 @@ class ORACog(commands.Cog):
         self._watcher = DesktopWatcher()
         self._public_base_url = public_base_url
         self._ora_api_base_url = ora_api_base_url
+        
+        # Initialize Tool Definitions (Empty for now, or load defaults if needed)
+        self.tool_definitions = []
         self._privacy_default = privacy_default
         self._locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.chat_cooldowns = defaultdict(float) # User ID -> Timestamp
@@ -181,7 +189,8 @@ class ORACog(commands.Cog):
         self.desktop_loop.start()
         self.game_watcher.start()
         # Enforce Safe Model at Startup (Start LLM Context)
-        self.bot.loop.create_task(self.resource_manager.switch_context("llm"))
+        # LAZY LOAD: Disabled auto-start to save VRAM for API-only users.
+        # self.bot.loop.create_task(self.resource_manager.switch_context("llm"))
         logger.info("ORACog.__init__ complete - desktop_loop started")
 
     def cog_unload(self):
@@ -3124,6 +3133,7 @@ class ORACog(commands.Cog):
         
         # --- Phase 29: Onboarding Check ---
         if not self.user_prefs.is_onboarded(message.author.id):
+             from src.views.onboarding import SelectModeView # Local import to avoid UnboundLocalError
              view = SelectModeView(self, message.author.id)
              await message.reply(
                  "👋 **Kind of Brain?**\n"
@@ -3191,7 +3201,7 @@ class ORACog(commands.Cog):
 
 
         # 2. Privacy Check
-        await self._store.ensure_user(message.author.id, self._privacy_default)
+        await self._store.ensure_user(message.author.id, self._privacy_default, display_name=message.author.display_name)
 
         # Send initial progress message if not provided
         start_time = time.time()
@@ -3291,6 +3301,8 @@ class ORACog(commands.Cog):
             sanitized_prompt = None
             clean_messages = messages # Default to full context
             selected_route = {"provider": "local", "lane": "stable", "model": None}
+            
+            logger.info(f"🧩 [Router] User Mode: {user_mode} | Has Image: {has_image}")
 
             if user_mode == "smart":
                 # Attempt to upgrade to Cloud
@@ -3378,6 +3390,9 @@ class ORACog(commands.Cog):
                         target_provider = "local"
                 else:
                     target_provider = "local"
+                    logger.info("🧩 [Router] Skipped Smart Logic (Condition mismatch)")
+            
+            logger.info(f"🧩 [Router] Final Decision: {target_provider} | Lane: {selected_route.get('lane')} | Model: {selected_route.get('model')}")
 
             # 4. Execution
             content = None
@@ -3389,7 +3404,7 @@ class ORACog(commands.Cog):
                      await status_manager.next_step("🔥 Gemini (Vision) Analysis...")
                      rid = secrets.token_hex(4)
                      self.cost_manager.reserve("burn", "gemini_trial", message.author.id, rid, est_usage)
-                     content = await self.bot.google_client.chat(messages=clean_messages, model_name="gemini-1.5-pro")
+                     content, tool_calls, usage = await self.bot.google_client.chat(messages=clean_messages, model_name="gemini-1.5-pro")
                      self.cost_manager.commit("burn", "gemini_trial", message.author.id, rid, est_usage)
                  except Exception as e:
                      logger.error(f"Gemini Fail: {e}")
@@ -3405,34 +3420,127 @@ class ORACog(commands.Cog):
                      await status_manager.next_step(f"{icon} OpenAI Shared ({model})...")
                      
                      rid = secrets.token_hex(4)
-                     # Reserve on the specific lane
-                     # Note: CostManager needs to know the limit for 'mode_high' vs 'mode_stable'
-                     # We need to map 'mode_high' lane string to config keys?
-                     # Config says: "stable" -> openai, "stable" -> openai_high?
-                     # Let's fix Config Lane Names first.
+                     self.cost_manager.reserve(lane, "openai", message.author.id, rid, est_usage)
                      
-                     # Assuming Config has: 'stable' (Mini), 'high' (GPT-5).
-                     # I used 'mode_high' variable but Config string needs to match.
-                     # Config has: "stable" -> "openai" (2.5M), "stable" -> "openai_high" (250k).
-                     # Wait, Config structure is { LANE: { PROVIDER: LIMITS } }.
-                     # If I want two different limits for OpenAI in the SAME lane, it's tricky.
-                     # BETTER: Split Lanes in Config. 
-                     # Lane "stable" -> Mini. Lane "high" -> GPT-5.
+                     # -----------------------------------------------------
+                     # DYNAMIC TOOLING (OpenAI API Call Loop)
+                     # -----------------------------------------------------
                      
-                     # I will assume I updated Config to have 'high' lane.
+                     # 1. Select Tools
+                     # Pass 'self.tool_definitions' assuming it exists as instance attribute (from __init__)
+                     # If not, we might need access to it. Assuming it is available.
+                     candidate_tools = self._select_tools(prompt, self.tool_definitions)
                      
-                     self.cost_manager.reserve(lane, "openai", message.author.id, rid, est_usage) # Provider string 'openai' keys into usage?
+                     # 2. Format for API (Remove 'tags', wrap in 'function')
+                     openai_tools = []
+                     for t in candidate_tools:
+                         t_clean = t.copy()
+                         t_clean.pop("tags", None) # Remove non-standard field
+                         openai_tools.append({"type": "function", "function": t_clean})
                      
-                     content = await self.unified_client.chat("openai", clean_messages, model=model)
+                     if not openai_tools:
+                         openai_tools = None
+
+                     # 3. Execution Loop (ReAct / Function Calling)
+                     max_turns = 5
+                     current_turn = 0
                      
-                     self.cost_manager.commit(lane, "openai", message.author.id, rid, est_usage)
+                     while current_turn < max_turns:
+                         current_turn += 1
+                         
+                         # Call API
+                         content, tool_calls, usage = await self.unified_client.chat("openai", clean_messages, model=model, tools=openai_tools)
+                         
+                         # If response has tool calls
+                         if tool_calls:
+                             # Append Assistant Message (with tool_calls)
+                             # Note: content might be None or string. OpenAI allows content=None with tool_calls.
+                             clean_messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+                             
+                             # Notify Status
+                             await status_manager.next_step(f"🛠️ ツール実行中 ({len(tool_calls)}件)...")
+                             
+                             # Execute Each Tool
+                             for tc in tool_calls:
+                                 func = tc.get("function", {})
+                                 fname = func.get("name")
+                                 fargs_str = func.get("arguments", "{}")
+                                 call_id = tc.get("id")
+                                 
+                                 if not fname: continue
+                                 
+                                 # Parse Args
+                                 import json
+                                 try:
+                                     fargs = json.loads(fargs_str)
+                                 except:
+                                     fargs = {}
+                                     
+                                 logger.info(f"API Tool Call: {fname} args={fargs}")
+                                 
+                                 # Execute (Reuse existing _execute_tool)
+                                 try:
+                                     tool_output = await self._execute_tool(fname, fargs, message, status_manager)
+                                 except Exception as tool_err:
+                                     tool_output = f"Tool Execution Error: {tool_err}"
+                                 
+                                 # Append Tool Result
+                                 clean_messages.append({
+                                     "role": "tool",
+                                     "tool_call_id": call_id,
+                                     "name": fname,
+                                     "content": str(tool_output)
+                                 })
+                             
+                             # Loop continues to feed result back to LLM
+                             continue
+                         
+                         else:
+                     # Final Response (No more tools)
+                             # Convert usage dict to Usage object if present
+                             if usage:
+                                 # OpenAI usage dict: prompt_tokens, completion_tokens
+                                 u_in = usage.get("prompt_tokens", 0)
+                                 u_out = usage.get("completion_tokens", 0)
+                                 # Recalculate USD based on Model? For now use rough estimate or lookup
+                                 # Using rough standard (GPT-4o) for now:
+                                 # In: $2.50 / 1M = 0.0000025
+                                 # Out: $10.00 / 1M = 0.000010
+                                 # TODO: Accurate pricing per model
+                                 actual_usd = (u_in * 0.0000025) + (u_out * 0.000010)
+                                 
+                                 actual_usage_obj = Usage(tokens_in=u_in, tokens_out=u_out, usd=actual_usd)
+                                 
+                                 # Commit Actual
+                                 lane = selected_route.get("lane", "stable") # Ensure lane is set
+                                 self.cost_manager.commit(lane, "openai", message.author.id, rid, actual_usage_obj)
+                             else:
+                                 # Fallback to estimate if usage missing
+                                 lane = selected_route.get("lane", "stable")
+                                 self.cost_manager.commit(lane, "openai", message.author.id, rid, est_usage)
+
+                             break
+                     
                  except Exception as e:
+                     # self.cost_manager.commit(...) REMOVED (Done inside loop/break)
                      logger.error(f"OpenAI Fail: {e}")
                      self.cost_manager.rollback(lane, "openai", message.author.id, rid)
                      target_provider = "local"
 
             if target_provider == "local" or not content:
-                await status_manager.next_step("🏠 Local Brain (Qwen/Mithril) で思考中...")
+                # 1. Wake-on-Demand (Dynamic Resource Management)
+                rm = self.bot.get_cog("ResourceManager")
+                if rm:
+                     if not rm.is_port_open(rm.host, rm.vllm_port):
+                          await status_manager.next_step("⚙️ Local Brain (Ministral) Waking up... (~60s)")
+                          started = await rm.ensure_vllm_started()
+                          if not started:
+                              await message.reply("❌ Local Brain Start Failed. Please contact admin.")
+                              return
+                     else:
+                          await rm.ensure_vllm_started() # Reset idle timer
+
+                await status_manager.next_step("🏠 Local Brain (Ministral) で思考中...")
                 
                 # If falling back to local with an image, we need to construct the payload for vLLM/Ollama
                 if has_image and message.attachments:
@@ -3555,71 +3663,45 @@ class ORACog(commands.Cog):
                 )
             })
 
-            try:
-                # --- Phase 28: Hybrid Client Router ---
-                content = None
-                
-                # Check for Cloud Mode
-                use_cloud = False
-                if self.brain_mode == "cloud":
-                    use_cloud = True
-                elif self.brain_mode == "auto":
-                    # Smart Router (Credit Burn Strategy for Gemini)
-                    # 1. Any image attachment -> Cloud (Vision is better)
-                    # 2. Prompt length > 20 chars -> Cloud (Assume complex query)
-                    # 3. Keywords -> Cloud
-                    if len(messages) > 0 and isinstance(messages[-1]["content"], list):
-                         use_cloud = True # Multimodal
-                    elif len(prompt) > 20: 
-                         use_cloud = True # "Bang Bang" usage (Aggressive)
-                    elif any(k in prompt for k in ["詳しく", "教えて", "コード", "理由", "なぜ", "what", "how", "code", "explain"]):
-                         use_cloud = True
-
-                if use_cloud and self.bot.google_client:
-                    try:
-                        await status_manager.next_step("☁️ Google Gemini (Cloud) で思考中...")
-                        # Use Gemini 3 Pro (or Flash based on length?) - defaulting to Pro for 'God Mode'
-                        content = await self.bot.google_client.chat(messages=messages, model_name="gemini-1.5-pro") 
-                        logger.info("✅ Cloud Inference Success")
-                    except Exception as cloud_e:
-                        logger.error(f"Cloud Inference Failed: {cloud_e}")
-                        await status_manager.next_step("⚠️ Cloud Error. Switching to Local...")
-                        use_cloud = False # Fallback to local
-                
-                # Local Fallback (Default)
-                if not content:
-                    content = await self._llm.chat(messages=messages, temperature=0.7)
-                
-                # --------------------------------------
-            except Exception as e:
-                # Lazy Loading: If API is down, try to start it.
-                err_str = str(e)
-                if "ConnectorError" in err_str or "ConnectionRefused" in err_str or "connection" in err_str.lower():
-                     logger.warning(f"LLM Connection Failed: {e}. Attempting auto-start using ResourceManager.")
-                     resource_cog = self.bot.get_cog("ResourceManager")
-                     if resource_cog:
-                         if existing_status_msg:
-                            await status_manager.next_step("💤 AIサーバーの起動を開始します... (約60秒)")
-                         else:
-                            await message.reply("💤 AIサーバーが休止中です。起動しています... (少々お待ちください)", delete_after=60)
-
-                         # Attempt Start
-                         success = await resource_cog.ensure_vllm_started()
-                         
-                         if success:
+            # --- Phase 28: Hybrid Client Router (REMOVED: Conflicted with Phase 29) ---
+            # Logic merged into Phase 29 (Universal Brain Router)
+            # --------------------------------------------------------------------------
+            
+            # Additional Fallback Safety (if Phase 29 produced nothing)
+            if not content:
+                 try:
+                     # Local Fallback
+                     content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
+                 except Exception as e:
+                     # Lazy Loading / Auto-Start Logic
+                     err_str = str(e)
+                     if "ConnectorError" in err_str or "ConnectionRefused" in err_str or "connection" in err_str.lower():
+                         logger.warning(f"LLM Connection Failed: {e}. Attempting auto-start using ResourceManager.")
+                         resource_cog = self.bot.get_cog("ResourceManager")
+                         if resource_cog:
                              if existing_status_msg:
-                                 await status_manager.next_step("🔥 サーバー起動完了！生成を再開します。")
-                             # Retry Generation
-                             content = await self._llm.chat(messages=messages, temperature=0.7)
+                                await status_manager.next_step("💤 AIサーバーの起動を開始します... (約60秒)")
+                             else:
+                                await message.reply("💤 AIサーバーが休止中です。起動しています... (少々お待ちください)", delete_after=60)
+
+                             # Attempt Start
+                             success = await resource_cog.ensure_vllm_started()
+                             
+                             if success:
+                                 if existing_status_msg:
+                                     await status_manager.next_step("🔥 サーバー起動完了！生成を再開します。")
+                                 # Retry Generation
+                                 content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
+                             else:
+                                 if existing_status_msg:
+                                     await status_manager.next_step("❌ サーバー起動に失敗しました。")
+                                 return # "Error: Failed to start AI Server (vLLM). Please check logs."
                          else:
-                             if existing_status_msg:
-                                 await status_manager.next_step("❌ サーバー起動に失敗しました。")
-                             return "Error: Failed to start AI Server (vLLM). Please check logs."
+                             logger.error("ResourceManager Cog not found!")
+                             raise
                      else:
-                         logger.error("ResourceManager Cog not found!")
-                         raise
-                else:
-                    raise
+                        raise
+
             logger.info(f"🔍 [RAW_LLM_OUTPUT] Length: {len(content)}\n{content}\n--------------------------------")
             
             # Legacy Router Block Removed

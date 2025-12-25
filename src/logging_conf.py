@@ -14,13 +14,13 @@ L_LOG_DIR = r"L:\ORA_Logs"
 class ISO8601UTCFormatter(logging.Formatter):
     """Formatter that outputs timestamps in ISO-8601 UTC."""
 
-    converter = time.gmtime
+    converter = time.localtime
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:  # noqa: N802
         formatted = super().formatTime(record, datefmt=datefmt)
         if record.msecs:
-            return f"{formatted}.{int(record.msecs):03d}Z"
-        return f"{formatted}Z"
+            return f"{formatted}.{int(record.msecs):03d}"
+        return f"{formatted}"
 
 class MaxLevelFilter(logging.Filter):
     """Filter that only allows records BELOW OR EQUAL to a certain level."""

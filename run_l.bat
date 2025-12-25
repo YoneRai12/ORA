@@ -15,6 +15,8 @@ start "ORA Web API" cmd /k "L:\ORADiscordBOT_Env\Scripts\uvicorn.exe src.web.app
 
 echo Starting ORA Vision UI...
 start "ORA Vision UI" cmd /k "cd ora-ui && npm run dev"
+timeout /t 10 >nul
+start http://localhost:3333/dashboard
 
 echo Starting ComfyUI (FLUX.2 Engine)...
 start "ComfyUI" cmd /k "cd /d L:\ComfyUI && L:\ORADiscordBOT_Env\Scripts\python.exe main.py --listen 127.0.0.1 --port 8188 --normalvram --disable-cuda-malloc --enable-cors-header * --force-fp16"

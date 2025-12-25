@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import asyncio
 import subprocess
 import socket
@@ -14,6 +14,11 @@ class ResourceManager(commands.Cog):
         self.vllm_process = None
         self.is_starting_vllm = False
         self._lock = asyncio.Lock()
+        
+        # Dynamic Management
+        self.last_activity = time.time()
+        self.idle_timeout = 300  # 5 minutes
+        self.idle_monitor.start()
 
     def is_port_open(self, host, port):
         try:
@@ -23,8 +28,14 @@ class ResourceManager(commands.Cog):
         except:
             return False
 
+    def update_activity(self):
+        """Call this when vLLM is used to reset the idle timer."""
+        self.last_activity = time.time()
+
     async def ensure_vllm_started(self):
         """Checks if vLLM is running. If not, starts it."""
+        self.update_activity() # Reset timer on request
+
         async with self._lock:
             # 1. Fast Check
             if self.is_port_open(self.host, self.vllm_port):
@@ -40,15 +51,12 @@ class ResourceManager(commands.Cog):
                 return False
 
             self.is_starting_vllm = True
-            print("[ResourceManager] vLLM Server is DOWN. Igniting engines...")
+            print("[ResourceManager] vLLM Server is DOWN (Idle Mode). Waking up Ministral 14B...")
             
-            # 3. Notify Discord (Optional/Visual)
-            # await self._notify_channel("🔥 AIサーバーを起動しています... (最大2分)")
-
             try:
-                # 4. Launch Service (Gaming Mode by Default)
+                # 4. Launch Service (Ministral 14B - Instruct)
                 # Use 'start' to detach properly on Windows
-                bat_path = os.path.abspath("start_vllm_gaming.bat")
+                bat_path = os.path.abspath("start_vllm_instruct.bat")
                 if not os.path.exists(bat_path):
                     print(f"[ResourceManager] Critical: {bat_path} not found!")
                     self.is_starting_vllm = False
@@ -79,10 +87,39 @@ class ResourceManager(commands.Cog):
                 self.is_starting_vllm = False
                 return False
 
-    async def _notify_channel(self, message):
-        # Notify the default debug channel if possible, or all active channels
-        # This is tricky without context. For now, we rely on logs/status.
-        pass
+    async def stop_vllm(self):
+        """Stops the vLLM process to save resources."""
+        if not self.is_port_open(self.host, self.vllm_port):
+            return # Already stopped
+
+        print("[ResourceManager] Idle timeout reached. Stopping vLLM (Ministral 14B)...")
+        try:
+            # 1. Kill the WSL process specifically
+            subprocess.run(["wsl", "-d", "Ubuntu-22.04", "pkill", "-f", "vllm.entrypoints.openai.api_server"], 
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+            
+            # 2. Close the CMD window (by title set in batch file)
+            subprocess.run(["taskkill", "/F", "/FI", "WINDOWTITLE eq ORA vLLM Server (INSTRUCT - Default)"], 
+                           creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+            
+            print("[ResourceManager] vLLM Stopped.")
+        except Exception as e:
+            print(f"[ResourceManager] Error stopping vLLM: {e}")
+
+    @tasks.loop(seconds=60)
+    async def idle_monitor(self):
+        """Checks for idle state and stops vLLM if needed."""
+        if time.time() - self.last_activity > self.idle_timeout:
+            # Only stop if it's actually running
+            if self.is_port_open(self.host, self.vllm_port):
+                await self.stop_vllm()
+
+    @idle_monitor.before_loop
+    async def before_idle_monitor(self):
+        await self.bot.wait_until_ready()
+
+    def cog_unload(self):
+        self.idle_monitor.cancel()
 
 async def setup(bot):
     await bot.add_cog(ResourceManager(bot))

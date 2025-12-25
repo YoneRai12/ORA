@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List, Dict
 
 
 # --- Cost Management Constants ---
-COST_TZ = "Asia/Tokyo"
+COST_TZ = "UTC"
 STATE_DIR = r"L:\ORA_State"
 
 # Burn Lane: Gemini Trial ($300 limit)
@@ -97,6 +97,11 @@ class Config:
     # Stable Diffusion Configuration
     sd_api_url: str
     
+    # Gaming Mode
+    gaming_processes: List[str]
+    model_modes: Dict[str, str]
+    router_thresholds: Dict[str, float]
+
     # External API Keys (Phase 29)
     openai_api_key: Optional[str]
     gemini_api_key: Optional[str] # Already loaded as GOOGLE_API_KEY in env, but good to have here?
@@ -174,6 +179,14 @@ class Config:
         
         # Google Cloud (Gemini API)
         google_api_key = os.getenv("GOOGLE_API_KEY")
+
+        # OpenAI Configuration (Explicit Load & Debug)
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+             masked = f"{openai_key[:8]}...{openai_key[-4:]}" if len(openai_key) > 10 else "INVALID"
+             print(f"DEBUG: Loaded OpenAI Key: {masked}")
+        else:
+             print("DEBUG: OpenAI Key is NONE or EMPTY")
 
         # Speech-to-text configuration
         stt_model = os.getenv("STT_MODEL", "tiny")

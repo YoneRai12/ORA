@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS users (
   google_sub TEXT,
   privacy TEXT NOT NULL DEFAULT 'private',
   speak_search_progress INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  points INTEGER DEFAULT 0,
+  display_name TEXT
 );
 CREATE TABLE IF NOT EXISTS login_states (
   state TEXT PRIMARY KEY,
@@ -65,7 +67,13 @@ class Store:
             try:
                 await db.execute("ALTER TABLE users ADD COLUMN points INTEGER DEFAULT 0")
             except Exception:
-                pass # Column likely exists or other error (ignored for now as we want to proceed)
+                pass # Column likely exists
+            
+            # Migration: Ensure display_name column exists
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+            except Exception:
+                pass
 
             await db.commit()
 
@@ -178,6 +186,7 @@ class Store:
         privacy_default: str,
         *,
         speak_search_progress_default: int | None = None,
+        display_name: str | None = None,
     ) -> None:
         """Ensure the user row exists with default privacy and search progress settings.
 
@@ -185,18 +194,28 @@ class Store:
             discord_user_id: Discord user ID as integer.
             privacy_default: Default privacy mode ('private' or 'public').
             speak_search_progress_default: Optional default value for search progress speaking (0 or 1).
+            display_name: Optional Discord username/display name.
         """
         now = int(time.time())
         # When not provided, fallback to 0
         sp_default = int(speak_search_progress_default or 0)
         async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
-                (
-                    "INSERT INTO users(discord_user_id, privacy, speak_search_progress, created_at) "
-                    "VALUES(?, ?, ?, ?) ON CONFLICT(discord_user_id) DO NOTHING"
-                ),
-                (str(discord_user_id), privacy_default, sp_default, now),
-            )
+            if display_name:
+                await db.execute(
+                    (
+                        "INSERT INTO users(discord_user_id, privacy, speak_search_progress, created_at, display_name) "
+                        "VALUES(?, ?, ?, ?, ?) ON CONFLICT(discord_user_id) DO UPDATE SET display_name=excluded.display_name"
+                    ),
+                    (str(discord_user_id), privacy_default, sp_default, now, display_name),
+                )
+            else:
+                await db.execute(
+                    (
+                        "INSERT INTO users(discord_user_id, privacy, speak_search_progress, created_at) "
+                        "VALUES(?, ?, ?, ?) ON CONFLICT(discord_user_id) DO NOTHING"
+                    ),
+                    (str(discord_user_id), privacy_default, sp_default, now),
+                )
             await db.commit()
 
     async def set_privacy(self, discord_user_id: int, mode: str) -> None:
