@@ -101,6 +101,9 @@ async def robust_json_request(
                             
                 except asyncio.CancelledError:
                     raise # Propagate immediately
+                except RuntimeError as re:
+                    # Don't retry RuntimeErrors (which include our 4xx non-retryable errors)
+                    raise re
                 except Exception as e:
                     last_err = e
                     logger.warning(f"Request failed (Attempt {attempt}/{max_attempts}): {e}")
@@ -134,37 +137,155 @@ class LLMClient:
         self._model = model
         self._session = session
 
-    async def chat(self, messages: List[Dict[str, Any]], temperature: float = 0.7, **kwargs) -> str:
-        url = f"{self._base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._api_key}",
-        }
-        
+    async def chat(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.7, **kwargs) -> tuple[Optional[str], Optional[List[Dict[str, Any]]], Dict[str, Any]]:
         # Allow model override
         model_name = kwargs.get("model", self._model)
         
-        payload: Dict[str, Any] = {
-            "model": model_name,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": False,
-        }
+        # Determine Endpoint and Payload Structure
+        is_next_gen = any(x in model_name for x in ["gpt-5", "o1", "o3"])
+        
+        if is_next_gen:
+            # New "v1/responses" Endpoint (Agentic)
+            url = f"{self._base_url}/responses"
+            
+            # Convert Messages to Input/Instructions
+            # "instructions" = System Prompt
+            # "input" = User/Assistant Conversation
+            instructions = ""
+            input_msgs = []
+            
+            for m in messages:
+                if m["role"] == "system":
+                    instructions += m["content"] + "\n"
+                else:
+                    input_msgs.append(m)
+            
+            payload: Dict[str, Any] = {
+                "model": model_name,
+                "input": input_msgs,
+            }
+            if instructions.strip():
+                payload["instructions"] = instructions.strip()
+
+        else:
+            # Standard "v1/chat/completions" Endpoint
+            url = f"{self._base_url}/chat/completions"
+            payload: Dict[str, Any] = {
+                "model": model_name,
+                "messages": messages,
+                "stream": False,
+            }
+            # Omit temperature if None (required for o1/gpt-5 models if they used old endpoint, but next-gen branch handles it differently)
+            if temperature is not None:
+                payload["temperature"] = temperature
+
+        # Inject Tools (Common to both)
+        if "tools" in kwargs:
+            payload["tools"] = kwargs["tools"]
+        if "tool_choice" in kwargs:
+            payload["tool_choice"] = kwargs["tool_choice"]
         
         # Use provided session or create temporary one
         if self._session:
             try:
-                data = await robust_json_request(self._session, "POST", url, headers=headers, json_data=payload)
-                return str(data["choices"][0]["message"]["content"])
-            except (KeyError, IndexError, TypeError) as exc:
-                raise RuntimeError("LLM応答の形式が不正です。") from exc
+                # Debug Logging
+                logger.debug(f"Req: {url} | Model: {model_name} | NextGen: {is_next_gen}")
+                
+                data = await robust_json_request(self._session, "POST", url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=payload)
+                
+                # Check for wrapped error (OpenAI sometimes returns 200 OK with error body?)
+                # Usually robust_json_request handles status codes.
+                if "error" in data:
+                     raise RuntimeError(f"API Returned Error: {data['error']}")
+                
+                try:
+                    msg_data = data["choices"][0]["message"]
+                    content = msg_data.get("content")
+                except KeyError:
+                     # If 'choices' missing, log the structure for debugging
+                     logger.error(f"Invalid API Response Keys: {list(data.keys())} | Raw: {str(data)[:200]}...")
+                     raise
+                tool_calls = msg_data.get("tool_calls")
+                usage = data.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                return content, tool_calls, usage
+
+            except Exception as e:
+                # 404 Fallback Logic for v1/responses
+                # If we hit 404 on chat/completions but message says "use v1/responses", retry!
+                err_str = str(e).lower()
+                if "404" in err_str and "v1/responses" in err_str and not is_next_gen:
+                    logger.warning(f"Caught 404 indicating endpoint mismatch for {model_name}. Retrying with /responses...")
+                    # Recursive call? Or just manually construct
+                    # Let's recurse but FORCE next_gen treatment? 
+                    # Actually, better to just modify logic. But simplest is to act like is_next_gen=True here.
+                    
+                    # Manually switch URL and Payload specific to this fallback
+                    new_url = f"{self._base_url}/responses"
+                    
+                    # Convert Payload
+                    instructions = ""
+                    input_msgs = []
+                    for m in messages:
+                        if m["role"] == "system":
+                            instructions += m["content"] + "\n"
+                        else:
+                            input_msgs.append(m)
+                    
+                    new_payload = {
+                        "model": model_name,
+                        "input": input_msgs
+                    }
+                    if instructions.strip():
+                        new_payload["instructions"] = instructions.strip()
+                    if "tools" in kwargs:
+                        new_payload["tools"] = kwargs["tools"]
+                        
+                    # Retry Request
+                    data = await robust_json_request(self._session, "POST", new_url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=new_payload)
+                    
+                    if data.get("object") == "response":
+                         logger.info(f"DEBUG v1/responses KEYS: {list(data.keys())}")
+                         logger.info(f"DEBUG v1/responses USAGE: {data.get('usage')}")
+                         content = data.get("output")
+                         if isinstance(content, list):
+                             content = "".join([str(c) for c in content])
+                         return content, None, data.get("usage", {})
+                         
+                    msg_data = data["choices"][0]["message"]
+                    return msg_data.get("content"), msg_data.get("tool_calls"), data.get("usage", {})
+
+                raise RuntimeError(f"LLM request failed ({model_name}): {exc}") from exc
         else:
             async with aiohttp.ClientSession() as session:
                 try:
-                    data = await robust_json_request(session, "POST", url, headers=headers, json_data=payload)
-                    return str(data["choices"][0]["message"]["content"])
-                except (KeyError, IndexError, TypeError) as exc:
-                    raise RuntimeError("LLM応答の形式が不正です。") from exc
+                    data = await robust_json_request(session, "POST", url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=payload)
+                    
+                    if data.get("error"):
+                        raise RuntimeError(f"API Returned Error: {data['error']}")
+                    
+                    if data.get("object") == "response":
+                        # New v1/responses Schema
+                        logger.info(f"DEBUG v1/responses Keys: {list(data.keys())}")
+                        logger.info(f"DEBUG v1/responses Usage: {data.get('usage')}")
+                        content = data.get("output")
+                        if isinstance(content, list):
+                             content = "".join([str(c) for c in content])
+                        
+                        tool_calls = None 
+                        usage = data.get("usage", {})
+                        return content, tool_calls, usage
+
+                    try:
+                        msg_data = data["choices"][0]["message"]
+                        content = msg_data.get("content")
+                        tool_calls = msg_data.get("tool_calls")
+                        usage = data.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                        return content, tool_calls, usage
+                    except (KeyError, IndexError, TypeError) as exc:
+                        logger.error(f"Invalid API Response Keys: {list(data.keys())} | Raw: {str(data)[:200]}...")
+                        raise RuntimeError(f"LLM応答の形式が不正です ({model_name}): {exc}") from exc
+                except Exception as e:
+                    raise e
 
     async def unload_model(self) -> None:
         """Attempt to unload the model from VRAM (LM Studio / Ollama)."""

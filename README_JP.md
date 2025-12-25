@@ -57,6 +57,23 @@ ORAは、あなたのハードウェア上でローカル動作する **完全�
 
 ---
 
+## 🆕 Update v3.9 (2025/12/26)
+
+### 📊 ダッシュボードの刷新 (ORA System Refresh)
+システムの状態を一目で把握できる新しいダッシュボードUIを実装しました。
+- **Active Processing**: 現在推論中のユーザーをリアルタイムで青く点滅表示 (Top-Left)。
+- **Token Tracking**: `GPT-5.1` を含む全モデルのトークン使用量を正確に追跡。
+- **Privacy Safe Mode**: スクリーンショット用に個人情報を隠すモードを搭載。
+
+![Dashboard v3.9](docs/dashboard_v3.9.png)
+
+### 🧠 GPT-5.1 Codex Mini 対応
+OpenAIの最新モデル `gpt-5.1-codex-mini` へのルーティングに対応。
+- 従来の `v1/chat/completions` ではなく、新しい `v1/responses` エンドポイントを自動で使用します。
+- 複雑な推論タスクやコーディングにおいて、劇的な精度向上を実現。
+
+---
+
 ## 💡 実用例 (ユースケース)
 
 | シナリオ | ORAはどう役立つ？ |

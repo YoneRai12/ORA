@@ -7,6 +7,7 @@ from google.auth.transport import requests as g_requests
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List
+from datetime import datetime
 import uuid
 
 router = APIRouter()
@@ -196,3 +197,353 @@ async def get_memory_graph():
         return {"ok": True, "data": {"nodes": [], "links": []}}
     except Exception as e:
         return {"ok": False, "error_code": "READ_ERROR", "error_message": str(e)}
+
+@router.get("/dashboard/usage")
+async def get_dashboard_usage():
+    """Get global cost usage stats from CostManager state file (Aggregated)."""
+    import json
+    from pathlib import Path
+    
+    state_path = Path("L:/ORA_State/cost_state.json")
+    
+    # Default Structure
+    response_data = {
+        "total_usd": 0.0,
+        "daily_tokens": {
+            "high": 0,
+            "stable": 0,
+            "burn": 0
+        },
+        "last_reset": ""
+    }
+    
+    if not state_path.exists():
+         return {"ok": True, "data": response_data, "message": "No cost state found"}
+         
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+
+        # Helper to Sum Usage
+        def add_usage(bucket_key: str, bucket_data: dict, target_data: dict):
+            # bucket_data structure: {"used": {"tokens_in": X, "tokens_out": Y, "usd": Z}, ...}
+            # target_data: The specific dict in response_data (daily_tokens or lifetime_tokens)
+            
+            used = bucket_data.get("used", {})
+            tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0)
+            usd = used.get("usd", 0.0)
+            
+            # Add to proper lane
+            if bucket_key.startswith("high:"):
+                target_data["high"] += tokens
+            elif bucket_key.startswith("stable:"):
+                target_data["stable"] += tokens
+            elif bucket_key.startswith("burn:"):
+                target_data["burn"] += tokens
+            elif bucket_key.startswith("optimization:"):
+                if "optimization" not in target_data:
+                    target_data["optimization"] = 0
+                target_data["optimization"] += tokens
+
+            # Add to OpenAI Sum (for verifying against Dashboard)
+            # RELAXED CHECK: If it contains 'openai' OR is an optimization lane (usually API)
+            # We want to capture ALL API usage in this sum for the user.
+            if ":openai" in bucket_key or "optimization" in bucket_key or "high" in bucket_key:
+                # Exclude local manually if needed, but usually local doesn't use these lanes in CostManager
+                if "openai_sum" in target_data:
+                   target_data["openai_sum"] += tokens
+                else:
+                   target_data["openai_sum"] = tokens
+            
+            return usd
+
+        # Default Structure
+        response_data = {
+            "total_usd": 0.0,
+            "daily_tokens": {
+                "high": 0, "stable": 0, "burn": 0
+            },
+            "lifetime_tokens": {
+                "high": 0, "stable": 0, "burn": 0, "optimization": 0, "openai_sum": 0
+            },
+            "last_reset": datetime.now().isoformat()
+        }
+
+        # 1. Process Global Buckets (Current - Daily)
+        for key, bucket in raw_data.get("global_buckets", {}).items():
+            usd_gain = add_usage(key, bucket, response_data["daily_tokens"])
+            # Daily OpenAI Sum isn't strictly needed unless we want "Today's OpenAI Tokens"
+            # But let's keep it clean
+            response_data["total_usd"] += usd_gain
+            
+        # 1b. Process Global History (Lifetime)
+        # First, add Today's usage to Lifetime
+        for key, bucket in raw_data.get("global_buckets", {}).items():
+            add_usage(key, bucket, response_data["lifetime_tokens"])
+        
+        # Then, add History to Lifetime
+        for key, history_list in raw_data.get("global_history", {}).items():
+            for bucket in history_list:
+                usd_gain = add_usage(key, bucket, response_data["lifetime_tokens"])
+                response_data["total_usd"] += usd_gain # Accumulate lifetime USD? Or just daily USD?
+                # Burn limit is cumulative, so let's track ALL usage USD here for "Lifetime USD".
+                # But "Current Burn Limit" might need separate logic. 
+                # For this dashboard view, "Total Spend" implies Lifetime.
+
+        # 2. Process User Buckets (Main Source of Truth for Dashboard)
+        # We assume User Buckets contain the breakdown.
+        # To avoid double counting with Global (if it existed), we rely on Users here or use max.
+        # Given Global seems empty/desynced, we add User usage to valid totals.
+        
+        for user_buckets in raw_data.get("user_buckets", {}).values():
+            for key, bucket in user_buckets.items():
+                usd_gain = add_usage(key, bucket, response_data["daily_tokens"])
+                
+                # Accumulate Total USD from Users
+                response_data["total_usd"] += usd_gain
+                
+                # CRITICAL FIX: Also aggregate User Usage into Lifetime Tokens
+                # This ensures that if Global History is missing/desynced, the Dashboard still shows the sum of known users.
+                # add_usage adds to the target dict.
+                add_usage(key, bucket, response_data["lifetime_tokens"])
+                
+        # 2b. User History Loop (to catch past usage not in current user_buckets)
+        for user_hists in raw_data.get("user_history", {}).values():
+             for key, hist_list in user_hists.items():
+                 for bucket in hist_list:
+                     add_usage(key, bucket, response_data["lifetime_tokens"])
+                
+                # Update Lifetime with User data too? 
+                # If we trust user buckets, we should ensure they feed into lifetime view if needed.
+                # But lifetime_tokens loop (1b) looked at Global History.
+                # If Global History is empty, user history won't be seen.
+                # For now, fixing "Current Estimated Cost" (total_usd) is the priority.
+
+        # 2b. User History (Not needed for system total, but good for individual stats below)
+        pass
+
+        return {"ok": True, "data": response_data}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.get("/dashboard/history")
+async def get_dashboard_history():
+    """Get historical usage data (timeline) and model breakdown."""
+    import json
+    from pathlib import Path
+    
+    state_path = Path("L:/ORA_State/cost_state.json")
+    if not state_path.exists():
+        return {"ok": False, "error": "No cost state found"}
+
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+            
+        timeline = {} # "YYYY-MM-DD" -> {high, stable, optimization, usd}
+        breakdown = {} # "high" -> {"openai": 100, "total": 100}
+
+        def process_bucket(key, bucket, date_str):
+            # 1. Update Timeline
+            if date_str not in timeline:
+                timeline[date_str] = {"date": date_str, "high": 0, "stable": 0, "optimization": 0, "burn": 0, "usd": 0.0}
+            
+            t_data = timeline[date_str]
+            used = bucket.get("used", {})
+            tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0)
+            usd = used.get("usd", 0.0)
+            
+            t_data["usd"] += usd
+            
+            key_lower = key.lower()
+            lane = "unknown"
+            if key_lower.startswith("high"):
+                t_data["high"] += tokens
+                lane = "high"
+            elif key_lower.startswith("stable"):
+                t_data["stable"] += tokens
+                lane = "stable"
+            elif key_lower.startswith("optimization"):
+                t_data["optimization"] += tokens
+                lane = "optimization"
+            elif key_lower.startswith("burn"):
+                t_data["burn"] += tokens
+                lane = "burn"
+
+            # 2. Update Breakdown (Total Lifetime)
+            if lane not in breakdown:
+                breakdown[lane] = {"total": 0}
+            
+            breakdown[lane]["total"] += tokens
+            
+            # Extract Provider/Model (Format: lane:provider:model)
+            parts = key_lower.split(":")
+            if len(parts) >= 2:
+                provider = parts[1]
+                # If model is present, maybe use it? For now just provider.
+                model = parts[2] if len(parts) > 2 else "default"
+                label = f"{provider} ({model})"
+                
+                if label not in breakdown[lane]:
+                    breakdown[lane][label] = 0
+                breakdown[lane][label] += tokens
+
+        # Process History
+        for key, hist_list in raw_data.get("global_history", {}).items():
+            for bucket in hist_list:
+                process_bucket(key, bucket, bucket["day"])
+
+        # Process Current (Today)
+        for key, bucket in raw_data.get("global_buckets", {}).items():
+             process_bucket(key, bucket, bucket["day"])
+
+        # Convert timeline to sorted list
+        sorted_timeline = sorted(timeline.values(), key=lambda x: x["date"])
+
+        return {"ok": True, "data": {"timeline": sorted_timeline, "breakdown": breakdown}}
+        
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.get("/dashboard/users")
+async def get_dashboard_users():
+    """Get list of users with display names and stats from Memory JSONs."""
+    import json
+    import os
+    import aiofiles
+    from pathlib import Path
+    
+    MEMORY_DIR = Path("L:/ORA_Memory/users")
+    users = []
+
+    try:
+        if MEMORY_DIR.exists():
+            for method_file in MEMORY_DIR.glob("*.json"):
+                try:
+                    uid = method_file.stem # Filename without extension = User ID
+                    
+                    async with aiofiles.open(method_file, "r", encoding="utf-8") as f:
+                        content = await f.read()
+                        data = json.loads(content)
+                        
+                        # Optimization Points: Traits count or summary length?
+                        # Let's show trait count as "Points" for now, or just return traits.
+                        traits = data.get("traits", [])
+                        
+                        users.append({
+                            "discord_user_id": uid,
+                            "display_name": data.get("name", "Unknown"),
+                            "created_at": data.get("last_updated", ""), # Use last update
+                            "points": len(traits), # Mock points
+                            # Status Priority: Explicit DB value -> Trait presence -> Pending
+                            "status": data.get("status", "Optimized" if len(traits) > 0 else "Pending"),
+                            "impression": data.get("impression", None)
+                        })
+                except Exception as e:
+                    print(f"Error reading user file {method_file}: {e}")
+
+        # 2. Merge with Cost Data (Aggregated) & Find Missing Users
+        state_path = Path("L:/ORA_State/cost_state.json")
+        cost_data = {}
+        if state_path.exists():
+             with open(state_path, "r", encoding="utf-8") as f:
+                cost_data = json.load(f)
+
+        existing_ids = {u["discord_user_id"] for u in users}
+        
+        # Check for users who have cost activity but NO memory file yet (Processing)
+        all_user_buckets = cost_data.get("user_buckets", {})
+        for uid in all_user_buckets:
+            if uid not in existing_ids:
+                users.append({
+                    "discord_user_id": uid,
+                    "display_name": f"User {uid}"[:12] + "...", # Placeholder until memory created
+                    "created_at": "",
+                    "points": 0,
+                    "status": "Pending", # Force Pending for active users without profile
+                    "impression": "Processing..."
+                })
+                existing_ids.add(uid) # Prevent dupes if logic changes
+                
+        # 3. Calculate Cost Usage for ALL Users
+        for u in users:
+            uid = u["discord_user_id"]
+                    
+            # Default Structure
+            u["cost_usage"] = {"high": 0, "stable": 0, "burn": 0, "total_usd": 0.0}
+            
+            if uid in all_user_buckets:
+                user_specific_buckets = all_user_buckets[uid]
+                for key, bucket in user_specific_buckets.items():
+                    used = bucket.get("used", {})
+                    tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0)
+                    cost = used.get("usd", 0.0)
+                    
+                    u["cost_usage"]["total_usd"] += cost
+
+                    bucket_key_lower = key.lower()
+                    if bucket_key_lower.startswith("high"):
+                        u["cost_usage"]["high"] += tokens
+                    elif bucket_key_lower.startswith("stable"):
+                        u["cost_usage"]["stable"] += tokens
+                    elif bucket_key_lower.startswith("burn"):
+                        u["cost_usage"]["burn"] += tokens
+                    elif bucket_key_lower.startswith("optimization"):
+                        if "optimization" not in u["cost_usage"]:
+                            u["cost_usage"]["optimization"] = 0
+                        u["cost_usage"]["optimization"] += tokens
+
+                    
+                    # Detect Provider
+                    # key pattern: lane:provider:model or similar
+                    parts = bucket_key_lower.split(":")
+                    if len(parts) >= 2:
+                        provider = parts[1]
+                        if "providers" not in u:
+                            u["providers"] = set()
+                        u["providers"].add(provider)
+                    
+            # Determine Mode
+            providers = u.get("providers", set())
+            if "openai" in providers:
+                u["mode"] = "API (Paid)"
+            elif "local" in providers or "gemini_trial" in providers:
+                u["mode"] = "Private (Local/Free)"
+            else:
+                u["mode"] = "Unknown"
+            
+            
+            # Clean up set for JSON
+            if "providers" in u:
+                del u["providers"]
+            
+            # Force Pending status? NO. Only if they strictly lack a profile (handled above).
+            # If they have usage but no profile: they were added as Pending.
+            # If they have usage AND profile: status comes from profile (Optimized/Idle).
+            pass
+        
+        return {"ok": True, "data": users}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.get("/dashboard/users/{user_id}")
+async def get_user_details(user_id: str):
+    """Get full details for a specific user (traits, history, context)."""
+    import aiofiles
+    import json
+    from pathlib import Path
+    
+    MEMORY_DIR = Path("L:/ORA_Memory/users")
+    path = MEMORY_DIR / f"{user_id}.json"
+    
+    if not path.exists():
+        return {"ok": False, "error": "User profile not found"}
+        
+    try:
+        async with aiofiles.open(path, "r", encoding="utf-8") as f:
+            content = await f.read()
+            data = json.loads(content)
+            return {"ok": True, "data": data}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

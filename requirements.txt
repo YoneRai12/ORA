@@ -38,3 +38,5 @@ mss
 pycaw
 comtypes
 psutil
+google-generativeai
+openai

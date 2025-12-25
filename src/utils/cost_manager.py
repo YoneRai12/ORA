@@ -50,6 +50,12 @@ class CostManager:
         self.timezone = pytz.timezone(COST_TZ)
         self.global_buckets: Dict[str, Bucket] = {} # key = f"{lane}:{provider}"
         self.user_buckets: Dict[str, Dict[str, Bucket]] = {} # user_id -> (key -> Bucket)
+        
+        # New: History Storage
+        # Structure: key -> List[Bucket]
+        self.global_history: Dict[str, list[Bucket]] = {} 
+        self.user_history: Dict[str, Dict[str, list[Bucket]]] = {}
+
         self._load_state()
 
     def _get_current_time_keys(self):
@@ -71,10 +77,18 @@ class CostManager:
             # Restore Global Buckets
             for k, v in data.get("global_buckets", {}).items():
                 self.global_buckets[k] = self._dict_to_bucket(v)
+            
+            # Restore Global History
+            for k, v_list in data.get("global_history", {}).items():
+                self.global_history[k] = [self._dict_to_bucket(b) for b in v_list]
 
             # Restore User Buckets
             for user_id, user_data in data.get("user_buckets", {}).items():
                 self.user_buckets[user_id] = {k: self._dict_to_bucket(v) for k, v in user_data.items()}
+
+            # Restore User History
+            for user_id, user_hist_data in data.get("user_history", {}).items():
+                self.user_history[user_id] = {k: [self._dict_to_bucket(b) for b in v_list] for k, v_list in user_hist_data.items()}
                 
             logger.info("Cost state loaded successfully.")
         except Exception as e:
@@ -94,7 +108,9 @@ class CostManager:
         try:
             data = {
                 "global_buckets": {k: asdict(v) for k, v in self.global_buckets.items()},
-                "user_buckets": {uid: {k: asdict(v) for k, v in ubuckets.items()} for uid, ubuckets in self.user_buckets.items()}
+                "global_history": {k: [asdict(b) for b in v] for k, v in self.global_history.items()},
+                "user_buckets": {uid: {k: asdict(v) for k, v in ubuckets.items()} for uid, ubuckets in self.user_buckets.items()},
+                "user_history": {uid: {k: [asdict(b) for b in v] for k, v in uhists.items()} for uid, uhists in self.user_history.items()}
             }
             with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -110,16 +126,19 @@ class CostManager:
             user_str = str(user_id)
             if user_str not in self.user_buckets:
                 self.user_buckets[user_str] = {}
+            if user_str not in self.user_history:
+                self.user_history[user_str] = {}
+            
             target_map = self.user_buckets[user_str]
+            history_map = self.user_history[user_str]
         else:
             target_map = self.global_buckets
+            history_map = self.global_history
+
+        if bucket_key not in history_map:
+            history_map[bucket_key] = []
 
         bucket = target_map.get(bucket_key)
-
-        # Reset if day/month changed (Basic Logic: If saved day != current day, reset daily counters? 
-        # Actually user wants "Daily Limit" resets. 
-        # For simplicity, if the bucket definition of 'day' is different, we rotate.
-        # But we need to keep monthly usage if month is same.
         
         if bucket is None:
             bucket = Bucket(day=day_key, month=month_key)
@@ -127,53 +146,28 @@ class CostManager:
         else:
             # Check for Day Reset
             if bucket.day != day_key:
-                # Reset daily stats (reserved/used for day)
-                # NOTE: Simpler to just create new bucket but carry over monthly if needed?
-                # For now, let's keep it simple: Create new bucket implies 0 usage.
-                # BUT this drops monthly usage if we just new() it.
-                # So we must verify month.
+                # Archive old bucket if it has usage
+                if bucket.used.tokens_in > 0 or bucket.used.tokens_out > 0 or bucket.used.usd > 0.0:
+                    history_map[bucket_key].append(bucket)
                 
-                if bucket.month != month_key:
-                    # New Month -> Reset Everything
-                     bucket = Bucket(day=day_key, month=month_key)
-                else:
-                    # Same Month, New Day -> Keep Monthly stats? 
-                    # The current structure has 'used' as a single Usage object. It doesn't split daily/monthly.
-                    # To support "Monthly Limits" distinct from "Daily Limits", we ideally need separate counters.
-                    # HOWEVER, the 'Bucket' definition implies it represents the specific Day/Month.
-                    # Let's adjust: We will carry over 'usd' if 'total_usd' is the limit type (Burn Lane).
-                    # For Stable Lane, we usually care about daily limits resetting. Monthly limits are separate.
-                    
-                    # Refinement based on user spec:
-                    # User said: "Day/Month Reset in JST automatically"
-                    # If I replace the bucket, I lose previous days' data (allows accumulation for monthly?)
-                    # State Design decision: We are only tracking "Current Usage against Limits". 
-                    # If monthly limit exists, we need sum of usage for this month.
-                    # MVP: Let's assume 'used' tracks current DAY usage. 
-                    # We might need a separate mechanism for Monthly totals if we want to enforce them strictly.
-                    # OR, we just log it and rely on the fact that if day != today, we reset daily counters.
-                    
-                    # Wait, for "Burn Lane", total_usd is cumulative across forever (or until $300).
-                    # So for Burn Lane, we should NEVER reset based on time, unless explicitly managed?
-                    # Let's stick to the config:
-                    # "gemini_trial": { "total_usd": 300.0 }
-                    
-                    if lane == "burn":
-                         # Dont reset usage for burn lane, just update date markers?
-                         bucket.day = day_key
-                         bucket.month = month_key
-                    else:
-                        # For Stable, we want daily reset.
-                        # Do we track monthly? Yes. "monthly_tokens": 1_500_000
-                        # This simple Bucket model makes monthly tracking hard if we reset daily.
-                        # MVP Fix: Just track "Cumulative for Month" in a separate field? 
-                        # Or rely on Persistent Storage of *Past* buckets to calc monthly? Too slow.
-                        
-                        # Let's modify Usage to split?
-                        # No, let's just make Bucket have 'monthly_used' and 'daily_used'.
-                        pass # See below for modification.
-            
+                # Create new bucket
+                # Check for carrying over Burn Lane/Monthly limits?
+                # User Policy: "Main is Today's Usage". 
+                # History tracks accumulation.
+                # Burn Lane limits are total_usd. We need to check HISTORY for strict Burn Limits.
+                # But for now, we just reset the day.
+                
+                bucket = Bucket(day=day_key, month=month_key)
+                
+                # Special Case: Burn Lane Persistence (if we want to NEVER reset it?)
+                # Config says "total_usd": 300.0. This implies cumulative.
+                # If we reset daily, we lose track of total.
+                # So we must sum history + current to check limit.
+                
                 target_map[bucket_key] = bucket
+            
+                # Note: We don't check month reset specifically because day reset implies it.
+                # History will contain "2024-12-31" and "2025-01-01".
 
         return bucket
 
@@ -222,7 +216,7 @@ class CostManager:
         bucket.last_update_iso = datetime.now(self.timezone).isoformat()
         self._save_state()
 
-    def commit(self, lane: Lane, provider: Provider, user_id: Optional[int], reservation_id: str, actual: Usage) -> None:
+    def commit(self, lane: Lane, provider: Provider, user_id: Optional[int], reservation_id: str, actual: Usage) -> float:
         est = self._reservations.pop(reservation_id, None)
         bucket = self._get_or_create_bucket(lane, provider, user_id)
         
@@ -232,6 +226,8 @@ class CostManager:
         
         bucket.last_update_iso = datetime.now(self.timezone).isoformat()
         self._save_state()
+        
+        return bucket.used.usd
 
     def rollback(self, lane: Lane, provider: Provider, user_id: Optional[int], reservation_id: str, mode: Literal["release","keep"]="release") -> None:
         """
@@ -257,4 +253,22 @@ class CostManager:
             
         bucket.last_update_iso = datetime.now(self.timezone).isoformat()
         self._save_state()
+
+    def add_cost(self, lane: Lane, provider: Provider, user_id: Optional[int], usage: Usage) -> float:
+        """
+        Directly add cost (used for background tasks like memory optimization).
+        """
+        bucket = self._get_or_create_bucket(lane, provider, user_id)
+        bucket.used.add(usage)
+        bucket.last_update_iso = datetime.now(self.timezone).isoformat()
+
+        # Also update Global Bucket if this was a user-specific add
+        if user_id is not None:
+            global_bucket = self._get_or_create_bucket(lane, provider, None)
+            global_bucket.used.add(usage)
+            global_bucket.last_update_iso = datetime.now(self.timezone).isoformat()
+        
+        self._save_state()
+        logger.info(f"CostAdded: {lane}:{provider} user={user_id} used={usage}")
+        return bucket.used.usd
 

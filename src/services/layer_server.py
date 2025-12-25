@@ -6,6 +6,7 @@ import uvicorn
 import zipfile
 import logging
 import time
+import asyncio
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import Response
 from PIL import Image
