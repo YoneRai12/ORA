@@ -55,6 +55,23 @@ ORA is a **fully autonomous AI Operating System** running locally on your hardwa
 
 ---
 
+## 🆕 Update v3.9 (2025/12/26)
+
+### 📊 Dashboard Refresh (ORA System Refresh)
+Implemented a new dashboard UI for at-a-glance system status.
+- **Active Processing**: Real-time **Cyan** highlighting for the user currently being processed (Top-Left).
+- **Token Tracking**: Accurate token usage tracking for all models including `GPT-5.1`.
+- **Privacy Safe Mode**: Hides personal information for screenshots.
+
+![Dashboard v3.9](docs/dashboard_v3.9.png)
+
+### 🧠 GPT-5.1 Codex Mini Support
+Added routing support for OpenAI's latest model, `gpt-5.1-codex-mini`.
+- Automatically uses the new `v1/responses` endpoint instead of the traditional `v1/chat/completions`.
+- Dramatically improves accuracy for complex reasoning tasks and coding.
+
+---
+
 ## 💡 Practical Use Cases
 
 | Scenario | How ORA Helps |
