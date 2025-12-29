@@ -16,9 +16,8 @@ STATE_DIR = r"L:\ORA_State"
 # Stable Lane: OpenAI Shared (gp-4o-mini: 2.5M tokens/day!)
 # High Lane: OpenAI Shared High (gpt-4o: 250k tokens/day)
 # BYOK Lane: User Keys (Optional Limits)
-# Burn Lane: Gemini Trial ($300 limit)
-# High Lane: OpenAI Shared High (gpt-5.1/Codex: 250k tokens/day)
-# Stable Lane: OpenAI Shared Low (gpt-5.1-mini: 2.5M tokens/day)
+# High Lane: OpenAI Shared High (gpt-5.1: 250k tokens/day)
+# Stable Lane: OpenAI Shared Low (gpt-5-mini: 2.5M tokens/day)
 # BYOK Lane: User Keys (Optional Limits)
 COST_LIMITS = {
   "high": {
@@ -57,7 +56,7 @@ COST_LIMITS = {
 ROUTER_CONFIG = {
     "coding_model": "gpt-5.1-codex",
     "high_intel_model": "gpt-5.1",
-    "standard_model": "gpt-5.1-codex-mini",
+    "standard_model": "gpt-5-mini",
     "vision_model": "gemini-2.0-flash-exp",
     "coding_keywords": ["コード", "実装", "バグ", "エラー", "修正", "関数", "変数", "API", "python", "javascript", "program"],
     "high_intel_keywords": ["解説", "詳しく", "理由", "分析", "なぜ", "とは", "比較", "設計"],
@@ -183,7 +182,7 @@ class Config:
         # OpenAI Configuration (Explicit Load & Debug)
         openai_key = os.getenv("OPENAI_API_KEY")
         if openai_key:
-             masked = f"{openai_key[:8]}...{openai_key[-4:]}" if len(openai_key) > 10 else "INVALID"
+             masked = f"{openai_key[:8]}...{openai_key[-4:]}" if len(openai_key) > 10 else "SHORT/INVALID"
              print(f"DEBUG: Loaded OpenAI Key: {masked}")
         else:
              print("DEBUG: OpenAI Key is NONE or EMPTY")

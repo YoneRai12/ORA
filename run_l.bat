@@ -11,8 +11,12 @@ echo Killing previous instances...
 taskkill /F /IM python.exe >nul 2>&1
 
 echo Starting ORA Web API...
-start "ORA Web API" cmd /k "L:\ORADiscordBOT_Env\Scripts\uvicorn.exe src.web.app:app --reload --port 8000"
+start "ORA Web API" cmd /k "L:\ORADiscordBOT_Env\Scripts\uvicorn.exe src.web.app:app --reload --host 0.0.0.0 --port 8000"
 
+echo Starting Ngrok Tunnel & Dashboard...
+start "Ngrok" cmd /k "ngrok http 3333"
+timeout /t 3 >nul
+:: Launch ORA Dashboard as requested
 echo Starting ORA Vision UI...
 start "ORA Vision UI" cmd /k "cd ora-ui && npm run dev"
 timeout /t 10 >nul
@@ -27,8 +31,9 @@ echo Starting Helper Services...
 start "Voice Engine (Port 8002)" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe src/services/voice_server.py"
 start "Layer Service (Port 8003)" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe src/services/layer_server.py"
 
-echo Starting Bot...
+echo Starting Bots...
 start "ORA Bot" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe main.py"
+start "ORA Worker Bot" cmd /k "L:\ORADiscordBOT_Env\Scripts\python.exe src/worker_bot.py"
 
 echo ========================================================
 echo ✅ All services launched successfully!

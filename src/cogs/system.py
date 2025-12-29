@@ -6,6 +6,9 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional, Literal
 import psutil
+from discord.ext import tasks
+import os
+
 
 # Audio control
 try:
@@ -52,7 +55,78 @@ class SystemCog(commands.Cog):
             except Exception as e:
                 logger.warning(f"Failed to initialize system audio control: {e}")
                 self.volume_interface = None
+        
+        # Start Discord State Sync (for Dashboard)
+        try:
+            self.sync_discord_state.start()
+        except RuntimeError:
+            pass # Already running
 
+    def cog_unload(self):
+        self.sync_discord_state.cancel()
+
+    @tasks.loop(seconds=5)
+    async def sync_discord_state(self):
+        """Dump Discord State (Presence/Names/Guilds) to JSON for the Web API."""
+        await self.bot.wait_until_ready()
+        try:
+            state_path = r"L:\ORA_State\discord_state.json"
+            # Structure: users (presence), guilds (id->name map)
+            data = {"users": {}, "guilds": {}, "last_updated": ""}
+            
+            for guild in self.bot.guilds:
+                # Store Guild Info
+                data["guilds"][str(guild.id)] = guild.name
+                
+                for member in guild.members:
+                    # Priority: Online > Idle > DND > Offline
+                    status = str(member.status)
+                    uid = str(member.id)
+                    
+
+                    # Banner Logic: Guild Banner > Global Banner
+                    banner_hash = None
+                    if hasattr(member, 'banner') and member.banner:
+                        banner_hash = member.banner.key
+                    
+                    if not banner_hash:
+                         # Try Global Banner from Cache
+                         cached_user = self.bot.get_user(member.id)
+                         if cached_user and cached_user.banner:
+                             banner_hash = cached_user.banner.key
+
+                    if uid not in data["users"]:
+                        data["users"][uid] = {
+                            "name": member.display_name,
+                            "status": status,
+                            "guild_id": str(guild.id),
+                            "avatar": member.display_avatar.key if member.display_avatar else None,
+                            "banner": banner_hash,
+                            "is_bot": member.bot,
+                            "is_nitro": bool(member.premium_since or member.display_avatar.is_animated())
+                        }
+                    else:
+                        # Update if 'online' overrides 'offline' (unlikely but safe)
+                        if status != "offline" and data["users"][uid]["status"] == "offline":
+                            data["users"][uid]["status"] = status
+                            data["users"][uid]["guild_id"] = str(guild.id) # Update guild ref to active one
+                            # Also update banner if we found one now and didn't have one before?
+                            if banner_hash and not data["users"][uid]["banner"]:
+                                 data["users"][uid]["banner"] = banner_hash
+                            
+            import json
+            import aiofiles
+            from datetime import datetime
+            
+            data["last_updated"] = datetime.now().isoformat()
+            
+            # Atomic Write via overwrite
+            async with aiofiles.open(state_path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(data, ensure_ascii=False))
+                
+        except Exception as e:
+             logger.error(f"sync_discord_state Error: {e}")
+             pass 
 
     def _check_admin(self, interaction: discord.Interaction) -> bool:
         admin_id = self.bot.config.admin_user_id
@@ -173,6 +247,19 @@ class SystemCog(commands.Cog):
         except Exception as e:
             logger.exception(f"Failed to reload {target}")
             await interaction.followup.send(f"❌ 再読み込みに失敗しました: {e}", ephemeral=True)
+
+    @app_commands.command(name="resend_dashboard", description="ダッシュボードURLを再送信します (Admin Only)")
+    async def resend_dashboard(self, interaction: discord.Interaction):
+        if not self._check_admin(interaction):
+            await interaction.response.send_message("⛔ 権限がありません。", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.bot._notify_ngrok_url()
+            await interaction.followup.send("✅ ダッシュボードURLの再送信処理を実行しました。")
+        except Exception as e:
+            await interaction.followup.send(f"❌ エラーが発生しました: {e}")
 
     def _clamp_int(self, value: int, lo: int, hi: int) -> int:
         try:

@@ -1,5 +1,11 @@
-
 import os
+import sys
+
+# Add project root to path for cross-module imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
 import io
 import torch
 import uvicorn

@@ -70,9 +70,9 @@ class MediaCog(commands.Cog):
         """Check if Opus and PyNaCl are available."""
         try:
             import nacl
-            logger.info(f"PyNaCl available: {nacl.__version__}")
+            logger.info(f"PyNaCl 検出: {nacl.__version__}")
         except ImportError:
-            logger.critical("PyNaCl is MISSING. Voice will FAIL.")
+            logger.critical("PyNaCl が見つかりません。ボイス機能は使用できません。")
 
         if not discord.opus.is_loaded():
             import os
@@ -81,15 +81,15 @@ class MediaCog(commands.Cog):
                 try:
                     dll_path = os.path.abspath('libopus-0.x64.dll')
                     discord.opus.load_opus(dll_path)
-                    logger.info(f"Opus loaded successfully from {dll_path}")
+                    logger.info(f"Opus ライブラリをロードしました: {dll_path}")
                 except Exception:
                     # Fallback to standard filename
                     dll_path = os.path.abspath('libopus-0.dll')
                     discord.opus.load_opus(dll_path)
-                    logger.info(f"Opus loaded successfully from {dll_path}")
+                    logger.info(f"Opus ライブラリをロードしました: {dll_path}")
             except Exception as e:
-                logger.critical(f"Opus Library NOT FOUND. Voice will TIMEOUT. error={e}")
-                logger.critical("Please download 'libopus-0.dll' (64-bit) to the bot root directory.")
+                logger.critical(f"Opus ライブラリが見つかりません。ボイス機能がタイムアウトする可能性があります。 error={e}")
+                logger.critical("'libopus-0.dll' (64-bit) をBotのルートディレクトリに配置してください。")
 
 
     async def _ephemeral_for(self, user: discord.abc.User, override: Optional[bool] = None) -> bool:
@@ -235,7 +235,7 @@ class MediaCog(commands.Cog):
             data = await file.read()
             text = image_tools.ocr_image(data)
         except Exception as exc:
-            logger.exception("OCR failed", exc_info=exc)
+            logger.exception("OCR処理に失敗しました", exc_info=exc)
             await interaction.followup.send(str(exc), ephemeral=send_ephemeral)
             return
         # Speak result if the user has enabled narration
@@ -264,7 +264,7 @@ class MediaCog(commands.Cog):
             data = await file.read()
             classification = image_tools.classify_image(data)
         except Exception as exc:
-            logger.exception("Image classification failed", exc_info=exc)
+            logger.exception("画像分類に失敗しました", exc_info=exc)
             await interaction.followup.send(str(exc), ephemeral=send_ephemeral)
             return
         speak_prog = await self._store.get_speak_search_progress(interaction.user.id)
@@ -283,7 +283,7 @@ class MediaCog(commands.Cog):
         query = command.strip()
         if not query:
             return
-        logger.info("Hotword detected from %s: %s", member, query)
+        logger.info("ホットワード検出 (%s): %s", member, query)
         # Use the search client directly; do not send via Slash Command context
         if not self._search_client.enabled:
             await self._voice_manager.play_tts(member, "検索機能が利用できません")
@@ -291,7 +291,7 @@ class MediaCog(commands.Cog):
         try:
             results = await self._search_client.search(query)
         except Exception:
-            logger.exception("Hotword search failed")
+            logger.exception("ホットワード検索エラー")
             await self._voice_manager.play_tts(member, "検索中にエラーが発生しました")
             return
         if not results:
@@ -549,7 +549,7 @@ class MediaCog(commands.Cog):
             try:
                 await voice_client.disconnect()
             except Exception:
-                logger.exception("Failed to disconnect from voice channel")
+                logger.exception("ボイスチャンネルからの切断に失敗しました")
         await interaction.followup.send("自動読み上げを停止しました。", ephemeral=send_ephemeral)
 
     # ------------------------------------------------------------------
@@ -589,7 +589,7 @@ class MediaCog(commands.Cog):
         if not should_read:
             return
         
-        logger.info(f"Reading message: {message.clean_content}")
+        logger.info(f"読み上げ: {message.clean_content}")
         # Play the message content via TTS
         try:
             played = await self._voice_manager.play_tts(message.author, message.clean_content)
@@ -647,7 +647,7 @@ class MediaCog(commands.Cog):
                  minutes = int(duration / 60)
                  if minutes > 0:
                      await self._store.add_points(member.id, minutes)
-                     logger.info(f"Awarded {minutes} points to {member.display_name} for VC duration.")
+                     logger.info(f"{member.display_name} にVC参加ボーナス {minutes} ポイントを付与しました。")
 
         # 2. Auto-Disconnect Logic (existing)
         # Only care about users leaving a channel
@@ -667,7 +667,7 @@ class MediaCog(commands.Cog):
         
         # If only bots are left (or the channel is empty), disconnect
         if len(non_bot_members) == 0:
-            logger.info(f"Auto-disconnecting from {bot_channel.name} - no users left")
+            logger.info(f"無人になったため {bot_channel.name} から自動切断します")
             await member.guild.voice_client.disconnect()
             # Also clear auto-read for this guild
             self._voice_manager.auto_read_channels.pop(member.guild.id, None)
@@ -704,7 +704,7 @@ class MediaCog(commands.Cog):
             return
 
         # Translate using LLM
-        logger.info(f"Translating message {message.id} to {country_name} (Flag: {emoji})")
+        logger.info(f"メッセージ {message.id} を {country_name} に翻訳中 (国旗: {emoji})")
         
         prompt = (
             f"Translate the following text to the primary language spoken in {country_name}.\n"
@@ -719,7 +719,7 @@ class MediaCog(commands.Cog):
             translated_text = await self._llm_client.chat(messages, temperature=0.3)
             await message.reply(f"{emoji} {translated_text}", mention_author=False)
         except Exception as e:
-            logger.error(f"Translation failed: {e}")
+            logger.error(f"翻訳失敗: {e}")
             await channel.send(f"{emoji} 翻訳に失敗しました。", delete_after=5)
             await message.reply(f"{emoji} {translated_text}", mention_author=False)
         except Exception as e:

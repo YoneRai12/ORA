@@ -140,10 +140,12 @@ class LLMClient:
     async def chat(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.7, **kwargs) -> tuple[Optional[str], Optional[List[Dict[str, Any]]], Dict[str, Any]]:
         # Allow model override
         model_name = kwargs.get("model", self._model)
-        
         # Determine Endpoint and Payload Structure
-        is_next_gen = any(x in model_name for x in ["gpt-5", "o1", "o3"])
-        
+        # We treat 'o1' and 'o3' as next_gen (v1/responses) ONLY if specifically configured?
+        # User feedback indicates gpt-5.1 etc should use Standard Endpoint but NO temperature.
+        # So we remove "gpt-5" from this check.
+        is_next_gen = any(x in model_name for x in ["o1-", "o3-"]) and "gpt-5" not in model_name
+
         if is_next_gen:
             # New "v1/responses" Endpoint (Agentic)
             url = f"{self._base_url}/responses"
@@ -170,20 +172,69 @@ class LLMClient:
         else:
             # Standard "v1/chat/completions" Endpoint
             url = f"{self._base_url}/chat/completions"
+            
+            # Message Role Mapping (system -> developer for o1/gpt-5)
+            should_map_developer = any(x in model_name for x in ["gpt-5", "o1", "o3"])
+            final_messages = []
+            if should_map_developer:
+                for m in messages:
+                    new_m = m.copy()
+                    if new_m.get("role") == "system":
+                        new_m["role"] = "developer"
+                    final_messages.append(new_m)
+            else:
+                 final_messages = messages
+
             payload: Dict[str, Any] = {
                 "model": model_name,
-                "messages": messages,
+                "messages": final_messages,
                 "stream": False,
             }
-            # Omit temperature if None (required for o1/gpt-5 models if they used old endpoint, but next-gen branch handles it differently)
-            if temperature is not None:
+            # Omit temperature if None OR if model is reasoning/future type (gpt-5, o1, o3)
+            # User specifically said "requests are rejected because temperature is included".
+            should_omit_temp = any(x in model_name for x in ["gpt-5", "o1", "o3"])
+            
+            
+            if temperature is not None and not should_omit_temp:
                 payload["temperature"] = temperature
+            
+            # Parameter Mapping regarding Tokens for Standard Endpoint (o1/gpt-5)
+            # They use 'max_completion_tokens' instead of 'max_tokens'
+            if should_omit_temp: # Reusing this flag as it targets the same models
+                 if "max_tokens" in kwargs:
+                     kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
 
-        # Inject Tools (Common to both)
-        if "tools" in kwargs:
-            payload["tools"] = kwargs["tools"]
-        if "tool_choice" in kwargs:
-            payload["tool_choice"] = kwargs["tool_choice"]
+        # Inject Tools and other kwargs (Common to both)
+        # We exclude keys already handled or standard internally (model, messages, input, instructions)
+        excluded_keys = {"model", "messages", "input", "instructions", "temperature", "stream"}
+        
+        # Parameter Mapping for v1/responses
+        if is_next_gen:
+            # Responses API uses 'max_output_tokens' instead of 'max_tokens' or 'max_completion_tokens'
+            if "max_tokens" in kwargs:
+                kwargs["max_output_tokens"] = kwargs.pop("max_tokens")
+            if "max_completion_tokens" in kwargs:
+                kwargs["max_output_tokens"] = kwargs.pop("max_completion_tokens")
+
+        # Flatten tool schema for v1/responses endpoint (Agentic)
+        # Some endpoints (like gpt-5/o1 proxies) expect 'name' and 'type' at the same level.
+        if is_next_gen and "tools" in kwargs:
+            flattened_tools = []
+            for t in kwargs["tools"]:
+                if isinstance(t, dict) and t.get("type") == "function" and "function" in t:
+                    # Flatten 'function' fields into the top level while keeping 'type'
+                    new_tool = t.copy()
+                    func_data = new_tool.pop("function")
+                    if isinstance(func_data, dict):
+                        new_tool.update(func_data)
+                    flattened_tools.append(new_tool)
+                else:
+                    flattened_tools.append(t)
+            kwargs["tools"] = flattened_tools
+
+        for k, v in kwargs.items():
+            if k not in excluded_keys:
+                payload[k] = v
         
         # Use provided session or create temporary one
         if self._session:
@@ -254,7 +305,7 @@ class LLMClient:
                     msg_data = data["choices"][0]["message"]
                     return msg_data.get("content"), msg_data.get("tool_calls"), data.get("usage", {})
 
-                raise RuntimeError(f"LLM request failed ({model_name}): {exc}") from exc
+                raise RuntimeError(f"LLM request failed ({model_name}): {e}") from e
         else:
             async with aiohttp.ClientSession() as session:
                 try:
@@ -269,7 +320,47 @@ class LLMClient:
                         logger.info(f"DEBUG v1/responses Usage: {data.get('usage')}")
                         content = data.get("output")
                         if isinstance(content, list):
-                             content = "".join([str(c) for c in content])
+                             # v1/responses returns a list of objects (Reasoning, Message, etc.)
+                             # We only want the TEXT content from the Message object
+                             try:
+                                 logger.debug(f"DEBUG v1/responses OUTPUT LIST: {str(content)[:500]}")
+                             except: pass
+
+                             final_text = ""
+                             for item in content:
+                                 if isinstance(item, dict):
+                                     # Debug unknown types - FORCE LOGGING
+                                     logger.warning(f"DEBUG v1/responses ITEM: {str(item)[:10000]}")
+                                     
+                                     # Ultra Greedy: Check ANY dict for content/text
+                                     # Try "content"
+                                     if "content" in item:
+                                         msg_content = item["content"]
+                                         if isinstance(msg_content, list):
+                                             for part in msg_content:
+                                                 if isinstance(part, str):
+                                                     final_text += part
+                                                 elif isinstance(part, dict):
+                                                     # Greedy: grab text/content from part
+                                                     # Logged type was 'output_text', so we check for 'text' field which it had.
+                                                     final_text += part.get("text", "") or part.get("content", "")
+                                         elif isinstance(msg_content, str):
+                                             final_text += msg_content
+                                     
+                                     # Try "text" field directly
+                                     elif "text" in item:
+                                         final_text += item["text"]
+                                     
+                                     # Option B: Item IS a content part
+                                     elif item.get("type") == "text":
+                                          final_text += item.get("text", "")
+                                          
+                                 elif isinstance(item, str):
+                                     final_text += item
+                             
+                             # DEBUG: Increase log limit for visibility
+                             logger.debug(f"Combined Text Length: {len(final_text)}")
+                             content = final_text
                         
                         tool_calls = None 
                         usage = data.get("usage", {})

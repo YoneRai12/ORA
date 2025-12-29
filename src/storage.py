@@ -100,7 +100,7 @@ class Store:
                 test_file.unlink()
                 target_dir = l_drive_path
             except Exception as e:
-                logger.warning(f"L: drive found but not writable, falling back to local: {e}")
+                logger.warning(f"L: ドライブは存在しますが書き込みできません。ローカルに保存します: {e}")
                 local_backup_path.mkdir(exist_ok=True)
         else:
             local_backup_path.mkdir(exist_ok=True)
@@ -144,15 +144,15 @@ class Store:
                     if os.path.exists(final_path):
                         os.remove(final_path) # Should not happen with timestamp
                     os.replace(temp_path, final_path)
-                    logger.info(f"Backup successful: {final_path}")
+                    logger.info(f"バックアップ成功: {final_path}")
                     return True
                 else:
-                    logger.error(f"Backup integrity check failed: {result}")
+                    logger.error(f"バックアップ整合性チェック失敗: {result}")
                     os.replace(temp_path, corrupt_path)
                     return False
                     
             except Exception as e:
-                logger.error(f"Backup failed: {e}")
+                logger.error(f"バックアップ失敗: {e}")
                 if os.path.exists(temp_path):
                     try:
                         os.replace(temp_path, corrupt_path)
@@ -174,11 +174,11 @@ class Store:
                 for old_file in files[5:]:
                     try:
                         old_file.unlink()
-                        logger.info(f"Rotated old backup: {old_file.name}")
+                        logger.info(f"古いバックアップを削除しました: {old_file.name}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete old backup {old_file.name}: {e}")
+                        logger.warning(f"古いバックアップの削除に失敗しました {old_file.name}: {e}")
             except Exception as e:
-                logger.warning(f"Backup rotation failed: {e}")
+                logger.warning(f"バックアップローテーションに失敗しました: {e}")
 
     async def ensure_user(
         self,

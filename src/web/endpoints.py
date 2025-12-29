@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
 
 from google_auth_oauthlib.flow import Flow
@@ -350,8 +350,9 @@ async def get_dashboard_history():
             
             t_data = timeline[date_str]
             used = bucket.get("used", {})
-            tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0)
-            usd = used.get("usd", 0.0)
+            reserved = bucket.get("reserved", {})
+            tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0) + reserved.get("tokens_in", 0) + reserved.get("tokens_out", 0)
+            usd = used.get("usd", 0.0) + reserved.get("usd", 0.0)
             
             t_data["usd"] += usd
             
@@ -406,8 +407,12 @@ async def get_dashboard_history():
         return {"ok": False, "error": str(e)}
 
 @router.get("/dashboard/users")
-async def get_dashboard_users():
+async def get_dashboard_users(response: Response):
     """Get list of users with display names and stats from Memory JSONs."""
+    # Force No-Cache to ensure real-time updates
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     import json
     import os
     import aiofiles
@@ -415,6 +420,16 @@ async def get_dashboard_users():
     
     MEMORY_DIR = Path("L:/ORA_Memory/users")
     users = []
+
+    # 1. Load Discord State (Presence/Names/Guilds) FIRST
+    discord_state_path = Path("L:/ORA_State/discord_state.json")
+    discord_state = {"users": {}, "guilds": {}}
+    if discord_state_path.exists():
+        try:
+            with open(discord_state_path, "r", encoding="utf-8") as f:
+                discord_state = json.load(f)
+        except Exception:
+            pass # Sync might be writing
 
     try:
         if MEMORY_DIR.exists():
@@ -426,58 +441,167 @@ async def get_dashboard_users():
                         content = await f.read()
                         data = json.loads(content)
                         
-                        # Optimization Points: Traits count or summary length?
-                        # Let's show trait count as "Points" for now, or just return traits.
                         traits = data.get("traits", [])
                         
-                        users.append({
-                            "discord_user_id": uid,
-                            "display_name": data.get("name", "Unknown"),
-                            "created_at": data.get("last_updated", ""), # Use last update
-                            "points": len(traits), # Mock points
-                            # Status Priority: Explicit DB value -> Trait presence -> Pending
-                            "status": data.get("status", "Optimized" if len(traits) > 0 else "Pending"),
-                            "impression": data.get("impression", None)
-                        })
+                        # Respect saved status
+                        raw_status = data.get("status", "Optimized" if len(traits) > 0 else "New")
+
+                        real_discord_id = data.get("discord_user_id", uid.split("_")[0])
+                        
+                        # Resolve Name/Guild if missing/unknown
+                        display_name = data.get("name", "Unknown")
+                        guild_name = data.get("guild_name", "Unknown Server")
+                        
+                        # Fallback to Discord State if data is stale/missing
+                        d_user = discord_state["users"].get(real_discord_id, {})
+                        if display_name in ["Unknown", ""] or display_name.startswith("User "):
+                             if d_user.get("name"):
+                                 display_name = d_user["name"]
+
+                        if guild_name == "Unknown Server":
+                            # Try to find guild from file name if possible (UID_GID)
+                            parts = uid.split("_")
+                            if len(parts) == 2:
+                                gid = parts[1]
+                                if gid in discord_state.get("guilds", {}):
+                                    guild_name = discord_state["guilds"][gid]
+                            
+                            # Try to find guild from discord_state user info
+                            if guild_name == "Unknown Server":
+                                 d_user = discord_state["users"].get(real_discord_id, {})
+                                 gid = d_user.get("guild_id")
+                                 if gid and gid in discord_state.get("guilds", {}):
+                                     guild_name = discord_state["guilds"][gid]
+
+                        # Deduplication Check
+                        # If we already have this (real_id, guild_name) tuple, keep the one with more points/optimized status
+                        entry = {
+                            "discord_user_id": method_file.stem,
+                            "real_user_id": real_discord_id, 
+                            "display_name": display_name,
+                            "created_at": data.get("last_updated", ""), 
+                            "points": len(traits), 
+                            "message_count": data.get("message_count", len(data.get("last_context", []))),
+                            "status": raw_status,
+                            "impression": data.get("impression", None),
+                            "guild_name": guild_name,
+                            "banner": data.get("banner", None), # Fetch from JSON
+                            "traits": traits, # Expose traits for frontend
+                            "is_nitro": d_user.get("is_nitro", False), # Expose Nitro status
+                            # URLs will be injected in Step 3
+                            "_sort_score": (1 if raw_status.lower() == "optimized" else 0) * 1000 + len(traits)
+                        }
+                        users.append(entry)
                 except Exception as e:
                     print(f"Error reading user file {method_file}: {e}")
 
-        # 2. Merge with Cost Data (Aggregated) & Find Missing Users
+        # 2. Merge with Cost Data & Find Ghost Users
         state_path = Path("L:/ORA_State/cost_state.json")
         cost_data = {}
         if state_path.exists():
              with open(state_path, "r", encoding="utf-8") as f:
                 cost_data = json.load(f)
+                
+        # Use a set of REAL User IDs to prefer checking existence logic
+        existing_real_ids = set()
+        for u in users:
+            uid = str(u.get("real_user_id", u["discord_user_id"]))
+            existing_real_ids.add(uid)
 
-        existing_ids = {u["discord_user_id"] for u in users}
-        
-        # Check for users who have cost activity but NO memory file yet (Processing)
+        # 2a. Check for users who have cost activity but NO memory file yet
         all_user_buckets = cost_data.get("user_buckets", {})
         for uid in all_user_buckets:
-            if uid not in existing_ids:
+            # Check if this user (by real_user_id) is already in our list from memory files
+            # We need to handle composite IDs (UID_GID) vs simple UIDs
+            real_uid_from_bucket = uid.split("_")[0] # Extract real UID from potential UID_GID
+            if str(real_uid_from_bucket) not in existing_real_ids:
+                # Try to resolve Name/Guild from Discord State
+                d_user = discord_state["users"].get(real_uid_from_bucket, {})
+                display_name = d_user.get("name", f"User {real_uid_from_bucket}"[:12] + "...")
+                
+                guild_id = d_user.get("guild_id")
+                # Resolve Guild Name from ID
+                guild_name = "Unknown Server"
+                if guild_id and guild_id in discord_state.get("guilds", {}):
+                    guild_name = discord_state["guilds"][guild_id]
+                
                 users.append({
-                    "discord_user_id": uid,
-                    "display_name": f"User {uid}"[:12] + "...", # Placeholder until memory created
+                    "discord_user_id": uid, # Keep original bucket ID for cost lookup
+                    "real_user_id": real_uid_from_bucket, # Use real UID for deduplication
+                    "display_name": display_name,
                     "created_at": "",
                     "points": 0,
-                    "status": "Pending", # Force Pending for active users without profile
-                    "impression": "Processing..."
+                    "status": "New", 
+                    "impression": None,
+                    "guild_name": guild_name,
+                    "guild_id": guild_id,
+                    "discord_status": d_user.get("status", "offline")
                 })
-                existing_ids.add(uid) # Prevent dupes if logic changes
+                existing_real_ids.add(str(real_uid_from_bucket)) # Add real UID to set
                 
-        # 3. Calculate Cost Usage for ALL Users
+        # 2b. Add Purely Online Users (No Memory, No Cost) - Requested by User
+        for uid, d_user in discord_state.get("users", {}).items():
+            if str(uid) not in existing_real_ids:
+                # Add only if not already present via Memory or Cost
+                guild_id = d_user.get("guild_id")
+                guild_name = "Unknown Server"
+                if guild_id and guild_id in discord_state.get("guilds", {}):
+                    guild_name = discord_state["guilds"][guild_id]
+
+                users.append({
+                    "discord_user_id": uid,
+                    "real_user_id": uid,
+                    "display_name": d_user.get("name", "Unknown"),
+                    "created_at": "",
+                    "points": 0,
+                    "status": "New",
+                    "impression": None,
+                    "guild_name": guild_name,
+                    "guild_id": guild_id,
+                    "discord_status": d_user.get("status", "offline"),
+                    "is_bot": d_user.get("is_bot", False)
+                })
+                existing_real_ids.add(str(uid))
+                
+        # 3. Calculate Cost Usage for ALL Users & Inject Presence
         for u in users:
             uid = u["discord_user_id"]
-                    
+            
+            # Inject Presence using REAL ID (Fix for uid_gid mismatch)
+            target_uid = str(u.get("real_user_id", uid))
+            d_user = discord_state["users"].get(target_uid, {})
+            u["discord_status"] = d_user.get("status", "offline")
+            
+            # Ensure is_bot is present (fallback to discord_state if not set in earlier steps)
+            if "is_bot" not in u:
+                u["is_bot"] = d_user.get("is_bot", False)
+            
+            # Fix Name if "Unknown" and we have data
+            if u["display_name"] == "Unknown" and d_user.get("name"):
+                u["display_name"] = d_user.get("name")
+            
+            # Inject URLs
+            if not u.get("avatar_url"):
+                u["avatar_url"] = f"https://cdn.discordapp.com/avatars/{target_uid}/{d_user.get('avatar')}.png" if d_user.get("avatar") else None
+            
+            # Banner Prioritization: JSON (Global/Memory) > Discord State (Live)
+            banner_key = u.get("banner") or d_user.get("banner")
+            u["banner_url"] = f"https://cdn.discordapp.com/banners/{target_uid}/{banner_key}.png" if banner_key else None
             # Default Structure
             u["cost_usage"] = {"high": 0, "stable": 0, "burn": 0, "total_usd": 0.0}
             
-            if uid in all_user_buckets:
-                user_specific_buckets = all_user_buckets[uid]
+            target_id = uid
+            # If composite ID (UID_GID) is not in bucket, try real_user_id (UID)
+            if target_id not in all_user_buckets and "real_user_id" in u:
+                target_id = u["real_user_id"]
+
+            if target_id in all_user_buckets:
+                user_specific_buckets = all_user_buckets[target_id]
                 for key, bucket in user_specific_buckets.items():
                     used = bucket.get("used", {})
-                    tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0)
-                    cost = used.get("usd", 0.0)
+                    reserved = bucket.get("reserved", {})
+                    tokens = used.get("tokens_in", 0) + used.get("tokens_out", 0) + reserved.get("tokens_in", 0) + reserved.get("tokens_out", 0)
+                    cost = used.get("usd", 0.0) + reserved.get("usd", 0.0)
                     
                     u["cost_usage"]["total_usd"] += cost
 
@@ -522,28 +646,136 @@ async def get_dashboard_users():
             # If they have usage AND profile: status comes from profile (Optimized/Idle).
             pass
         
-        return {"ok": True, "data": users}
+        # Deduplicate Users by (real_user_id, guild_name)
+        # Keep the entry with highest _sort_score
+        unique_map = {}
+        for u in users:
+            # Safety: Fallback to discord_user_id if real_user_id is missing
+            rid = u.get("real_user_id", u["discord_user_id"])
+            key = (rid, u["guild_name"])
+            if key not in unique_map:
+                unique_map[key] = u
+            else:
+                # Compare scores
+                if u.get("_sort_score", 0) > unique_map[key].get("_sort_score", 0):
+                    unique_map[key] = u
+        
+        # Determine final list
+        final_users = list(unique_map.values())
+        
+        # Clean up internal keys
+        for u in final_users:
+            u.pop("_sort_score", None)
 
+        return {"ok": True, "data": final_users}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.post("/system/refresh_profiles")
+async def trigger_refresh_profiles():
+    """Trigger backend profile optimization via file watcher."""
+    try:
+        trigger_path = "refresh_profiles.trigger"
+        # Touch file
+        with open(trigger_path, "w") as f:
+            f.write("trigger")
+        return {"ok": True, "message": "Triggered profile refresh."}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 @router.get("/dashboard/users/{user_id}")
 async def get_user_details(user_id: str):
-    """Get full details for a specific user (traits, history, context)."""
-    import aiofiles
+    """Get full details for a specific user (traits, history, context). Supports dual profiles."""
     import json
     from pathlib import Path
     
     MEMORY_DIR = Path("L:/ORA_Memory/users")
-    path = MEMORY_DIR / f"{user_id}.json"
+    parts = user_id.split("_")
+    uid = parts[0]
+    gid = parts[1] if len(parts) > 1 else None
     
-    if not path.exists():
-        return {"ok": False, "error": "User profile not found"}
-        
+    specific_data = None
+    general_data = None
+    
     try:
-        async with aiofiles.open(path, "r", encoding="utf-8") as f:
-            content = await f.read()
-            data = json.loads(content)
-            return {"ok": True, "data": data}
+        # 1. Try Specific Profile
+        if gid:
+            path_spec = MEMORY_DIR / f"{uid}_{gid}.json"
+            if path_spec.exists():
+                with open(path_spec, "r", encoding="utf-8") as f:
+                    specific_data = json.load(f)
+                    
+        # 2. Try General Profile
+        path_gen = MEMORY_DIR / f"{uid}.json"
+        if path_gen.exists():
+            with open(path_gen, "r", encoding="utf-8") as f:
+                general_data = json.load(f)
+                
+        if not specific_data and not general_data:
+            return {"ok": False, "error": "User profile not found"}
+            
+        return {
+            "ok": True, 
+            "data": {
+                "specific": specific_data,
+                "general": general_data
+            }
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+@router.post("/system/refresh_profiles")
+async def request_profile_refresh():
+    """Trigger profile refresh via file signal for the Bot process."""
+    try:
+        from pathlib import Path
+        # Create a trigger file that MemoryCog watches
+        trigger_path = Path("refresh_profiles.trigger")
+        trigger_path.touch()
+        return {"ok": True, "message": "Profile refresh requested"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.post("/dashboard/users/{user_id}/optimize")
+async def optimize_user(user_id: str):
+    """Triggers forced optimization for a user."""
+    # Extract real Discord ID from potential UID_GID format
+    real_uid = int(user_id.split("_")[0])
+    
+    # Architecture Change: Write to Queue File for MemoryCog to pick up (IPC)
+    import json
+    from pathlib import Path
+    import time
+    
+    parts = user_id.split("_")
+    real_uid = int(parts[0])
+    target_guild_id = int(parts[1]) if len(parts) > 1 else None
+    
+    queue_path = Path("L:/ORA_State/optimize_queue.json")
+    
+    try:
+        # 1. Read existing queue
+        queue = []
+        if queue_path.exists():
+            try:
+                with open(queue_path, "r", encoding="utf-8") as f:
+                    queue = json.load(f)
+            except:
+                queue = []
+        
+        # 2. Append new request
+        queue.append({
+            "user_id": real_uid,
+            "guild_id": target_guild_id,
+            "timestamp": time.time()
+        })
+        
+        # 3. Write back (Atomic-ish)
+        with open(queue_path, "w", encoding="utf-8") as f:
+            json.dump(queue, f, indent=2)
+            
+        return {"status": "queued", "message": "Optimization requested via Queue"}
+        
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=f"Failed to queue optimization: {e}")
