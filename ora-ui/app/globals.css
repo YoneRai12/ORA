@@ -4,7 +4,7 @@
   font-family: 'Google Sans Flex';
   src: url('/fonts/GoogleSansFlex.ttf') format('truetype');
   font-weight: 100 900;
-  font-style: normal;  
+  font-style: normal;
   font-display: swap;
 }
 
@@ -29,9 +29,151 @@
 }
 
 body {
-  background: var(--background);
+  background: #000000;
+  position: relative;
   color: var(--foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.08), transparent 70%),
+    radial-gradient(circle at 85% 30%, rgba(6, 182, 212, 0.05), transparent 50%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Custom Text Selection */
+::selection {
+  background: rgba(6, 182, 212, 0.3);
+  /* Cyan tint */
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
+}
+
+/* Custom Dark Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 4px;
+  opacity: 0.5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+  opacity: 1;
+}
+
+/* CSS Variables for Smooth Interpolation */
+@property --x {
+  syntax: '<length>';
+  initial-value: -1000px;
+  inherits: false;
+}
+
+@property --y {
+  syntax: '<length>';
+  initial-value: -1000px;
+  inherits: false;
+}
+
+@property --spotlight-opacity {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: false;
+}
+
+/* Apple-Style Mercury Glass (Black Edition + Smooth Spotlight) */
+.mercury-glass {
+  /* Default white, overridden inline */
+  --spotlight-color: 255, 255, 255;
+  --spotlight-opacity: 0;
+  /* Starts invisible */
+
+  /* Transparent border to allow background-clip to work on the border area */
+  border: 1px solid transparent;
+  border-radius: 1rem;
+
+  /* Layered Backgrounds */
+  background-image:
+    /* 1. Inner Spotlight (Sharper, trailing) */
+    radial-gradient(250px circle at var(--x) var(--y),
+      rgba(var(--spotlight-color), var(--spotlight-opacity)),
+      transparent 80%),
+    /* Sharper falloff */
+
+    /* 2. Inner Dark Base */
+    linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)),
+
+    /* 3. Border Spotlight (Multiplied Opacity) */
+    radial-gradient(250px circle at var(--x) var(--y),
+      rgba(var(--spotlight-color), calc(var(--spotlight-opacity) * 4)),
+      transparent 80%),
+    /* 4. Border Static Base */
+    linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1));
+
+  background-origin: border-box;
+  background-clip: padding-box, padding-box, border-box, border-box;
+
+  backdrop-filter: blur(25px) saturate(200%);
+  -webkit-backdrop-filter: blur(25px) saturate(200%);
+
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+
+  /* 
+     Transitions:
+     --x, --y: Lag (0.1s)
+     --spotlight-opacity: FAST Fade (0.2s) to eliminate residue
+  */
+  transition:
+    --x 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+    --y 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+    --spotlight-opacity 0.2s ease-out,
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+
+/* Class-based activation for robust "Off" state */
+.mercury-glass.spotlight-active {
+  --spotlight-opacity: 0.18;
+  /* Target opacity when active */
+}
+
+.mercury-glass:hover {
+  /* Keep shadow/transform primarily on hover, or move to active if preferred. 
+     Keeping it here allows "physical" lift even if spotlight script fails, 
+     but usually we want them synced. Let's keep transform here. */
+  box-shadow:
+    0 12px 42px -4px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Texture overlay for "Metal" feel */
+.metal-texture {
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+  pointer-events: none;
 }

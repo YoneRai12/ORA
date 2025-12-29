@@ -15,7 +15,7 @@ try:
     WHISPER_AVAILABLE = True
 except ImportError:
     WHISPER_AVAILABLE = False
-    logger.warning("faster-whisper not installed. Voice recognition will be disabled.")
+    logger.warning("faster-whisper がインストールされていません。音声認識機能は無効化されます。")
 
 from collections import defaultdict
 
@@ -55,7 +55,7 @@ class VoiceSink(voice_recv.AudioSink):
         if ud.speaking_frames >= 5:
             if not ud.speaking:
                 ud.speaking = True
-                logger.info(f"User {user.name} started speaking.")
+                logger.info(f"ユーザー {user.name} が話し始めました。")
                 
                 # Trigger Barge-in (Stop TTS)
                 # Check cooldown (500ms)
@@ -65,7 +65,7 @@ class VoiceSink(voice_recv.AudioSink):
                         # Stop playback
                         media_cog._voice_manager.stop_playback(user.guild.id)
                         ud.last_stop_time = time.time()
-                        logger.info("Barge-in triggered: Stopped playback.")
+                        logger.info("バージイン検知: 再生を停止しました。")
 
     def cleanup(self):
         pass
@@ -80,15 +80,16 @@ class VoiceRecvCog(commands.Cog):
         if WHISPER_AVAILABLE:
             try:
                 # Try to load on GPU first (using CTranslate2's auto detection)
-                logger.info("Loading Faster-Whisper model (small) on GPU...")
+                logger.info("Faster-Whisper モデル (small) をGPUでロード中...")
                 self.model = WhisperModel("small", device="cuda", compute_type="float16")
-                logger.info("✅ Faster-Whisper model loaded on GPU.")
+                logger.info("✅ Faster-Whisper モデルのロード完了 (GPU)")
             except Exception as e:
-                logger.warning(f"Failed to load Whisper on GPU: {e}")
-                logger.info("Falling back to CPU (small model, int8 quantization for efficiency)...")
+                logger.warning(f"GPUでのWhisperロード失敗: {e}")
+                logger.info("CPUへフォールバックします (small model, int8)...")
+                # Fallback to CPU
                 # Fallback to CPU
                 self.model = WhisperModel("small", device="cpu", compute_type="int8")
-                logger.info("⚠️ Faster-Whisper model loaded on CPU (int8).")
+                logger.info("⚠️ Faster-Whisper モデルをCPU (int8) でロードしました。")
             
             # Suppress RTCP spam from voice_recv
             logging.getLogger("discord.ext.voice_recv").setLevel(logging.WARNING)
@@ -174,7 +175,7 @@ class VoiceRecvCog(commands.Cog):
 
     async def process_audio_loop(self, guild_id: int, text_channel: discord.TextChannel):
         """Monitor buffer and transcribe when silence is detected."""
-        logger.info(f"Started audio processing loop for guild {guild_id}")
+        logger.info(f"音声処理ループを開始: Guild {guild_id}")
         from src.web.endpoints import manager
         
         while True:
@@ -229,7 +230,7 @@ class VoiceRecvCog(commands.Cog):
                 if ora_cog:
                     member = text_channel.guild.get_member(user_id)
                     if member:
-                        logger.info(f"Recognized speech from {member.display_name}: {text}")
+                        logger.info(f"音声認識 ({member.display_name}): {text}")
                         # Create dummy message for context
                         # We send a message so the user sees what was recognized.
                         # This also acts as the "Tool" invocation if needed.
@@ -263,7 +264,7 @@ class VoiceRecvCog(commands.Cog):
             text = " ".join([segment.text for segment in segments])
             return text.strip()
         except Exception as e:
-            logger.error(f"Transcription failed: {e}")
+            logger.error(f"文字起こし失敗: {e}")
             return ""
 
 async def setup(bot: commands.Bot):

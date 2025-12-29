@@ -272,3 +272,16 @@ class CostManager:
         logger.info(f"CostAdded: {lane}:{provider} user={user_id} used={usage}")
         return bucket.used.usd
 
+    def get_usage_ratio(self, lane: Lane, provider: Provider) -> float:
+        """Returns 0.0 to 1.0 (or >1.0) representing current daily usage vs limit."""
+        limits = COST_LIMITS.get(lane, {}).get(provider, {})
+        if not limits: return 0.0
+        
+        limit = limits.get("daily_tokens")
+        if not limit: return 0.0
+        
+        bucket = self._get_or_create_bucket(lane, provider, None) # Global
+        current = bucket.used.tokens_in + bucket.used.tokens_out + bucket.reserved.tokens_in + bucket.reserved.tokens_out
+        
+        return current / limit
+

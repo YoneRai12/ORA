@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = Path("E:/ora_cache")
 if not Path("E:/").exists():
     CACHE_DIR = Path.home() / ".ora_cache"
-    logger.warning(f"E: drive not found. Using {CACHE_DIR} for cache.")
+    logger.warning(f"E: ドライブが見つかりません。キャッシュに {CACHE_DIR} を使用します。")
 
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -138,7 +138,7 @@ class ORACog(commands.Cog):
         ora_api_base_url: Optional[str],
         privacy_default: str,
     ) -> None:
-        logger.info("ORACog.__init__ called - Loading ORACog")
+        logger.info("ORACog.__init__ 呼び出し - ORACogをロード中")
         self.bot = bot
         self._store = store
         self._llm = llm
@@ -148,20 +148,23 @@ class ORACog(commands.Cog):
         self._watcher = DesktopWatcher()
         self._public_base_url = public_base_url
         self._ora_api_base_url = ora_api_base_url
+        self._privacy_default = privacy_default  # Store privacy setting
         
-        # Initialize Tool Definitions (Empty for now, or load defaults if needed)
-        self.tool_definitions = []
-        self._privacy_default = privacy_default
-        self._locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self.chat_cooldowns = defaultdict(float) # User ID -> Timestamp
+        # Initialize Chat Cooldowns
+        self.chat_cooldowns = {}
         
-        # Brain State
-        self.brain_mode = "local" # local | cloud | auto
-
         # Phase 29: Universal Brain Components
+        self.tool_definitions = self._get_tool_schemas() # Load Schemas for Router
         self.cost_manager = CostManager()
         self.sanitizer = Sanitizer()
+        self.router_thresholds = bot.config.router_thresholds
         self.user_prefs = UserPrefs()
+        
+        # Spam Protection (Token Bucket)
+        # Key: user_id, Value: {"tokens": float, "last_updated": float}
+        self._spam_buckets = {}
+        self._spam_rate = 1.0  # tokens per second
+        self._spam_capacity = 5.0 # max tokens()
         self.unified_client = UnifiedClient(bot.config, llm, bot.google_client)
 
         
@@ -191,7 +194,8 @@ class ORACog(commands.Cog):
         # Enforce Safe Model at Startup (Start LLM Context)
         # LAZY LOAD: Disabled auto-start to save VRAM for API-only users.
         # self.bot.loop.create_task(self.resource_manager.switch_context("llm"))
-        logger.info("ORACog.__init__ complete - desktop_loop started")
+        self.check_unoptimized_users.start()
+        logger.info("ORACog.__init__ 完了 - デスクトップ監視を開始しました")
 
     def cog_unload(self):
         self.desktop_loop.cancel()
@@ -199,6 +203,112 @@ class ORACog(commands.Cog):
             self._gaming_restore_task.cancel()
         if self.game_watcher:
             self.game_watcher.stop()
+        self.check_unoptimized_users.cancel()
+
+    @tasks.loop(hours=1)
+    async def check_unoptimized_users(self):
+        """Periodically scan for unoptimized users and trigger optimization."""
+        await self.bot.wait_until_ready()
+        logger.info("Starting unoptimized user scan...")
+        
+        memory_dir = Path(r"L:\ORA_Memory\users")
+        if not memory_dir.exists():
+            return
+
+        count = 0
+        memory_cog = self.bot.get_cog("MemoryCog")
+        if not memory_cog:
+            logger.warning("MemoryCog not found, skipping optimization scan.")
+            return
+
+        try:
+            # 1. Collect candidates
+            candidates = []
+            for f_path in memory_dir.glob("*.json"):
+                try:
+                    async with aiofiles.open(f_path, "r", encoding="utf-8") as f:
+                        data = json.loads(await f.read())
+                    
+                    status = data.get("status", "New")
+                    display_name = data.get("name", "Unknown")
+                    
+                    # Fix "Unknown" names immediately if a real name is available in bot cache/fetch
+                    # Even if prioritized as "Optimized" in the scan candidates
+                    if display_name == "Unknown" or (status != "Optimized" and status != "Processing" and data.get("impression") != "Processing..."):
+                        # Candidates or Needs Name Resolution!
+                        user_id_str = f_path.stem.split("_")[0]
+                        user_id = int(user_id_str)
+                        guild_id = data.get("guild_id")
+                        
+                        resolved_once = False
+                        if display_name == "Unknown":
+                            try:
+                                # Try bot cache, then fetch
+                                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                                if user:
+                                    data["name"] = user.display_name if hasattr(user, "display_name") else user.name
+                                    resolved_once = True
+                                    logger.info(f"Scan Fix: Resolved Unknown name for {user_id} -> {data['name']}")
+                            except Exception as fe:
+                                logger.debug(f"Scan Fix: Could not resolve user {user_id}: {fe}")
+
+                        if not guild_id:
+                            for g in self.bot.guilds:
+                                if g.get_member(user_id):
+                                    guild_id = g.id
+                                    data["guild_id"] = str(guild_id)
+                                    resolved_once = True
+                                    break
+                        
+                        if resolved_once:
+                            # Write back to disk immediately to fix "Unknown" display
+                            async with aiofiles.open(f_path, "w", encoding="utf-8") as f_out:
+                                await f_out.write(json.dumps(data, indent=2, ensure_ascii=False))
+
+                        if guild_id and status != "Optimized":
+                            candidates.append((user_id, int(guild_id)))
+                except Exception:
+                    continue
+
+            # 2. Process candidates (IPC Delegation)
+            logger.info(f"Found {len(candidates)} unoptimized users. Delegating to WorkerBot.")
+            
+            # --- IPC DELEGATION ---
+            queue_path = r"L:\ORA_State\optimize_queue.json"
+            try:
+                # Read existing
+                current_queue = []
+                if os.path.exists(queue_path):
+                    try:
+                        with open(queue_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            if content.strip():
+                                current_queue = json.loads(content)
+                    except:
+                        current_queue = []
+                
+                # Append new (with simple deduplication)
+                existing_ids = { (r.get("user_id"), r.get("guild_id")) for r in current_queue }
+                new_tasks = []
+                for uid, gid in candidates:
+                    if (uid, gid) not in existing_ids:
+                        new_tasks.append({"user_id": uid, "guild_id": gid})
+                
+                final_queue = current_queue + new_tasks
+                
+                # Write back
+                with open(queue_path, "w", encoding="utf-8") as f:
+                    json.dump(final_queue, f, indent=2)
+                
+                logger.info(f"Successfully queued {len(new_tasks)} new optimization tasks for WorkerBot.")
+            except Exception as e:
+                logger.error(f"Failed to write to optimization queue: {e}")
+                # Fallback to direct call if IPC fails (slow but safe)
+                for user_id, guild_id in candidates:
+                    await memory_cog.force_user_optimization(user_id, guild_id)
+                
+        except Exception as e:
+            logger.error(f"Auto-Optimize Scan Failed: {e}")
 
     def _on_game_start(self):
         """Callback when game starts: Switch to Gaming Mode IMMEDIATELY."""
@@ -697,7 +807,8 @@ class ORACog(commands.Cog):
         memory_cog = self.bot.get_cog("MemoryCog")
         memory_context = ""
         if memory_cog:
-            profile = await memory_cog.get_user_profile(message.author.id)
+            guild_id = message.guild.id if message.guild else None
+            profile = await memory_cog.get_user_profile(message.author.id, guild_id, current_channel_id=message.channel.id)
             if profile:
                 # Format profile for LLM
                 traits = ", ".join(profile.get("traits", []))
@@ -880,6 +991,26 @@ class ORACog(commands.Cog):
                 except Exception as e:
                     logger.error(f"Search failed: {e}")
                     return f"Search Error: {e}"
+
+            elif tool_name == "request_feature_implementation":
+                feature = args.get("feature_request")
+                context = args.get("context")
+                if not feature or not context:
+                    return "Error: Missing arguments (feature_request, context)."
+                
+                # Delegate to Healer/Evolver
+                # Using 'create_task' to not block the current turn, 
+                # but we probably want to return a confirmation message.
+                
+                # Check permission (Admin only? The tool description says [Admin], but user might trigger it)
+                # For now, let Healer decide or filter downstream.
+                
+                if hasattr(self.bot, 'healer'):
+                    # Async task to not block response
+                    asyncio.create_task(self.bot.healer.propose_feature(feature, context, message.author))
+                    return "✅ Feature Implementation Request SENT to Auto-Evolver. You will receive a DM proposal shortly."
+                else:
+                    return "Error: Healer system is not active."
 
             if tool_name == "music_play":
                 query = args.get("query")
@@ -2374,21 +2505,48 @@ class ORACog(commands.Cog):
         # Ignore messages from bots
         if message.author.bot:
             return
+
+        # --- SPAM PROTECTION (Token Bucket) ---
+        user_id = message.author.id
+        now = time.time()
+        
+        if user_id not in self._spam_buckets:
+            self._spam_buckets[user_id] = {"tokens": self._spam_capacity, "last_updated": now}
+        
+        bucket = self._spam_buckets[user_id]
+        
+        # 1. Refill
+        elapsed = now - bucket["last_updated"]
+        added_tokens = elapsed * self._spam_rate
+        bucket["tokens"] = min(self._spam_capacity, bucket["tokens"] + added_tokens)
+        bucket["last_updated"] = now
+        
+        # 2. Consume
+        cost = 1.0 # Cost per message
+        if bucket["tokens"] >= cost:
+            bucket["tokens"] -= cost
+        else:
+            # SPAM DETECTED
+            logger.warning(f"Spam detected from {message.author} ({user_id}). Tokens: {bucket['tokens']:.2f}")
+            # Optional: Add reaction to warn user? Or just silent ignore.
+            # Silent ignore is safer to prevent rate limit wars.
+            return
+        # ---------------------------------------
         
         # Chat Point Logic (10s Cooldown) - Moved from legacy listener
         try:
             now = time.time()
-            last_chat = self.chat_cooldowns[message.author.id]
+            last_chat = self.chat_cooldowns.get(message.author.id, 0)
             if now - last_chat > 10.0:
                 self.chat_cooldowns[message.author.id] = now
                 asyncio.create_task(self._store.add_points(message.author.id, 1))
         except Exception as e:
-            logger.error(f"Error adding points: {e}")
+            logger.error(f"ポイント追加エラー: {e}")
 
         if message.guild:
              GuildLogger.get_logger(message.guild.id).info(f"Message: {message.author} ({message.author.id}): {message.content} | Attachments: {len(message.attachments)}")
 
-        logger.info(f"ORACog.on_message triggered: author={message.author.id}, content={message.content[:50]}, attachments={len(message.attachments)}")
+        logger.info(f"ORACogメッセージ受信: ユーザー={message.author.id}, 内容={message.content[:50]}, 添付={len(message.attachments)}")
 
         # --- Voice Triggers (Direct Bypass - Mentions Only) ---
         if message.guild and self.bot.user in message.mentions:
@@ -2427,52 +2585,30 @@ class ORACog(commands.Cog):
 
             # Music: "XX流して" / "play XX"
             # Regex to capture content before keywords
-            import re
-            music_match = re.search(r"(.*?)\s*(流して|かけて|再生して|歌って|play)", content_stripped, re.IGNORECASE)
-            # Ensure the match is substantial (not just the keyword itself) and at the END of the string mostly
-            if music_match:
-                query = music_match.group(1).strip()
-                # If query is empty, maybe it was "play XX" where play is first?
-                if not query and "play" in content_stripped.lower():
-                     # Handle "play XX" format
-                     query = re.sub(r"^play\s*", "", content_stripped, flags=re.IGNORECASE).strip()
+            # DISABLED (2025-12-29): User requested smart "Search then Play". 
+            # This bypass prevents LLM from seeing the full context.
+            # import re
+            # music_match = re.search(r"(.*?)\s*(流して|かけて|再生して|歌って|play)", content_stripped, re.IGNORECASE)
+            # if music_match:
+            #     query = music_match.group(1).strip()
+            #     if not query and "play" in content_stripped.lower():
+            #          query = re.sub(r"^play\s*", "", content_stripped, flags=re.IGNORECASE).strip()
 
-                if query:
-                    media_cog = self.bot.get_cog("MediaCog")
-                    if media_cog:
-                        try:
-                            # Join VC if not already
-                            await media_cog._voice_manager.ensure_voice_client(message.author)
+            #     if query:
+            #         media_cog = self.bot.get_cog("MediaCog")
+            #         if media_cog:
+            #             try:
+            #                 await media_cog._voice_manager.ensure_voice_client(message.author)
+            #                 await message.add_reaction("🎵")
                             
-                            # Feedback
-                            await message.add_reaction("🎵")
-                            
-                            # Execute Play (without context/interaction)
-                            # We need to manually call the cog's method or voice manager
-                            # But MediaCog.play_music usually takes Context.
-                            # We can trigger the command manually or use the underlying logic.
-                            # Calling command is safer for permissions checks etc, but context is different.
-                            # Let's call the internal logic directly if possible, or construct a fake context.
-                            # MediaCog.play_music is a command.
-                            # Better: media_cog.play_music_internal(ctx, query) - likely doesn't exist.
-                            # Let's invoke the voice_manager directly if possible, OR create a Context.
-                            
-                            # Using Context is standard for invoking commands.
-                            ctx = await self.bot.get_context(message)
-                            # Invoke the command
-                            # We need to find the command object.
-                            cmd = self.bot.get_command("play")
-                            if cmd:
-                                await ctx.invoke(cmd, query=query)
-                            else:
-                                # Fallback if command name differs (it is 'music_play' in schemas, but command might be 'play' in cog)
-                                # Let's check MediaCog... assume command is 'play'
-                                pass
+            #                 # Context creation hack is risky. Let's rely on LLM.
+            #                 # The user explicitly wants "Search -> Play" flow which this blocks.
+            #                 pass 
 
-                        except Exception as e:
-                            logger.error(f"Regex Music Trigger Failed: {e}")
-                            await message.add_reaction("❌")
-                    return
+            #             except Exception as e:
+            #                 logger.error(f"Regex Music Trigger Failed: {e}")
+            #                 await message.add_reaction("❌")
+            #         return
         # ------------------------------------------------------
 
         # Check for User Mention
@@ -2507,9 +2643,13 @@ class ORACog(commands.Cog):
             if ref_msg and ref_msg.author.id == self.bot.user.id:
                 is_reply_to_me = True
 
-        # Trigger if mentioned OR replying to me
-        if not (is_mention or is_reply_to_me):
-            logger.info(f"ORACog.on_message: Not a mention or reply to me, returning")
+        # Trigger if mentioned OR replying to me OR Text Trigger (@ORA/@ROA)
+        # ユーザーがメンション機能を使わずに「@ORA」と手打ちする場合の対応
+        text_triggers = ["@ORA", "@ROA", "＠ORA", "＠ROA", "@ora", "@roa"]
+        is_text_trigger = any(t in message.content for t in text_triggers)
+
+        if not (is_mention or is_reply_to_me or is_text_trigger):
+            # logger.debug(f"ORACog.on_message: メンションまたは返信ではないため無視します")
             return
 
         # Remove mention strings from content to get the clean prompt
@@ -2518,6 +2658,10 @@ class ORACog(commands.Cog):
         # Actually proper way is to remove ONLY the bot's mention to avoiding removing other users if mentioned in query
         prompt = re.sub(f"<@!?{self.bot.user.id}>", "", message.content)
         
+        # Remove Text Triggers
+        for t in text_triggers:
+            prompt = prompt.replace(t, "")
+
         # Remove Role Mentions (<@&123>)
         prompt = re.sub(r"<@&\d+>", "", prompt).strip()
         
@@ -2719,8 +2863,8 @@ class ORACog(commands.Cog):
         
         # If prompt is still empty (e.g., just a mention with no text), check if we have attachments
         if not prompt and not message.attachments:
-            logger.info("No prompt and no attachments, returning")
-            return  # Nothing to process
+            logger.info("Empty prompt but Mention/Reply/Trigger valid -> Setting Default Prompt.")
+            prompt = "はい、なんでしょうか？"
         
         # Even if prompt is empty but attachments are present, set a default prompt
         if not prompt and message.attachments:
@@ -2729,7 +2873,7 @@ class ORACog(commands.Cog):
         
         logger.info(f"Calling handle_prompt with prompt: {prompt[:100]}...")
         # Call handle_prompt with the constructed prompt
-        await self.handle_prompt(message, prompt)
+        await self.handle_prompt(message, prompt, is_voice=is_voice)
 
 
     def _get_tool_schemas(self) -> list[dict]:
@@ -2746,6 +2890,22 @@ class ORACog(commands.Cog):
                 "description": "[Discord] Get basic information about the current server (guild).",
                 "parameters": { "type": "object", "properties": {}, "required": [] },
                 "tags": ["server", "guild", "info", "id", "count", "サーバー", "情報"]
+            },
+            # ==========================
+            # 0. Self-Evolution
+            # ==========================
+            {
+                "name": "request_feature_implementation",
+                "description": "[Admin] Use this when the user asks for a capability you do NOT have. Triggers Auto-Coding logic.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "feature_request": { "type": "string", "description": "Description of the requested feature." },
+                        "context": { "type": "string", "description": "Why it is needed and what specifically to do." }
+                    },
+                    "required": ["feature_request", "context"]
+                },
+                "tags": ["code", "feature", "implement", "create", "make", "capability", "実装", "機能", "作って", "進化"]
             },
             {
                 "name": "get_channels",
@@ -3131,17 +3291,20 @@ class ORACog(commands.Cog):
     async def handle_prompt(self, message: discord.Message, prompt: str, existing_status_msg: Optional[discord.Message] = None, is_voice: bool = False) -> None:
         """Process a user message and generate a response using the LLM."""
         
-        # --- Phase 29: Onboarding Check ---
-        if not self.user_prefs.is_onboarded(message.author.id):
-             from src.views.onboarding import SelectModeView # Local import to avoid UnboundLocalError
-             view = SelectModeView(self, message.author.id)
-             await message.reply(
-                 "👋 **Kind of Brain?**\n"
-                 "初回セットアップ: 思考モデルのモードを選択してください。\n"
-                 "(First-time setup: Select your preferred brain mode)",
-                 view=view
-             )
-             return # Stop until onboarded
+        # --- Dashboard Update: Immediate Feedback ---
+        try:
+             memory_cog = self.bot.get_cog("MemoryCog")
+             if memory_cog:
+                 # Fire and forget status update (Processing)
+                 asyncio.create_task(memory_cog.update_user_profile(
+                     message.author.id, 
+                     {"status": "Processing", "impression": f"Input: {prompt[:20]}..."}, 
+                     message.guild.id if message.guild else None
+                 ))
+        except Exception as e:
+            logger.warning(f"Dashboard Update Failed: {e}")
+        # --------------------------------------------
+        
         # ----------------------------------
 
         # 1. Check for Generation Lock
@@ -3186,18 +3349,18 @@ class ORACog(commands.Cog):
              await self._execute_tool(message, "music_control", {"action": "stop"})
              return
              
-        # Check Play
-        for kw in music_keywords:
-             if kw in prompt:
-                 # Extract query ("ライラック" from "ライラック流して")
-                 query = prompt.replace(kw, "").replace("曲", "").strip()
-                 if query and len(query) < 50: # Avoid long conversational triggers
-                     logger.info(f"Direct Music Bypass: PLAY '{query}'")
-                     result = await self._execute_tool(message, "music_play", {"query": query})
-                     # _execute_tool returns a string (result message). 
-                     # We should technically use it, but music_play usually replies to interaction/message itself.
-                     # If it returns a string, we might want to log it.
-                     return
+        # Check Play - DISABLED (2025-12-29) User wants smart logic
+        # for kw in music_keywords:
+        #      if kw in prompt:
+        #          # Extract query ("ライラック" from "ライラック流して")
+        #          query = prompt.replace(kw, "").replace("曲", "").strip()
+        #          if query and len(query) < 50: # Avoid long conversational triggers
+        #              logger.info(f"Direct Music Bypass: PLAY '{query}'")
+        #              result = await self._execute_tool(message, "music_play", {"query": query})
+        #              # _execute_tool returns a string (result message). 
+        #              # We should technically use it, but music_play usually replies to interaction/message itself.
+        #              # If it returns a string, we might want to log it.
+        #              return
 
 
         # 2. Privacy Check
@@ -3356,7 +3519,7 @@ class ORACog(commands.Cog):
                             elif can_stable_openai.allowed:
                                 # Fallback to Standard Model (Mini) if High Lane exhausted
                                 target_provider = "openai"
-                                target_model = ROUTER_CONFIG.get("standard_model", "gpt-5.1-codex-mini")
+                                target_model = ROUTER_CONFIG.get("standard_model", "gpt-5_1-2025-11-13")
                                 selected_route = {"provider": "openai", "lane": "stable", "model": target_model}
                             else:
                                 target_provider = "local"
@@ -3369,7 +3532,7 @@ class ORACog(commands.Cog):
                                 selected_route = {"provider": "openai", "lane": "high", "model": target_model}
                              elif can_stable_openai.allowed:
                                 target_provider = "openai"
-                                target_model = ROUTER_CONFIG.get("standard_model", "gpt-5.1-codex-mini")
+                                target_model = ROUTER_CONFIG.get("standard_model", "gpt-5_1-2025-11-13")
                                 selected_route = {"provider": "openai", "lane": "stable", "model": target_model}
                              else:
                                 target_provider = "local"
@@ -3377,7 +3540,7 @@ class ORACog(commands.Cog):
                         # 3. Standard -> Stable Lane (Mini)
                         elif can_stable_openai.allowed:
                             target_provider = "openai"
-                            target_model = ROUTER_CONFIG.get("standard_model", "gpt-5.1-codex-mini")
+                            target_model = ROUTER_CONFIG.get("standard_model", "gpt-5_1-2025-11-13")
                             selected_route = {"provider": "openai", "lane": "stable", "model": target_model}
                         else:
                             target_provider = "local"
@@ -3470,7 +3633,7 @@ class ORACog(commands.Cog):
                                  if not fname: continue
                                  
                                  # Parse Args
-                                 import json
+                                 # import json (Removed to fix UnboundLocalError)
                                  try:
                                      fargs = json.loads(fargs_str)
                                  except:
@@ -3564,150 +3727,16 @@ class ORACog(commands.Cog):
                     local_messages = list(messages)
                     local_messages[-1] = {"role": "user", "content": new_content}
                     
-                    content = await self._llm.chat(messages=local_messages, temperature=0.7)
+                    content, _, _ = await self._llm.chat(messages=local_messages, temperature=0.7)
                 else:
-                    content = await self._llm.chat(messages=messages, temperature=0.7)
+                    content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
 
-            # 5. Final Output Handling (Card Format for Cloud)
-            if content:
-                # If it was a Cloud response, format as a nice Card (Embed)
-                if target_provider != "local":
-                    try:
-                        # Decide styles based on provider
-                        provider_styles = {
-                            "gemini_trial": {"color": 0x4285F4, "icon": "🔥", "name": "Gemini 1.5 Pro (Burn Lane)"},
-                            "openai": {"color": 0x10A37F, "icon": "🤖", "name": "OpenAI Shared (Stable Lane)"}
-                        }
-                        
-                        # Handle Model Specifics Override (if we stored it in selected_route)
-                        # Re-detemine display name
-                        if target_provider == "openai":
-                             m = locals().get("selected_route", {}).get("model", "gpt-4o-mini")
-                             lane = locals().get("selected_route", {}).get("lane", "stable")
-                             icon = "💎" if lane == "high" else "⚡"
-                             provider_styles["openai"]["name"] = f"OpenAI {m} ({lane.title()})"
-                             provider_styles["openai"]["icon"] = icon
+            # Step 5: Final Response Logic (Moved to bottom for single execution)
+            # We don't send here to avoid double-responses when tool calls happen.
+            pass
 
-                        style = provider_styles.get(target_provider, {"color": 0x99AAB5, "icon": "☁️", "name": "Cloud AI"})
-                        
-                        # Check length for Embed description limit (4096)
-                        if len(content) < 4000:
-                            embed = discord.Embed(
-                                description=content,
-                                color=style["color"]
-                            )
-                            embed.set_author(name=f"{style['icon']} {style['name']}", icon_url=self.bot.user.display_avatar.url)
-                            embed.set_footer(text="Sanitized & Powered by Cloud Brain")
-                            
-                            await message.reply(embed=embed)
-                        else:
-                            # Too long for Embed, fall back to text but with header
-                            header = f"**{style['icon']} {style['name']}**\n"
-                            await message.reply(header + content)
-                            
-                    except Exception as e:
-                        logger.error(f"Failed to send embed: {e}")
-                        await message.reply(content)
-                else:
-                     # Local Response (Standard Text)
-                     await message.reply(content)
-            # Note: Attachments are processed in _process_attachments() and stored in _temp_image_context
-            # as base64. We do NOT need to add them as URLs here, or we get duplicates.
-            # (Removed redundant loop)
-            
-            if hasattr(self, "_temp_image_context") and message.id in self._temp_image_context:
-                user_content.extend(self._temp_image_context[message.id])
-                # Clean up
-                del self._temp_image_context[message.id]
-            
-            # Determine final message content
-            final_user_msg = None
-            if len(user_content) == 1 and user_content[0]["type"] == "text":
-                 final_user_msg = {"role": "user", "content": text_content}
-            else:
-                 final_user_msg = {"role": "user", "content": user_content}
 
-            # Merge with previous message if it exists and is also 'user'
-            if messages and messages[-1]["role"] == "user":
-                last_msg = messages[-1]
-                # If last msg is simple string
-                if isinstance(last_msg["content"], str):
-                    # And new msg is simple string
-                    if isinstance(final_user_msg["content"], str):
-                        last_msg["content"] += f"\n\n{final_user_msg['content']}"
-                    # And new msg is list (multimodal)
-                    else:
-                        # Convert last msg to list format and append new parts
-                        new_list = [{"type": "text", "text": last_msg["content"]}]
-                        new_list.extend(final_user_msg["content"])
-                        last_msg["content"] = new_list
-                
-                # If last msg is list
-                elif isinstance(last_msg["content"], list):
-                    # And new msg is simple string
-                    if isinstance(final_user_msg["content"], str):
-                        last_msg["content"].append({"type": "text", "text": final_user_msg["content"]})
-                    # And new msg is list
-                    else:
-                        last_msg["content"].extend(final_user_msg["content"])
-            else:
-                messages.append(final_user_msg)
-
-            # First LLM Call
-            # Append strict Instruction at the end to prevent context drift
-            messages.append({
-                "role": "system",
-                "content": (
-                    "**IMPORTANT**: Reply in **JAPANESE** (日本語) unless the user effectively requested English.\n"
-                    "If you need to use a tool, output the JSON block ONLY."
-                )
-            })
-
-            # --- Phase 28: Hybrid Client Router (REMOVED: Conflicted with Phase 29) ---
-            # Logic merged into Phase 29 (Universal Brain Router)
-            # --------------------------------------------------------------------------
-            
-            # Additional Fallback Safety (if Phase 29 produced nothing)
-            if not content:
-                 try:
-                     # Local Fallback
-                     content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
-                 except Exception as e:
-                     # Lazy Loading / Auto-Start Logic
-                     err_str = str(e)
-                     if "ConnectorError" in err_str or "ConnectionRefused" in err_str or "connection" in err_str.lower():
-                         logger.warning(f"LLM Connection Failed: {e}. Attempting auto-start using ResourceManager.")
-                         resource_cog = self.bot.get_cog("ResourceManager")
-                         if resource_cog:
-                             if existing_status_msg:
-                                await status_manager.next_step("💤 AIサーバーの起動を開始します... (約60秒)")
-                             else:
-                                await message.reply("💤 AIサーバーが休止中です。起動しています... (少々お待ちください)", delete_after=60)
-
-                             # Attempt Start
-                             success = await resource_cog.ensure_vllm_started()
-                             
-                             if success:
-                                 if existing_status_msg:
-                                     await status_manager.next_step("🔥 サーバー起動完了！生成を再開します。")
-                                 # Retry Generation
-                                 content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
-                             else:
-                                 if existing_status_msg:
-                                     await status_manager.next_step("❌ サーバー起動に失敗しました。")
-                                 return # "Error: Failed to start AI Server (vLLM). Please check logs."
-                         else:
-                             logger.error("ResourceManager Cog not found!")
-                             raise
-                     else:
-                        raise
-
-            logger.info(f"🔍 [RAW_LLM_OUTPUT] Length: {len(content)}\n{content}\n--------------------------------")
-            
-            # Legacy Router Block Removed
-
-            
-            # -------------------------------
+            logger.info(f"🔍 [RAW_LLM_OUTPUT] Length: {len(content)}")
             
             # Tool Loop
             max_turns = 3
@@ -3912,7 +3941,14 @@ class ORACog(commands.Cog):
                     # Update Status for Next Think
                     await status_manager.next_step("回答生成中")
                     
-                    new_content = await self._llm.chat(messages=messages, temperature=0.7)
+                    # Fix for LLM Timeout: Use the correct provider for re-generation
+                    if target_provider == "openai":
+                        model = selected_route.get("model", "gpt-4o") # Default to robust model
+                        new_content, _, _ = await self.unified_client.chat("openai", messages, model=model)
+                    elif target_provider == "gemini_trial":
+                         new_content, _, _ = await self.bot.google_client.chat(messages=messages, model_name="gemini-1.5-pro")
+                    else:
+                        new_content = await self._llm.chat(messages=messages, temperature=0.7)
                     
                     # Loop Detection: If new_content is SAME as old content (ignoring unique IDs if any), break
                     if new_content.strip() == content.strip():
@@ -3941,17 +3977,35 @@ class ORACog(commands.Cog):
             # Stop animation / Delete Status
             await status_manager.finish()
             
-            # Edit message with final response -> Send NEW message (Embed)
-            # User requested to "Delete all status and send text" -> Now "Send Embed"
-            embed = EmbedFactory.create_chat_embed(final_response, footer_text="ORA AI System")
-            try:
-                await message.reply(embed=embed, mention_author=False)
-            except discord.Forbidden:
-                # Fallback to text if Embeds are disabled
-                await message.reply(final_response, mention_author=False)
-            except Exception as e:
-                logger.error(f"Failed to send final embed: {e}")
-                await message.reply(final_response, mention_author=False)
+            # 5. Final Output (Unified Send Path)
+            if final_response:
+                # Determine Style based on provider
+                style = {"color": 0x7289DA, "icon": "🏠", "name": "Local Brain"}
+                if target_provider == "gemini_trial":
+                    style = {"color": 0x4285F4, "icon": "🔥", "name": "Gemini 1.5 Pro"}
+                elif target_provider == "openai":
+                    # Try to get specific model name if possible
+                    try:
+                        m = selected_route.get("model", "GPT")
+                        lane = selected_route.get("lane", "stable")
+                        icon = "💎" if lane == "high" else "⚡"
+                        style = {"color": 0x10A37F, "icon": icon, "name": f"OpenAI {m}"}
+                    except:
+                        style = {"color": 0x10A37F, "icon": "🤖", "name": "OpenAI Shared"}
+
+                if len(final_response) < 4000:
+                    embed = discord.Embed(
+                        description=final_response,
+                        color=style["color"]
+                    )
+                    embed.set_author(name=f"{style['icon']} {style['name']}", icon_url=self.bot.user.display_avatar.url)
+                    embed.set_footer(text="Sanitized & Powered by ORA Universal Brain")
+                    
+                    await message.reply(embed=embed, mention_author=False)
+                else:
+                    # Too long for Embed, fall back to text with header
+                    header = f"**{style['icon']} {style['name']}**\n"
+                    await message.reply(header + final_response, mention_author=False)
             
             # Voice Response
             if is_voice:

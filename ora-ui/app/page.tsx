@@ -16,7 +16,7 @@ type OcrResult = {
   objects?: string[];
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 export default function HomePage() {
   const [isDragging, setIsDragging] = useState(false);
@@ -66,7 +66,7 @@ export default function HomePage() {
 
     // WebSocket for Realtime Text
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//localhost:8000/api/ws`;
+    const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/ws`;
     const ws = new WebSocket(wsUrl);
     ws.onmessage = (event) => {
       const msg = event.data;
@@ -181,7 +181,7 @@ export default function HomePage() {
         {/* ドラッグ&ドロップエリア */}
         <section
           onDrop={onDrop}
-          onDragOver={onDragOver}
+          onDragOver={onDrop}
           onDragLeave={onDragLeave}
           className={[
             "relative rounded-3xl border border-slate-700/70 bg-slate-900/60",

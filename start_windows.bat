@@ -9,7 +9,7 @@ call .venv\Scripts\activate && pip install -r requirements.txt
 start "ORA Discord Bot (Launcher)" cmd /k "call .venv\Scripts\activate && python launcher.py"
 
 :: Start Web API in a new window (with venv activation)
-start "ORA Web API" cmd /k "call .venv\Scripts\activate && uvicorn src.web.app:app --reload --port 8000"
+start "ORA Web API" cmd /k "call .venv\Scripts\activate && uvicorn src.web.app:app --reload --host 0.0.0.0 --port 8000"
 
 :: Start Ngrok in a new window
 start "Ngrok Tunnel" cmd /k "ngrok http 8000"

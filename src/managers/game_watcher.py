@@ -34,7 +34,7 @@ class GameWatcher:
         if self._task is None:
             self._stop_event.clear()
             self._task = asyncio.create_task(self._monitor_loop())
-            logger.info(f"GameWatcher using processes: {self.target_processes}")
+            logger.info(f"GameWatcher 監視対象プロセス: {self.target_processes}")
 
     def stop(self):
         """Stop the monitoring loop."""
@@ -42,10 +42,10 @@ class GameWatcher:
             self._stop_event.set()
             self._task.cancel()
             self._task = None
-            logger.info("GameWatcher stopped.")
+            logger.info("GameWatcher 停止")
 
     async def _monitor_loop(self):
-        logger.info("GameWatcher started monitoring.")
+        logger.info("GameWatcher 監視開始")
         while not self._stop_event.is_set():
             try:
                 is_running = await self._check_processes()
@@ -55,7 +55,7 @@ class GameWatcher:
                     if not self._is_gaming:
                         self._consecutive_detection_count += 1
                         if self._consecutive_detection_count >= self._required_consecutive_checks:
-                            logger.info("Game detected! Triggering Game Mode.")
+                            logger.info("ゲーム起動を検知！ゲームモードへ切り替えます。")
                             self._is_gaming = True
                             if self.on_game_start:
                                 try:
@@ -64,14 +64,14 @@ class GameWatcher:
                                     else:
                                         self.on_game_start()
                                 except Exception as e:
-                                    logger.error(f"Error in on_game_start callback: {e}")
+                                    logger.error(f"on_game_start コールバックエラー: {e}")
                 else:
                     if self._is_gaming:
                         # Immediate switch off? Or also debounce?
                         # Let's debounce switch off too to safe guard against crash/restart
                         self._consecutive_detection_count -= 1
                         if self._consecutive_detection_count <= 0:
-                            logger.info("Game closed. Disabling Game Mode.")
+                            logger.info("ゲーム終了を検知。ゲームモードを解除します。")
                             self._is_gaming = False
                             if self.on_game_end:
                                 try:
@@ -80,7 +80,7 @@ class GameWatcher:
                                     else:
                                         self.on_game_end()
                                 except Exception as e:
-                                    logger.error(f"Error in on_game_end callback: {e}")
+                                    logger.error(f"on_game_end コールバックエラー: {e}")
                     else:
                         # Reset counter if not gaming and not detected
                         self._consecutive_detection_count = 0
@@ -88,7 +88,7 @@ class GameWatcher:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in GameWatcher check: {e}")
+                logger.error(f"GameWatcher 監視エラー: {e}")
             
             await asyncio.sleep(self.poll_interval)
 

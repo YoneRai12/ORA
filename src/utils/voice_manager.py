@@ -338,7 +338,7 @@ class VoiceManager:
                 self.has_warned_voicevox = True
                 # Add warning prefix to the text for fallback
                 logger.warning("VoiceVox absent. Adding warning to text.")
-                text = "ずんだ餅が不在です。" + text
+                # text = "ずんだ餅が不在です。" + text
             
             logger.warning(f"VOICEVOX synthesis failed: {exc}. Falling back to Edge TTS.")
             try:

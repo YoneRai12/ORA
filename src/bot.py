@@ -39,6 +39,11 @@ from .utils.logger import GuildLogger
 logger = logging.getLogger(__name__)
 
 
+_bot_instance: Optional[ORABot] = None
+
+def get_bot() -> Optional[ORABot]:
+    return _bot_instance
+
 class ORABot(commands.Bot):
     """Discord bot implementation for ORA."""
 
@@ -72,14 +77,14 @@ class ORABot(commands.Bot):
 
         if self.config.gemini_api_key:
             self.google_client = GoogleClient(self.config.gemini_api_key)
-            logger.info("✅ GoogleClient (Gemini) Initialized.")
+            logger.info("✅ GoogleClient (Gemini) 初期化完了")
         else:
             self.google_client = None
-            logger.warning("⚠️ GoogleClient disabled.")
+            logger.warning("⚠️ GoogleClient は無効です")
 
         # 0.5 Initialize Unified Brain (Router)
         self.unified_client = UnifiedClient(self.config, self.llm_client, self.google_client)
-        logger.info("✅ UnifiedClient (Universal Brain) Initialized.")
+        logger.info("✅ UnifiedClient (Universal Brain) 初期化完了")
 
         # 1. Initialize Shared Resources
         # Search client using SerpApi or similar
@@ -163,7 +168,7 @@ class ORABot(commands.Bot):
             )
         else:
             synced = await self.tree.sync()
-            logger.info("Synchronized %d commands globally", len(synced))
+            logger.info("全サーバー共通コマンドを同期しました (%d個)", len(synced))
 
     async def close(self) -> None:
         """Graceful shutdown."""
@@ -193,24 +198,84 @@ class ORABot(commands.Bot):
     async def on_ready(self) -> None:
         assert self.user is not None
         logger.info(
-            "Logged in as %s (%s); application_id=%s; guilds=%d",
+            "ログイン成功: %s (%s); AppID=%s; 参加サーバー数=%d",
             self.user.name,
             self.user.id,
             self.application_id,
             len(self.guilds),
         )
+        # Verify Ngrok and DM owner
+        self.loop.create_task(self._notify_ngrok_url())
+
+    async def _notify_ngrok_url(self) -> None:
+        """Checks for Ngrok tunnel and DMs the URL to the owner."""
+        target_ids = [1069941291661672498, 1454335076048568401]
+        ngrok_api = "http://127.0.0.1:4040/api/tunnels"
+        
+        # Wait a bit for Ngrok to spin up
+        await asyncio.sleep(5)
+        
+        try:
+            async with self.session.get(ngrok_api) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    tunnels = data.get("tunnels", [])
+                    public_url = None
+                    for t in tunnels:
+                        if t.get("proto") == "https":
+                            public_url = t.get("public_url")
+                            break
+                    
+                    if public_url:
+                        # Add /dashboard to the ngrok URL for direct access
+                        public_url = public_url.rstrip("/")
+                        dashboard_url = f"{public_url}/dashboard"
+                        message = f"ORA SYSTEM：コスト追跡 & 自律最適化ダッシュボード: {dashboard_url}"
+
+                        for tid in target_ids:
+                            try:
+                                # Try sending to channel first, then user
+                                channel = self.get_channel(tid)
+                                if not channel:
+                                    try:
+                                        channel = await self.fetch_channel(tid)
+                                    except:
+                                        channel = None
+                                
+                                if channel:
+                                    await channel.send(message)
+                                    logger.info(f"Ngrok URLをチャンネルに送信: {channel.name} ({tid}) -> {dashboard_url}")
+                                else:
+                                    user = await self.fetch_user(tid)
+                                    if user:
+                                        await user.send(message)
+                                        logger.info(f"Ngrok URLをユーザーに送信: {user.name} ({tid}) -> {dashboard_url}")
+                            except Exception as e:
+                                logger.error(f"Ngrok URLの送信に失敗しました ({tid}): {e}")
+                else:
+                    logger.debug("Ngrok API not accessible (Status %s)", resp.status)
+        except Exception as e:
+            # Silent fail is fine, Ngrok might not be running
+            logger.debug(f"Ngrok check skipped: {e}")
 
     async def on_connect(self) -> None:
-        logger.info("Connected to Discord gateway.")
+        logger.info("Discordゲートウェイに接続しました。")
 
     async def on_disconnect(self) -> None:
         logger.warning("Disconnected from Discord gateway. Reconnection will be attempted automatically.")
 
     async def on_resumed(self) -> None:
-        logger.info("Resumed Discord session.")
+        logger.info("Discordセッションを再開しました。")
 
     async def on_error(self, event_method: str, *args: object, **kwargs: object) -> None:
         logger.exception("Unhandled error in event %s", event_method)
+        # Auto-Healer Hook for Global Events
+        try:
+            exc_type, value, traceback = sys.exc_info()
+            if value:
+                await self.healer.handle_error(event_method, value)
+        except Exception as e:
+            logger.error(f"Failed to trigger Healer for on_error: {e}")
 
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -218,7 +283,7 @@ class ORABot(commands.Bot):
         if isinstance(error, app_commands.CheckFailure):
             command_name = interaction.command.qualified_name if interaction.command else "unknown"
             logger.info(
-                "Command check failed",
+                "コマンド権限チェック失敗",
                 extra={"command": command_name, "user": str(interaction.user)},
             )
             message = "このコマンドを実行する権限がありません。"
@@ -279,15 +344,15 @@ async def run_bot() -> None:
         raise SystemExit(1) from exc
 
     setup_logging(config.log_level)
-    logger.info("Starting ORA Discord bot", extra={"app_id": config.app_id})
+    logger.info("ORA Discord Botを起動します", extra={"app_id": config.app_id})
 
     # Check for FFmpeg
     import shutil
     if not shutil.which("ffmpeg"):
-        logger.critical("FFmpeg not found in PATH. Audio playback will not work.")
+        logger.critical("FFmpegがPATHに見つかりません。音声再生機能は動作しません。")
         print("CRITICAL: FFmpeg not found! Please install FFmpeg and add it to your PATH.", file=sys.stderr)
     else:
-        logger.info("FFmpeg found.")
+        logger.info("FFmpegが見つかりました。")
 
     intents = discord.Intents.none()
     intents.guilds = True
@@ -313,6 +378,8 @@ async def run_bot() -> None:
             intents=intents,
             session=session,
         )
+        global _bot_instance
+        _bot_instance = bot
 
         stop_event = asyncio.Event()
         _configure_signals(stop_event)
@@ -326,13 +393,13 @@ async def run_bot() -> None:
             )
 
             if stop_task in done:
-                logger.info("Shutdown signal received. Closing bot...")
+                logger.info("終了シグナルを受信しました。Botを停止します...")
                 await bot.close()
 
             if bot_task in done:
                 exc: Optional[BaseException] = bot_task.exception()
                 if exc:
-                    logger.exception("Bot stopped due to an error.")
+                    logger.exception("Botがエラーにより停止しました。")
                     raise exc
             else:
                 await bot.close()
@@ -351,7 +418,7 @@ async def main() -> None:
     except asyncio.CancelledError:
         pass
     except KeyboardInterrupt:
-        logger.info("Interrupted by user. Exiting.")
+        logger.info("ユーザーにより中断されました。終了します。")
 
 if __name__ == "__main__":
     try:
