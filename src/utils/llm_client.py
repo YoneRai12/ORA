@@ -105,6 +105,9 @@ async def robust_json_request(
                     # Don't retry RuntimeErrors (which include our 4xx non-retryable errors)
                     raise re
                 except Exception as e:
+                    if isinstance(e, TransientHTTPError) and "exceeds budget" in str(e):
+                        raise
+
                     last_err = e
                     logger.warning(f"Request failed (Attempt {attempt}/{max_attempts}): {e}")
                     # Fallthrough to retry logic
@@ -126,7 +129,11 @@ async def robust_json_request(
             await _sleep_func(sleep_time)
             backoff *= 2.0
             
-    raise last_err or RuntimeError("Max attempts reached")
+    if last_err:
+        logger.warning(f"Max attempts reached after {max_attempts} tries: {last_err}")
+        raise RuntimeError("Max attempts reached") from last_err
+
+    raise RuntimeError("Max attempts reached")
 
 class LLMClient:
     """Minimal async client for OpenAI-compatible chat completions."""
