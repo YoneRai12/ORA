@@ -90,15 +90,23 @@ class MediaCog(commands.Cog):
             import os
             try:
                 # Try common Windows filenames with ABSOLUTE paths (Critical for Python 3.8+)
-                try:
-                    dll_path = os.path.abspath('libopus-0.x64.dll')
-                    discord.opus.load_opus(dll_path)
-                    logger.info(f"Opus ライブラリをロードしました: {dll_path}")
-                except Exception:
-                    # Fallback to standard filename
+                # 1. assets/libs/ (New Standard)
+                dll_path = os.path.abspath(os.path.join('assets', 'libs', 'libopus-0.dll'))
+                
+                if not os.path.exists(dll_path):
+                    # 2. Root fallback (Legacy)
                     dll_path = os.path.abspath('libopus-0.dll')
-                    discord.opus.load_opus(dll_path)
-                    logger.info(f"Opus ライブラリをロードしました: {dll_path}")
+
+                if not os.path.exists(dll_path):
+                     # 3. x64 fallback
+                    dll_path = os.path.abspath('libopus-0.x64.dll')
+
+                if not os.path.exists(dll_path):
+                    logger.critical("'libopus-0.dll' が assets/libs/ またはルートディレクトリに見つかりません。")
+                    return
+                
+                discord.opus.load_opus(dll_path)
+                logger.info(f"Opus ライブラリをロードしました: {dll_path}")
             except Exception as e:
                 logger.critical(f"Opus ライブラリが見つかりません。ボイス機能がタイムアウトする可能性があります。 error={e}")
                 logger.critical("'libopus-0.dll' (64-bit) をBotのルートディレクトリに配置してください。")
