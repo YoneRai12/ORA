@@ -1,87 +1,65 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
+# Tools logs
+*.log
+*.log.*
+*.txt
+
+# Project Artifacts
+*.db
+*.db.*
+*.bak
+*.zip
+*.7z
+*.rar
+
+# Large Data & Models
+data/
+downloads/
+checkpoints/
+models/
+loras/
+vae/
+
+# Scripts moving to tools/ (legacy cleanup)
+# If people still have them locally, these ignores won't hurt, but we've moved them.
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Virtual Envs
 venv/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Environment Variables
-.env
-
-# Google Cloud
-service-account.json
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
 env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Environment Variables
 .env
 
 # Google Cloud
 service-account.json
 client_secret_*.json
 
-# IDEs
-.vscode/
-.idea/
+# Backups
+backups/
+_sandbox/
+timestamped_backups/
 
-# Local Data
-data/
-ora_bot.db
-ora_bot.db.*
-*.log
-*.log.*
-*.mp3
-*.wav
-*.zip
-*.bak
-*.txt
+# ORA Artifacts (Brain)
+.gemini/
+.agent/
+brain/
 
-# Node.js
+# Build
+__pycache__/
+*.pyc
 node_modules/
 .next/
 out/
 build/
 dist/
 
-# Temporary Scripts
-cleanup.py
-debug_memory_trigger.py
-find_def.py
-locate_summary.py
-verify_system.py
-check_voicevox_status.py
-debug_search.py
-verify_openai_fix.py
-verify_youtube_search.py
-verify_voice.py
-
-tigauno
-
-.venv_wsl/
-.venv/
-
-# Exclude entire backup/sub-project folders
+# Exclude entire backup/sub-project folders forcefully
 Discord-mainORA2/
 RTX5090-DebugSystem-main/
 ORAA/
 ORAA_extracted/
 temp_oraa_analysis/
-
-# Brain/Artifacts
-.gemini/
-.agent/
-brain/
