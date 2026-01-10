@@ -105,29 +105,25 @@ class MusicPlayerView(ui.View):
 
     # --- Speed Controls (Row 1) ---
     
-    @ui.button(label="Normal", style=discord.ButtonStyle.secondary, row=1, custom_id="music_speed_1")
+    @ui.button(label="Normal", style=discord.ButtonStyle.secondary, row=2, custom_id="music_speed_1")
     async def speed_normal(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         self.voice_manager.set_speed_pitch(interaction.guild.id, speed=1.0, pitch=1.0)
-        # Dashboard updates automatically via set_speed_pitch logic or next loop? 
-        # Actually set_speed_pitch stops/restarts track which triggers update_music_dashboard via "play" logic?
-        # No, set_speed_pitch logic might not trigger a dashboard update event explicitly.
-        # But we can force one.
         await self.update_dashboard(interaction)
 
-    @ui.button(label="x1.25", style=discord.ButtonStyle.secondary, row=1, custom_id="music_speed_125")
+    @ui.button(label="x1.25", style=discord.ButtonStyle.secondary, row=2, custom_id="music_speed_125")
     async def speed_125(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         self.voice_manager.set_speed_pitch(interaction.guild.id, speed=1.25, pitch=1.0)
         await self.update_dashboard(interaction)
 
-    @ui.button(emoji="🚀", label="x1.5", style=discord.ButtonStyle.secondary, row=1, custom_id="music_speed_150")
+    @ui.button(emoji="🚀", label="x1.5", style=discord.ButtonStyle.secondary, row=2, custom_id="music_speed_150")
     async def speed_150(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         self.voice_manager.set_speed_pitch(interaction.guild.id, speed=1.5, pitch=1.0)
         await self.update_dashboard(interaction)
 
-    @ui.button(emoji="🌙", label="Nightcore", style=discord.ButtonStyle.primary, row=1, custom_id="music_speed_nightcore")
+    @ui.button(emoji="🌙", label="Nightcore", style=discord.ButtonStyle.primary, row=2, custom_id="music_speed_nightcore")
     async def speed_nightcore(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         # Nightcore typically: speed ~1.25, pitch ~1.25
