@@ -38,6 +38,27 @@ Unlike standard bots that crash on error, ORA **re-writes her own code** to fix 
 
 ---
 
+## 🆕 Latest Update: v4.3 (2026/01/11) - The Shadow Update
+
+### 👥 Shadow Clone System (Watcher 2.0)
+Downtime is a thing of the past.
+*   **Zero Downtime**: When the Main Bot updates or restarts, the "Shadow" Bot instantly wakes up and takes control of VC and Chat.
+*   **Seamless Experience**: Users won't notice the restart. TTS continues without interruption.
+
+### 🧬 Advanced Self-Healing (Atomic Healer)
+*   **Atomic Backup**: Mathematically eliminated DB corruption. Updates are either "Fully Successful" or "Do Nothing".
+*   **Handshake Verification**: Bot and Watcher constantly verify each other's heartbeat. Recovery begins within 0.1s of failure.
+
+### 🏆 Points & Rank System
+*   **VC Points**: Earn points just by hanging out in Voice Channels.
+*   **Check Rank**: Use `/rank` or ask "What is my rank?" to see your status.
+
+### 🔊 TTS 2.0 (Neural Speed)
+*   **Hyper-Fast Response**: Join/Leave announcements are accelerated to not interrupt gameplay.
+*   **Smart Filter**: Automatically ignores symbols like `(lol)` or `-`, making conversation more human-like.
+
+---
+
 ## 🆕 Latest Update: v4.2 (2026/01/10)
 ### 🛡️ Ultimate Security & NERV UI
 *   **Zero Hardcoded Secrets**: Complete migration to `.env` architecture. GitHub Ready.
