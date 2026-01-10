@@ -16,7 +16,7 @@ class MusicPlayerView(ui.View):
         self.guild_id = guild_id
         self.voice_manager = cog._voice_manager
 
-    @ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="music_play_pause")
+    @ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="music_play_pause", row=0)
     async def play_pause(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         vc = interaction.guild.voice_client
@@ -37,7 +37,7 @@ class MusicPlayerView(ui.View):
         
         await self.update_dashboard(interaction)
 
-    @ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="music_skip")
+    @ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="music_skip", row=0)
     async def skip(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         # Logic to skip
@@ -45,20 +45,36 @@ class MusicPlayerView(ui.View):
         # Dashboard update happens via event loop usually, but force one here
         await self.update_dashboard(interaction)
 
-    @ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="music_stop")
+    @ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="music_stop", row=0)
     async def stop(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         await self.voice_manager.stop_player(interaction.guild.id)
         # await interaction.delete_original_response() # Don't delete, just show Stopped
         await self.update_dashboard(interaction)
 
-    @ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="music_shuffle")
+    @ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="music_shuffle", row=1)
     async def shuffle(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         self.voice_manager.shuffle_queue(interaction.guild.id)
         await self.update_dashboard(interaction)
 
-    @ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, custom_id="music_loop")
+    @ui.button(emoji="🔉", style=discord.ButtonStyle.secondary, custom_id="music_vol_down", row=0)
+    async def vol_down(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.defer()
+        state = self.voice_manager.get_music_state(interaction.guild.id)
+        new_vol = max(0.0, state.volume - 0.1)
+        self.voice_manager.set_music_volume(interaction.guild.id, new_vol)
+        await self.update_dashboard(interaction)
+
+    @ui.button(emoji="🔊", style=discord.ButtonStyle.secondary, custom_id="music_vol_up", row=0)
+    async def vol_up(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.defer()
+        state = self.voice_manager.get_music_state(interaction.guild.id)
+        new_vol = min(2.0, state.volume + 0.1)
+        self.voice_manager.set_music_volume(interaction.guild.id, new_vol)
+        await self.update_dashboard(interaction)
+
+    @ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, custom_id="music_loop", row=1)
     async def loop(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer()
         mode = self.voice_manager.toggle_loop(interaction.guild.id)
