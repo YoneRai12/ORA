@@ -560,13 +560,13 @@ class MediaCog(commands.Cog):
              return
 
         # 1. Resolve URL
-        stream_url, title, _duration = await get_youtube_audio_stream_url(query)
+        stream_url, title, duration_sec = await get_youtube_audio_stream_url(query)
         if not title:
             await ctx.send(f"❌ '{query}' の再生に失敗しました。")
             return
 
         # 2. Play (Await once!)
-        played = await self._voice_manager.play_music(ctx.author, stream_url, title, is_stream=True)
+        played = await self._voice_manager.play_music(ctx.author, stream_url, title, is_stream=True, duration=duration_sec or 0.0)
         
         if played:
              # --- MUSIC DASHBOARD INTEGRATION ---
