@@ -173,19 +173,19 @@ graph TD
     Local --> Tools[🛠️ Tools]
     Cloud --> Tools
     
-    Tools --> Image[🎨 Flux.1 Generate]
-    Tools --> Vision[👁️ Screen Analyze]
-    Tools --> System[💻 PC Control (Win/Mac)]
+    Tools --> Image["🎨 Flux.1 Generate"]
+    Tools --> Vision["👁️ Screen Analyze"]
+    Tools --> System["💻 PC Control (Win/Mac)"]
 
     %% Output
     Tools --> Response
     GPT --> Response
-    Ministral --> Response[Final Response]
+    Ministral --> Response["Final Response"]
     
     style Router fill:#ff0055,stroke:#fff,stroke-width:2px
     style Local fill:#00aaff,stroke:#fff
     style Cloud fill:#aa00ff,stroke:#fff
-    style Flatten fill:#00ff00,stroke:#000
+    style Response fill:#00ff00,stroke:#000
 ```
 
 This system uses an **Automatic Semantic Router** to dynamically assign tasks to the most appropriate AI model.
