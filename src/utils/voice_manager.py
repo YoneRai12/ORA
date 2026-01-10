@@ -431,7 +431,7 @@ class VoiceManager:
         logger.error("Failed to connect to voice after 3 attempts.")
         raise VoiceConnectionError(f"ボイスチャンネルへの接続に失敗しました (タイムアウト/エラー): {last_error}")
 
-    async def play_tts(self, member: discord.Member, text: str) -> bool:
+    async def play_tts(self, member: discord.Member, text: str, speed: float = 1.0) -> bool:
         if not text or not text.strip():
             return False
             
@@ -457,7 +457,7 @@ class VoiceManager:
                      
             # 3. Add to Queue
             state = self.get_music_state(member.guild.id)
-            state.tts_queue.append((member, text))
+            state.tts_queue.append((member, text, speed))
             
             # 4. Trigger Processing if Idle
             if not state.tts_processing:
@@ -477,12 +477,18 @@ class VoiceManager:
         state.tts_processing = True
         
         # Pop next item
-        member, text = state.tts_queue.pop(0)
+        # Gracefully handle old format (length 2) if any linger in memory during hot-reload
+        item = state.tts_queue.pop(0)
+        if len(item) == 3:
+            member, text, speed = item
+        else:
+            member, text = item
+            speed = 1.0
         
         try:
             # Synthesize
             speaker_id = self._user_speakers.get(member.id)
-            audio = await self._tts.synthesize(text, speaker_id=speaker_id)
+            audio = await self._tts.synthesize(text, speaker_id=speaker_id, speed_scale=speed)
         except Exception as exc:
             # VOICEVOX Failure Handling
             if not self.has_warned_voicevox:
@@ -659,6 +665,7 @@ class VoiceManager:
         if state.is_looping and state.current:
             # Replay current
             url_or_path, title, is_stream, duration = state.current
+            state.current_track_duration = duration if duration else 0.0
         elif state.queue:
             # Save current to history before switching
             if state.current:
@@ -771,8 +778,10 @@ class VoiceManager:
         if state.voice_client and state.voice_client.is_playing():
             state.voice_client.stop()
 
+        return text.strip()
+
     def clean_for_tts(self, text: str) -> str:
-        """Clean text for TTS (remove URLs, code blocks, etc.)."""
+        """Clean text for TTS (remove URLs, code blocks, and parentheses)."""
         import re
         # Remove Code Blocks
         text = re.sub(r"```[\s\S]*?```", "コードブロック", text)
@@ -783,6 +792,15 @@ class VoiceManager:
         text = re.sub(r"<a?:\w+:\d+>", "絵文字", text)
         # Remove internal tags just in case
         text = re.sub(r"<\|.*?\|>", "", text)
+        
+        # Remove content inside parentheses (Half-width and Full-width)
+        # Non-greedy match to avoid eating entire sentences if multiple parens exist
+        text = re.sub(r"\(.*?\)", "", text)
+        text = re.sub(r"（.*?）", "", text)
+        
+        # Remove Hyphens and Whitespace (Half/Full width)
+        # Requested by user to stop reading "minus" or "space"
+        text = re.sub(r"[-−\s　]", "", text)
         
         # Truncate to 60 chars
         if len(text) > 60:
@@ -862,7 +880,10 @@ class VoiceManager:
     def get_queue_info(self, guild_id: int) -> dict:
         state = self.get_music_state(guild_id)
         current_title = state.current[1] if state.current else None
-        current_duration = state.current[3] if state.current and len(state.current) > 3 else 0.0
+        # Prefer the explicitly stored duration, fallback to tuple extraction
+        current_duration = state.current_track_duration
+        if current_duration == 0.0 and state.current and len(state.current) > 3:
+             current_duration = state.current[3]
         
         # Safe access for duration in queue
         queue_list = []

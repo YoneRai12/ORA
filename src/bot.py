@@ -221,8 +221,10 @@ class ORABot(commands.Bot):
         target_ids = []
         if self.config.admin_user_id:
              target_ids.append(self.config.admin_user_id)
-        # Add backup/other IDs from config if needed
-        # target_ids.extend(self.config.sub_admin_ids)
+        
+        # Add Startup Notification Channel
+        if self.config.startup_notify_channel_id:
+            target_ids.append(self.config.startup_notify_channel_id)
         ngrok_api = "http://127.0.0.1:4040/api/tunnels"
         
         # Wait a bit for Ngrok to spin up

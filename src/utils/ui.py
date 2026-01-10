@@ -10,9 +10,8 @@ class StatusManager:
     
     
     # Custom Emojis (User Uploaded)
-    # Added 'a' prefix for Animated GIFs
     EMOJI_PROCESSING = "<a:rode:1449406298788597812>" 
-    EMOJI_DONE = "<a:conp:1449406158883389621>" # Assuming Checkmark is also animated based on user feedback.
+    EMOJI_DONE = "<a:conp:1449406158883389621>"
     
     def __init__(self, channel: discord.abc.Messageable):
         self.channel = channel

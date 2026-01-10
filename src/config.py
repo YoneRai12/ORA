@@ -125,8 +125,10 @@ class Config:
     # actually GOOGLE_API_KEY is used by google_client directly from os.environ usually.
     # Let's standardize on Config.
     log_channel_id: int
+    startup_notify_channel_id: Optional[int]
     sub_admin_ids: set[int]
     vc_admin_ids: set[int]
+    feature_proposal_channel_id: Optional[int]
 
     @classmethod
     def load(cls) -> "Config":
@@ -241,11 +243,29 @@ class Config:
                 pass
 
         # Debug Log Channel
-        log_channel_raw = os.getenv("ORA_LOG_CHANNEL_ID", "0") # Default to 0 if not set
+        log_channel_raw = os.getenv("ORA_LOG_CHANNEL_ID") or os.getenv("LOG_CHANNEL_ID", "0") # Support both keys
         try:
             log_channel_id = int(log_channel_raw)
         except ValueError:
             log_channel_id = 0
+            
+        # Startup Notification Channel (Separate from logs)
+        startup_channel_raw = os.getenv("STARTUP_NOTIFY_CHANNEL_ID")
+        startup_notify_channel_id: Optional[int] = None
+        if startup_channel_raw:
+             try:
+                 startup_notify_channel_id = int(startup_channel_raw)
+             except ValueError:
+                 pass
+        
+        # Feature Proposal Channel
+        proposal_channel_raw = os.getenv("FEATURE_PROPOSAL_CHANNEL_ID")
+        feature_proposal_channel_id: Optional[int] = None
+        if proposal_channel_raw:
+             try:
+                 feature_proposal_channel_id = int(proposal_channel_raw)
+             except ValueError:
+                 pass
                 
         # Stable Diffusion API
         sd_api_url = "http://127.0.0.1:8188" # Force ComfyUI Port
@@ -294,8 +314,10 @@ class Config:
             openai_api_key=openai_key,
             gemini_api_key=os.getenv("GOOGLE_API_KEY"),
             log_channel_id=log_channel_id,
+            startup_notify_channel_id=startup_notify_channel_id,
             sub_admin_ids=sub_admin_ids,
             vc_admin_ids=vc_admin_ids,
+            feature_proposal_channel_id=feature_proposal_channel_id,
         )
 
     def validate(self) -> None:

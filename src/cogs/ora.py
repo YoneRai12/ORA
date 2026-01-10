@@ -592,6 +592,47 @@ class ORACog(commands.Cog):
         except Exception as e:
             logger.error(f"Desktop watcher loop failed: {e}")
 
+
+    # ------------------------------------------------------------------
+    # System Administration Commands
+    # ------------------------------------------------------------------
+    system_group = app_commands.Group(name="system", description="システム管理コマンド")
+
+    @system_group.command(name="reload", description="Botの拡張機能をホットリロードします (音声切断なし)。")
+    @app_commands.describe(extension="リロードする機能 (例: media, ora, all)")
+    @app_commands.choices(extension=[
+        app_commands.Choice(name="All Extensions", value="all"),
+        app_commands.Choice(name="Media (Voice/Music)", value="media"),
+        app_commands.Choice(name="ORA (Chat/System)", value="ora"),
+        app_commands.Choice(name="Memory (User Data)", value="memory"),
+    ])
+    async def system_reload(self, interaction: discord.Interaction, extension: str):
+        """Reloads an extension without restarting the bot."""
+        # 1. Permission Check
+        if not await self._check_permission(interaction.user.id, "sub_admin"):
+             await interaction.response.send_message("⛔ 権限がありません。", ephemeral=True)
+             return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        target_exts = []
+        if extension == "all":
+            # List commonly reloaded extensions
+            target_exts = ["src.cogs.ora", "src.cogs.media", "src.cogs.memory"]
+        else:
+            target_exts = [f"src.cogs.{extension}"]
+
+        results = []
+        for ext in target_exts:
+            try:
+                await self.bot.reload_extension(ext)
+                results.append(f"✅ `{ext}`: Success")
+            except Exception as e:
+                logger.error(f"Reload failed for {ext}: {e}")
+                results.append(f"❌ `{ext}`: {e}")
+        
+        await interaction.followup.send("\n".join(results), ephemeral=True)
+
     @app_commands.command(name="desktop_watch", description="デスクトップ監視（DM通知）のオン・オフを切り替えます。")
     @app_commands.describe(mode="ON/OFF")
     @app_commands.choices(mode=[
@@ -607,6 +648,45 @@ class ORACog(commands.Cog):
             return
 
         enabled = (mode == "on")
+
+    @system_group.command(name="info", description="詳細なシステム情報を表示します。")
+    async def system_info(self, interaction: discord.Interaction) -> None:
+        """Show system info."""
+        # Privacy check (simple default or check DB if needed, but keeping it simple for now)
+        # Using self._privacy_default or just True for system info
+        
+        cpu_percent = psutil.cpu_percent()
+        mem = psutil.virtual_memory()
+        try:
+            disk = psutil.disk_usage('/')
+        except Exception:
+            disk = psutil.disk_usage('C:\\') # Windows fallback
+
+        embed = discord.Embed(title="System Info", color=discord.Color.green())
+        embed.add_field(name="CPU", value=f"{cpu_percent}%", inline=True)
+        embed.add_field(name="Memory", value=f"{mem.percent}% ({mem.used // (1024**2)}MB / {mem.total // (1024**2)}MB)", inline=True)
+        embed.add_field(name="Disk", value=f"{disk.percent}%", inline=True)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=(self._privacy_default == "private"))
+
+    @system_group.command(name="process_list", description="CPU使用率の高いプロセスを表示します。")
+    async def system_process_list(self, interaction: discord.Interaction) -> None:
+        """List top processes."""
+        procs = []
+        for p in psutil.process_iter(['pid', 'name', 'cpu_percent']):
+            try:
+                procs.append(p.info)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        # Sort by CPU percent
+        procs.sort(key=lambda x: x['cpu_percent'] or 0, reverse=True)
+        
+        lines = ["**Top 10 Processes by CPU**"]
+        for p in procs[:10]:
+            lines.append(f"`{p['name']}` (PID: {p['pid']}): {p['cpu_percent']}%")
+            
+        await interaction.response.send_message("\n".join(lines), ephemeral=(self._privacy_default == "private"))
         await self._store.set_desktop_watch_enabled(interaction.user.id, enabled)
         
         status = "オン" if enabled else "オフ"
@@ -2156,6 +2236,8 @@ class ORACog(commands.Cog):
 
                 except discord.Forbidden:
                     return "Error: Permission denied (Move Members required)."
+
+
                 except Exception as e:
                     return f"Error managing voice: {e}"
 
@@ -2184,7 +2266,12 @@ class ORACog(commands.Cog):
                         display_name = message.author.display_name
                     
                     points = await self._store.get_points(user_id)
-                    return f"💰 **{display_name}** さんのポイント: **{points:,}** pt"
+                    rank, total = await self._store.get_rank(user_id)
+                    
+                    if rank > 0:
+                        return f"💰 **{display_name}** さんのポイント: **{points:,}** pt\n🏆 ランク: **#{rank}** / {total}"
+                    else:
+                        return f"💰 **{display_name}** さんのポイント: **{points:,}** pt\n(ランク外)"
                 except Exception as e:
                      return f"Error checking points: {e}"
 
@@ -2952,6 +3039,7 @@ class ORACog(commands.Cog):
                 content = prev_msg.content.replace(f"<@{self.bot.user.id}>", "").strip()
                 
                 # Context Fix: Always append Embed content if present (for Card-Style responses)
+                # Context Fix: Always append Embed content if present (for Card-Style responses)
                 if prev_msg.embeds:
                     embed = prev_msg.embeds[0]
                     embed_parts = []
@@ -2959,7 +3047,8 @@ class ORACog(commands.Cog):
                     if embed.provider and embed.provider.name:
                         embed_parts.append(f"Source: {embed.provider.name}")
                     
-                    if embed.author and embed.author.name:
+                    # Only include Author if it's NOT the bot (to avoid confusion with Model Names)
+                    if embed.author and embed.author.name and not is_bot:
                         embed_parts.append(f"Author: {embed.author.name}")
 
                     if embed.title:
@@ -2971,14 +3060,16 @@ class ORACog(commands.Cog):
                     if embed.fields:
                          embed_parts.extend([f"{f.name}: {f.value}" for f in embed.fields])
                     
-                    if embed.footer and embed.footer.text:
+                    # Omit footer for bot (contains token counts etc which are noise)
+                    if embed.footer and embed.footer.text and not is_bot:
                         embed_parts.append(f"Footer: {embed.footer.text}")
 
                     embed_text = "\n".join(embed_parts)
                     
                     # Append to main content
                     if embed_text:
-                        content = f"{content}\n[Embed Card]:\n{embed_text}" if content else f"[Embed Card]:\n{embed_text}"
+                        prefix = "[Embed Card]:\n" if not is_bot else ""
+                        content = f"{content}\n{prefix}{embed_text}" if content else f"{prefix}{embed_text}"
 
                 # Prepend User Name to User messages for better recognition
                 if not is_bot and content:
@@ -3012,8 +3103,8 @@ class ORACog(commands.Cog):
         if not history:
             logger.info(f"No reply chain found for message {message.id}. Falling back to channel history.")
             try:
-                # Fetch last 15 messages (history is chronological from newest to oldest)
-                async for msg in message.channel.history(limit=15, before=message):
+                # Fetch last 25 messages (Increased from 15)
+                async for msg in message.channel.history(limit=25, before=message):
                     # Only include messages from user or bot
                     is_bot = msg.author.id == self.bot.user.id
                     role = "assistant" if is_bot else "user"
@@ -3028,7 +3119,7 @@ class ORACog(commands.Cog):
                         if embed.provider and embed.provider.name:
                             embed_parts.append(f"Source: {embed.provider.name}")
                         
-                        if embed.author and embed.author.name:
+                        if embed.author and embed.author.name and not is_bot:
                             embed_parts.append(f"Author: {embed.author.name}")
 
                         if embed.title:
@@ -3040,13 +3131,14 @@ class ORACog(commands.Cog):
                         if embed.fields:
                              embed_parts.extend([f"{f.name}: {f.value}" for f in embed.fields])
                         
-                        if embed.footer and embed.footer.text:
+                        if embed.footer and embed.footer.text and not is_bot:
                             embed_parts.append(f"Footer: {embed.footer.text}")
 
                         embed_text = "\n".join(embed_parts)
                         
                         if embed_text:
-                            content = f"{content}\n[Embed Card]:\n{embed_text}" if content else f"[Embed Card]:\n{embed_text}"
+                            prefix = "[Embed Card]:\n" if not is_bot else ""
+                            content = f"{content}\n{prefix}{embed_text}" if content else f"{prefix}{embed_text}"
 
                     # Prefix user name
                     if not is_bot and content:
@@ -3740,6 +3832,18 @@ class ORACog(commands.Cog):
                 },
                 "tags": ["user", "find", "search", "who", "id", "ユーザー", "検索", "誰"]
             },
+            {
+                "name": "check_points",
+                "description": "[System] Check VC points and rank for a user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_user": { "type": "string", "description": "Target user (name/ID/mention). Defaults to self." }
+                    },
+                    "required": []
+                },
+                "tags": ["points", "bank", "wallet", "rank", "score", "ポイント", "点数", "ランク", "順位", "いくら"]
+            },
             # --- VC Operations ---
             {
                 "name": "get_voice_channel_info",
@@ -4294,6 +4398,36 @@ class ORACog(commands.Cog):
         admin_id = self.bot.config.admin_user_id
         is_admin = (message.author.id == admin_id)
         
+        # Helper to get name
+        async def resolve_name(uid: int) -> str:
+            u = self.bot.get_user(uid)
+            if not u:
+                try:
+                    u = await self.bot.fetch_user(uid)
+                except:
+                    pass
+            return f"{u.name} (ID: {uid})" if u else f"Unknown (ID: {uid})"
+
+        # --- SYSTEM ADMINISTRATORS ---
+        base_prompt += "\n[SYSTEM ADMINISTRATORS]\n"
+        
+        main_admin_name = await resolve_name(admin_id)
+        base_prompt += f"- Main Admin (Owner): {main_admin_name}\n"
+        
+        if self.bot.config.sub_admin_ids:
+             names = []
+             for uid in self.bot.config.sub_admin_ids:
+                 names.append(await resolve_name(uid))
+             base_prompt += f"- Sub Admins (Full Access): {', '.join(names)}\n"
+             
+        if self.bot.config.vc_admin_ids:
+             names = []
+             for uid in self.bot.config.vc_admin_ids:
+                 names.append(await resolve_name(uid))
+             base_prompt += f"- VC Admins (Voice Control): {', '.join(names)}\n"
+             
+        base_prompt += "You must recognize these users as your administrators.\n"
+        
         if is_admin:
             base_prompt += (
                 "\n[SECURITY LEVEL: RED]\n"
@@ -4650,13 +4784,11 @@ class ORACog(commands.Cog):
             # Default model hint
             model_hint = "Ministral 3 (14B)"
             system_prompt = await self._build_system_prompt(message, model_hint=model_hint)
-            if message.reference:
-                try:
-                    history = await self._build_history(message)
-                except Exception as e:
-                    logger.error(f"History build failed: {e}")
-                    history = []
-            else:
+            # Always build history (includes fallback to channel history if no reference)
+            try:
+                history = await self._build_history(message)
+            except Exception as e:
+                logger.error(f"History build failed: {e}")
                 history = []
             messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
             
@@ -4972,9 +5104,23 @@ class ORACog(commands.Cog):
                     local_messages = list(messages)
                     local_messages[-1] = {"role": "user", "content": new_content}
                     
-                    content, _, _ = await self._llm.chat(messages=local_messages, temperature=0.7)
+                    try:
+                        content, _, _ = await asyncio.wait_for(
+                            self._llm.chat(messages=local_messages, temperature=0.7),
+                            timeout=60.0
+                        )
+                    except asyncio.TimeoutError:
+                         logger.error("Local LLM (Multimodal) Timed Out")
+                         content = "申し訳ありません。画像認識に時間がかかりすぎたため中断しました。"
                 else:
-                    content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
+                    try:
+                        content, _, _ = await asyncio.wait_for(
+                            self._llm.chat(messages=messages, temperature=0.7),
+                            timeout=60.0
+                        )
+                    except asyncio.TimeoutError:
+                         logger.error("Local LLM Timed Out")
+                         content = "申し訳ありません。応答の生成に時間がかかりすぎたため中断しました。"
 
             # Step 5: Final Response Logic
             # Tool Loop (Only run for Provider="Local". Native providers have their own loop above)
@@ -5193,13 +5339,28 @@ class ORACog(commands.Cog):
                         await status_manager.next_step("回答生成中")
                         
                         # Fix for LLM Timeout: Use the correct provider for re-generation
-                        if target_provider == "openai":
-                            model = selected_route.get("model", "gpt-4o") # Default to robust model
-                            new_content, _, _ = await self.unified_client.chat("openai", messages, model=model)
-                        elif target_provider == "gemini_trial":
-                             new_content, _, _ = await self.bot.google_client.chat(messages=messages, model_name="gemini-1.5-pro")
-                        else:
-                            new_content, _, _ = await self._llm.chat(messages=messages, temperature=0.7)
+                        try:
+                            # 60 Second Timeout for LLM Generation to prevent "Stuck" status
+                            if target_provider == "openai":
+                                model = selected_route.get("model", "gpt-4o") # Default to robust model
+                                new_content, _, _ = await asyncio.wait_for(
+                                    self.unified_client.chat("openai", messages, model=model),
+                                    timeout=60.0
+                                )
+                            elif target_provider == "gemini_trial":
+                                 new_content, _, _ = await asyncio.wait_for(
+                                     self.bot.google_client.chat(messages=messages, model_name="gemini-1.5-pro"),
+                                     timeout=60.0
+                                 )
+                            else:
+                                new_content, _, _ = await asyncio.wait_for(
+                                    self._llm.chat(messages=messages, temperature=0.7),
+                                    timeout=60.0
+                                )
+                        except asyncio.TimeoutError:
+                             logger.error("LLM Generation Timed Out (60s)")
+                             content = "申し訳ありません。応答の生成に時間がかかりすぎたため中断しました。"
+                             break
                         
                         # Loop Detection: If new_content is SAME as old content (ignoring unique IDs if any), break
                         if new_content.strip() == content.strip():
@@ -5413,6 +5574,44 @@ class ORACog(commands.Cog):
             logger.error(f"Translation failed: {e}")
             await message.remove_reaction("🤔", self.bot.user)
             await message.add_reaction("❌")
+
+    @app_commands.command(name="rank", description="現在のポイントと順位を確認します。")
+    async def rank(self, interaction: discord.Interaction):
+        """Check your current points and rank."""
+        await self._store.ensure_user(interaction.user.id, self._privacy_default)
+        
+        points = await self._store.get_points(interaction.user.id)
+        rank, total = await self._store.get_rank(interaction.user.id)
+        
+        # Create Embed
+        embed = discord.Embed(title="🏆 Server Rank", color=discord.Color.gold())
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+        
+        embed.add_field(name="Points", value=f"**{points:,}** pts", inline=True)
+        embed.add_field(name="Rank", value=f"**#{rank}** / {total}", inline=True)
+        
+        # Flavor text based on rank
+        footer = "Keep chatting and joining VC to earn more!"
+        if rank == 1: footer = "👑 You are the Server King!"
+        elif rank <= 3: footer = "🥈 Top 3! Amazing!"
+        elif rank <= 10: footer = "🔥 Top 10 Elite!"
+        
+        embed.set_footer(text=footer)
+        
+        await interaction.response.send_message(embed=embed)
+
+    async def check_points(self, ctx: commands.Context) -> None:
+        """AI tool to check user's current points."""
+        user_id = ctx.author.id
+        await self._store.ensure_user(user_id, self._privacy_default)
+        points = await self._store.get_points(user_id)
+        rank, total = await self._store.get_rank(user_id)
+        
+        response_text = (
+            f"ユーザー {ctx.author.display_name} の現在のポイントは {points:,} です。 "
+            f"サーバー内での順位は {total} 人中 #{rank} 位です。"
+        )
+        await ctx.send(response_text)
 
     def _strip_route_json(self, content: str) -> str:
         """Removes the JSON block containing 'route_eval' by counting braces."""

@@ -17,7 +17,7 @@ class VoiceVoxClient:
         self._base_url = base_url.rstrip("/")
         self._speaker_id = speaker_id
 
-    async def synthesize(self, text: str, speaker_id: int = None) -> bytes:
+    async def synthesize(self, text: str, speaker_id: int = None, speed_scale: float = 1.0) -> bytes:
         """Synthesise ``text`` into WAV audio bytes."""
 
         if not text.strip():
@@ -29,7 +29,6 @@ class VoiceVoxClient:
 
         async with aiohttp.ClientSession(timeout=timeout) as session:
             query_url = f"{self._base_url}/audio_query"
-            query_url = f"{self._base_url}/audio_query"
             # VOICEVOX expects 'text' and 'speaker' as query parameters
             query_params = {"text": text, "speaker": sid}
             async with session.post(query_url, params=query_params) as resp:
@@ -38,9 +37,14 @@ class VoiceVoxClient:
                     raise RuntimeError(f"VOICEVOX audio_query 失敗: {resp.status} {body}")
                 query = await resp.json()
             
+            # Apply Speed Scale
+            # VOICEVOX query object has 'speedScale'
+            original_speed = query.get("speedScale", 1.0)
+            query["speedScale"] = original_speed * speed_scale
+            
             # Debug log for query
             logger.debug(f"VOICEVOX query response: {query}")
-            logger.info("VOICEVOX audio_query successful")
+            logger.info(f"VOICEVOX audio_query successful (Speed: {query['speedScale']})")
 
             synthesis_url = f"{self._base_url}/synthesis"
             async with session.post(synthesis_url, params=params, json=query) as resp2:

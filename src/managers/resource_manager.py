@@ -215,7 +215,8 @@ class ResourceManager:
 
     async def start_comfy(self):
         """Starts ComfyUI."""
-        target_bat = os.path.abspath("start_comfy.bat")
+        # Updated to point to tools/setup as per user structure
+        target_bat = os.path.abspath("tools/setup/start_comfy.bat")
         
         if not os.path.exists(target_bat):
              logger.error("start_comfy.bat not found!")

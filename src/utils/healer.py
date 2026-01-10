@@ -3,6 +3,13 @@ import traceback
 import discord
 import io
 import os
+import shutil
+import zipfile
+import subprocess
+import py_compile
+import time
+import json
+import asyncio
 from typing import Optional
 from .llm_client import LLMClient
 
@@ -185,12 +192,20 @@ class Healer:
             }}
             """
             
-            # Using 'gpt-5.1-codex' if routed, or fall back to high intel
-            analysis_json = await self.llm.chat(
-                messages=[{"role": "user", "content": prompt}], 
-                temperature=0.0,
-                model="gpt-5.1-codex"
-            )
+            # Using 'gpt-5.1-codex' (Local) initially, but fallback to 'gpt-4o' (Cloud)
+            try:
+                analysis_json = await self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}], 
+                    temperature=0.0,
+                    model="gpt-5.1-codex"
+                )
+            except Exception as e:
+                logger.warning(f"Healer Local LLM failed: {e}. Fallback to Cloud (gpt-4o).")
+                analysis_json = await self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}], 
+                    temperature=0.0,
+                    model="gpt-4o"
+                )
             
             # Parse JSON
             cleaned_json = analysis_json.strip()
@@ -401,64 +416,84 @@ class Healer:
 
     async def propose_feature(self, feature: str, context: str, requester: discord.User, ctx=None):
         """
-        AI Self-Evolution with Scope Analysis and Autonomous Execution.
+        AI Self-Evolution with Risk & Scope Analysis (Decision Gate).
         """
         try:
             # Step -1: Pre-Flight Deduplication
             existing_cmd = await self._check_duplicates(feature)
             if existing_cmd:
-                if ctx:
+                if ctx and hasattr(ctx, "send"):
                     await ctx.send(f"💡 **既存の機能が見つかりました**: `{existing_cmd}` を使ってみてください。")
                 return
 
-            # Step 0: Gather Context (Ambient Awareness) & File Tree
+            # Step 0: Gather Context
             ambient_context = await self._gather_context(ctx) if ctx else "No Ambient Context"
             file_tree = self._get_file_tree(os.getcwd())
-
+            
+            # Server Context
+            guild_id = ctx.guild.id if ctx and ctx.guild else 0
+            guild_name = ctx.guild.name if ctx and ctx.guild else "Direct Message"
+            server_info = f"Guild ID: {guild_id}\nName: {guild_name}"
+            
             prompt = f"""
-            You are an expert Discord Bot Architect.
-            User Request: "{feature}"
-            Requester: {requester}
-            Context (Chat History):
+            You are an expert Discord Bot Architect (ORA System).
+            
+            Request: "{feature}"
+            Requester: {requester} (ID: {requester.id})
+            Server Context:
+            {server_info}
+            
+            Chat History (Context for Rules/Scope):
             {ambient_context}
             
-            Project File Tree (Use this to decide where to add code):
+            Project Structure:
             {file_tree}
             
-            Task:
-            1. **SCOPE ANALYSIS**:
-               - Is this a GLOBAL change (system-wide feature)?
-               - Or a LOCAL/TEMP change (e.g. "Silence HERE", "Quiet TODAY")?
-               - If Local/Temp, DO NOT modify global logic permanently. Instead, use `bot.store` to save a flag (e.g. `guild_settings` table).
+            --- PHASE 1: COMPLIANCE & RISK ANALYSIS ---
+            Evaluate based on the server context and Discord ToS.
+            1. **COMPLIANCE**: Does this violate server rules or ToS?
+            2. **RISK**: 
+               - SAFE: Simple text, generic commands, harmless.
+               - RISKY: Admin abuse, file deletion, auth changes, spam.
+               - AMBIGUOUS -> RISKY (Safety First).
             
-            2. **DESIGN**:
-               - Design a Python Cog (or modifying existing one if obvious).
-               - Refer to existing files in the Tree (e.g. `src/cogs/media.py` for voice).
-               - If Config is needed, assume `bot.store` has methods or Create generic SQL in the Cog using `bot.store`.
+            3. **SCOPE**:
+               - GLOBAL: Generic feature (e.g. calculator).
+               - LOCAL: Specific to THIS server (e.g. "Watch #announcements here").
             
-            3. **SECURITY & RISK**:
-               - Ensure no admin abuse.
-               - Calculate a **RISK SCORE (0-100)**.
-               - 0-9: Trivial (Log change, Text fix, Safe addition).
-               - 10-100: Complex/Risky (DB change, Delete file, Auth change).
+            --- PHASE 2: IMPLEMENTATION ---
+            - Generate a complete Cog file.
+            - **CRITICAL RULE**: If SCOPE is LOCAL, you MUST insert this guard at the start of every command:
+              ```python
+              if ctx.guild.id != {guild_id}:
+                  return await ctx.send("⛔ This feature is limited to specific servers.")
+              ```
             
             Output STRICT JSON:
             {{
-                "scope_analysis": "Explanation of Scope (Global/Local/Temp) in Japanese",
-                "analysis": "Implementation Plan in Japanese",
-                "security_impact": "Risk Analysis in Japanese",
-                "risk_score": 0,
-                "filename": "suggested_filename.py",
-                "code": "COMPLETE Python code"
+                "risk": "SAFE" or "RISKY",
+                "compliance": "COMPLIANT" or "VIOLATION",
+                "scope": "GLOBAL" or "LOCAL",
+                "reason": "Reason for decision (Japanese)",
+                "filename": "cogs/suggested_name.py",
+                "code": "COMPLETE_PYTHON_CODE"
             }}
             """
             
             import json
-            analysis_json = await self.llm.chat(
-                messages=[{"role": "user", "content": prompt}], 
-                temperature=0.2,
-                model="gpt-5.1-codex"
-            )
+            try:
+                analysis_json = await self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}], 
+                    temperature=0.1,
+                    model="gpt-5.1-codex"
+                )
+            except Exception as e:
+                logger.warning(f"Local LLM failed, using Cloud: {e}")
+                analysis_json = await self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}], 
+                    temperature=0.1,
+                    model="gpt-4o"
+                )
             
             cleaned_json = analysis_json.strip()
             if cleaned_json.startswith("```json"):
@@ -468,78 +503,62 @@ class Healer:
                 
             data = json.loads(cleaned_json)
             
+            # [DECISION GATE]
+            risk = data.get("risk", "RISKY")
+            compliance = data.get("compliance", "VIOLATION")
+            scope = data.get("scope", "GLOBAL")
+            reason = data.get("reason", "No reason provided")
             code = data.get("code", "")
-            if not code:
-                return # Fail silently
             
-            # Step 2: Safety Critique
-            is_safe = await self._critique_code(code)
+            status_text = "🔒 管理者承認待ち"
+            color = discord.Color.orange()
             
-            # Step 3: Decision (Auto vs Manual)
-            # Admin ID hardcoded for safety: 1069941291661672498
-            is_admin = (requester.id == 1069941291661672498)
-            risk_score = data.get("risk_score", 100) # Default to High Risk if missing
+            # Check Auto-Evolve Conditions
+            if (risk == "SAFE" or risk == "LOW") and compliance == "COMPLIANT":
+                # Check Admin or Trusted Scenarios here if needed
+                # For now, SAFE + COMPLIANT = GO
+                status_text = "⚡ 適用実行中..."
+                color = discord.Color.green()
             
-            # Auto-Evolve Condition: Safe + Admin + Low Risk (<10)
-            auto_evolve = is_safe and is_admin and (risk_score < 10) 
-            
-            # Config Channel
-            channel_id = getattr(self.bot.config, "log_channel_id", 0)
-            channel = self.bot.get_channel(channel_id)
-            
-            # Privacy Routing
-            if not is_admin and ctx:
-                await ctx.send("🔄 システム更新リクエストを受理しました。管理者の承認待ちです...")
-            
-            if auto_evolve and channel:
-                # AUTONOMOUS EXECUTION
-                target_path = os.path.join("src", "cogs", data.get("filename", "feature.py"))
-                
-                # Notify Start
-                embed = discord.Embed(title="🧬 Auto-Evolution Started", color=discord.Color.blue())
-                embed.description = f"Request: {feature}\nScope: {data.get('scope_analysis')}\nStatus: **Executing...**"
-                if existing_cmd: embed.add_field(name="Warning", value=f"Similar command `{existing_cmd}` detected but overridden.")
-                status_msg = await channel.send(embed=embed)
-                
-                # Execute
-                result = await self.execute_evolution(target_path, code, f"Auto-Evolve: {feature}")
-                
-                # Report Result
-                if result["success"]:
-                    embed.color = discord.Color.green()
-                    embed.title = "🧬 Auto-Evolution Complete"
-                    embed.description = f"**Success!**\n\n{result['message']}"
-                    await status_msg.edit(embed=embed)
-                    if ctx: 
-                         await ctx.send(f"✅ 更新が完了しました！ ({data.get('scope_analysis')})")
-                else:
-                    embed.color = discord.Color.red()
-                    embed.title = "🧬 Auto-Evolution Rolled Back"
-                    embed.description = result['message']
-                    await status_msg.edit(embed=embed)
-                    if ctx:
-                         await ctx.send("⚠️ 更新に失敗し、ロールバックされました。")
-            
-            elif channel:
-                # MANUAL REVIEW
-                sec_analysis = data.get("security_impact", "No analysis provided.")
-                color = discord.Color.orange()
+            # Enhanced Notification
+            await self.notify_feature_proposal(
+                title="🧬 Evolution Proposal 審査結果",
+                description=f"**提案**: {feature}\n"
+                            f"**判定**: {risk} / {compliance}\n"
+                            f"**範囲**: {scope} (ID: {guild_id if scope == 'LOCAL' else 'Global'})\n"
+                            f"**理由**: {reason}\n"
+                            f"**ステータス**: {status_text}",
+                user_id=requester.id
+            )
 
-                embed = discord.Embed(title="🧬 Evolution Proposal (Manual Review)", color=color)
-                embed.description = f"**Request**: {feature}\nUser: {requester.mention}\n\n**🔍 Scope Analysis**\n{data.get('scope_analysis')}\n\n**🛡️ Security Audit**\n{sec_analysis}\nSafe Code Check: {'✅ PASS' if is_safe else '❌ FAIL'}"
-                
-                filename = data.get("filename", "feature.py")
-                file = discord.File(io.StringIO(code), filename=filename)
-                
-                embed.set_footer(text="Review code. Click 'Apply' to install.")
-                
-                target_path = os.path.join("src", "cogs", filename) if not os.path.dirname(filename) else filename
-                view = HealerView(self.bot, target_path, code, f"{target_path}.bak", data.get('analysis'))
-                
-                await channel.send(embed=embed, file=file, view=view)
+            if risk == "RISKY" or compliance == "VIOLATION":
+                if ctx and hasattr(ctx, "send"):
+                    await ctx.send(f"⚠️ **自動更新停止**: リスク判断により承認待ちとなりました。\n理由: {reason}")
+                return
+
+            if not code:
+                return
+
+            # AUTO-EVOLVE
+            target_path = os.path.join("src", data.get("filename", "cogs/feature.py"))
+            
+            if ctx and hasattr(ctx, "send"):
+                await ctx.send(f"🧬 **自己進化を開始します**\n範囲: {scope}\n理由: {reason}")
+            
+            # Execute
+            result = await self.execute_evolution(target_path, code, f"Auto-Evolve: {feature} ({scope})")
+            
+            if result["success"]:
+                if ctx and hasattr(ctx, "send"):
+                    await ctx.send(f"✅ **進化完了**: {scope} 機能として実装されました！")
+            else:
+                if ctx and hasattr(ctx, "send"):
+                    await ctx.send(f"⚠️ **進化失敗**: ロールバックしました。\n{result['message']}")
                 
         except Exception as e:
             logger.error(f"Self-Evolution failed: {e}")
+            if ctx and hasattr(ctx, "send"):
+                await ctx.send(f"❌ エラーが発生しました: {e}")
         """Returns a string representation of the src directory tree."""
         tree_lines = []
         start_dir = os.path.join(root_dir, "src")
@@ -555,6 +574,35 @@ class Healer:
                 if f.endswith(".py"):
                     tree_lines.append(f"{subindent}{f}")
         return "\n".join(tree_lines)
+
+    async def notify_feature_proposal(self, title: str, description: str, user_id: int) -> bool:
+        """Sends a formal feature proposal to the configured channel."""
+        cid = getattr(self.bot.config, "feature_proposal_channel_id", None)
+        if not cid:
+            return False
+            
+        channel = self.bot.get_channel(cid)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(cid)
+            except:
+                return False
+            
+        user = self.bot.get_user(user_id)
+        user_mention = user.mention if user else f"User ID: {user_id}"
+        
+        embed = discord.Embed(title=f"💡 Feature Proposal: {title}", color=discord.Color.gold())
+        embed.description = description
+        embed.add_field(name="Proposer", value=user_mention)
+        embed.set_footer(text="Sent from ORA Healer System")
+        embed.timestamp = discord.utils.utcnow()
+        
+        try:
+            await channel.send(embed=embed)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send proposal: {e}")
+            return False
 
     async def _check_duplicates(self, feature_request: str) -> Optional[str]:
         """Checks if a similar command already exists to prevent re-invention."""
@@ -598,60 +646,103 @@ class Healer:
     
     async def execute_evolution(self, filepath: str, new_content: str, reason: str = "Autonomous Update") -> dict:
         """
-        Executes an update programmatically (Auto-Pilot).
+        Executes an update with Ultimate Safety Protocols (Handshake, Sandbox, Self-Repair).
         """
         try:
-            # --- GUARDRAILS START ---
-            from .backup_manager import BackupManager
-            from .health_inspector import HealthInspector
-            
-            backup_mgr = BackupManager(os.getcwd())
-            inspector = HealthInspector(self.bot)
-            
-            # 0. Create Snapshot
-            snapshot_path = await self.bot.loop.run_in_executor(None, backup_mgr.create_snapshot, reason)
-            
-            # 1. Ensure Directory Exists
-            if os.path.dirname(filepath):
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-            # 2. Apply Fix
-            async with aiofiles.open(filepath, 'w', encoding='utf-8') as f:
-                await f.write(new_content)
-            
-            # 3. Reload/Load Extension
-            reload_error = None
-            if "src/cogs/" in filepath.replace("\\", "/"):
-                filename = os.path.basename(filepath)
-                rel_path = os.path.relpath(filepath, os.getcwd())
-                ext_name = rel_path.replace("\\", ".").replace("/", ".").replace(".py", "")
-                
+            # --- 1. HANDSHAKE (Signal Watcher) ---
+            heartbeat_file = os.path.join("data", "heartbeat.json")
+            if os.path.exists(heartbeat_file):
                 try:
-                    if ext_name in self.bot.extensions:
-                        await self.bot.reload_extension(ext_name)
-                    else:
-                        await self.bot.load_extension(ext_name)
-                except Exception as e:
-                    reload_error = str(e)
+                    with open(heartbeat_file, 'r+') as f:
+                        hdata = json.load(f)
+                        hdata["watcher_expected"] = True
+                        hdata["watcher_ready"] = False # Reset ready flag
+                        f.seek(0)
+                        json.dump(hdata, f)
+                        f.truncate()
+                except: pass
 
-            # 4. Health Check
-            diag = await inspector.run_diagnostics()
+            # Launch Watcher in New Window
+            subprocess.Popen('start "ORA Update Guardian" python src/watcher.py', shell=True)
             
-            # 5. Decision & Rollback
-            if reload_error or not diag["ok"]:
-                # ROLLBACK
-                await self.bot.loop.run_in_executor(None, backup_mgr.restore_snapshot, snapshot_path)
-                
-                fail_msg = f"⛔ **ロールバック実行**\n理由: {reload_error if reload_error else 'システム診断NG'}\n\n{diag['report']}"
-                return {"success": False, "message": fail_msg, "snapshot_path": snapshot_path}
+            # Wait for Watcher Ready (Max 15s)
+            watcher_active = False
+            for _ in range(15):
+                await asyncio.sleep(1)
+                try:
+                    if os.path.exists(heartbeat_file):
+                        with open(heartbeat_file, 'r') as f:
+                            if json.load(f).get("watcher_ready"):
+                                watcher_active = True
+                                break
+                except: pass
+            
+            if not watcher_active:
+                return {"success": False, "message": "❌ Default: Watcher Handshake Failed. Updating unsafe is prohibited.", "snapshot_path": None}
 
-            # SUCCESS
-            msg = f"✅ **正常動作確認**\n\n{diag['report']}\nバックアップ: `{os.path.basename(snapshot_path)}`"
-            return {"success": True, "message": msg, "snapshot_path": snapshot_path}
+            # --- 2. ATOMIC BACKUP (Zip src/) ---
+            os.makedirs("backups", exist_ok=True)
+            backup_name = f"snap_{int(time.time())}.zip"
+            backup_path = os.path.join("backups", backup_name)
+            
+            def make_zip():
+                shutil.make_archive(backup_path.replace('.zip', ''), 'zip', "src")
+                return backup_path
+            
+            await self.bot.loop.run_in_executor(None, make_zip)
+            
+            # --- 3. SELF-REPAIR LOOP (Syntax Check & Retry) ---
+            attempts = 0
+            max_retries = 3
+            current_content = new_content
+            
+            while attempts <= max_retries:
+                # A. Write File
+                if os.path.dirname(filepath):
+                    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(current_content)
+                
+                # B. Pre-Flight Syntax Check (Dry Run)
+                try:
+                    py_compile.compile(filepath, doraise=True)
+                    # Check passed! Break loop and restart.
+                    break 
+                    
+                except py_compile.PyCompileError as e:
+                    attempts += 1
+                    err_msg = str(e)
+                    logger.warning(f"Evolution Syntax Error (Attempt {attempts}/{max_retries}): {err_msg}")
+                    
+                    if attempts > max_retries:
+                        # ROLLBACK
+                        shutil.unpack_archive(backup_path, "src")
+                        return {"success": False, "message": f"⛔ Syntax Check Failed 3 times. Rolled back.\nLast Error: {err_msg}", "snapshot_path": backup_path}
+                    
+                    # C. Self-Repair (Ask LLM)
+                    prompt = (
+                        f"Fix SyntaxError in the following Python code.\n"
+                        f"Error: {err_msg}\n"
+                        f"Original Code:\n{current_content}\n\n"
+                        f"Output ONLY the fixed complete code (no markdown)."
+                    )
+                    fixed_code = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
+                    
+                    # Clean output
+                    if "```" in fixed_code:
+                        fixed_code = fixed_code.replace("```python", "").replace("```", "")
+                    current_content = fixed_code.strip()
+
+            # --- 4. RESTART (Watcher is guarding) ---
+            # Trigger Restart Script
+            subprocess.Popen("restart_ora.bat", shell=True)
+            
+            return {"success": True, "message": "✅ Patch Applied. System Restarting under Guardian Watch...", "snapshot_path": backup_path}
 
         except Exception as e:
             logger.error(f"Execution Error: {e}")
-            return {"success": False, "message": f"実行エラー: {e}", "snapshot_path": None}
+            return {"success": False, "message": f"実行エラー (Fatal): {e}", "snapshot_path": None}
 
 
     async def _gather_context(self, ctx) -> str:
