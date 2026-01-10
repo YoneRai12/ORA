@@ -513,27 +513,25 @@ class VoiceManager:
             
             if voice_client.is_playing() and voice_client.source:
                 # Mixing Mode (Music is playing)
+                logger.info(f"Mixing TTS with active music (Ducking to 50%)")
                 current_source = voice_client.source
                 
                 # Create mixed source with callback
                 mixed = MixingAudioSource(
                     current_source, 
                     tts_source, 
-                    target_volume=0.2, 
+                    target_volume=0.5, 
                     fade_duration=0.5,
                     on_finish=lambda: on_complete() # Lambda to allow no-arg call
                 )
                 
                 # Hotswap
                 voice_client.source = mixed
+                logger.info("Swapped audio source to Mixed source.")
             else:
                 # Raw Mode (No music)
+                logger.info("Playing TTS in Raw mode (No music)")
                 # We reuse _play_raw_audio logic but with custom callback?
-                # _play_raw_audio stops current, which is fine here as is_playing is false.
-                # But _play_raw_audio uses temp file path logic which _create_source_from_bytes also does partially?
-                # Let's unify.
-                
-                # Actually, standard play() needs after=callback.
                 voice_client.play(tts_source, after=on_complete)
                 
         except Exception as e:
