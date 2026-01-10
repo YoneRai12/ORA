@@ -73,3 +73,15 @@ tigauno
 
 .venv_wsl/
 .venv/
+
+# Exclude entire backup/sub-project folders
+Discord-mainORA2/
+RTX5090-DebugSystem-main/
+ORAA/
+ORAA_extracted/
+temp_oraa_analysis/
+
+# Brain/Artifacts
+.gemini/
+.agent/
+brain/

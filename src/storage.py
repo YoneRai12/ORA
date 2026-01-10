@@ -75,6 +75,12 @@ class Store:
             except Exception:
                 pass
 
+            # Migration: Ensure permission_level column exists (default 'user')
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN permission_level TEXT DEFAULT 'user'")
+            except Exception:
+                pass
+
             await db.commit()
 
     async def backup(self) -> None:
@@ -580,5 +586,29 @@ class Store:
             await db.execute(
                 "INSERT INTO users(discord_user_id, created_at, points) VALUES(?, ?, ?) ON CONFLICT(discord_user_id) DO UPDATE SET points=?",
                 (str(discord_user_id), int(time.time()), amount, amount)
+            )
+            await db.commit()
+
+    async def get_permission_level(self, discord_user_id: int) -> str:
+        """Get the permission level for a user (user, sub_admin, vc_admin, owner)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT permission_level FROM users WHERE discord_user_id=?",
+                (str(discord_user_id),)
+            ) as cursor:
+                row = await cursor.fetchone()
+        
+        if not row or not row[0]:
+            return "user"
+        return row[0]
+
+    async def set_permission_level(self, discord_user_id: int, level: str) -> None:
+        """Set permission level (owner, sub_admin, vc_admin, user)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            # Upsert
+            await db.execute(
+                "INSERT INTO users(discord_user_id, created_at, permission_level) VALUES(?, ?, ?) "
+                "ON CONFLICT(discord_user_id) DO UPDATE SET permission_level=?",
+                (str(discord_user_id), int(time.time()), level, level)
             )
             await db.commit()

@@ -18,11 +18,14 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import logging
 import json
+import pytz
+from datetime import datetime, timedelta
 import time
 import os
 import aiofiles
 import time
 import psutil
+import aiohttp
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import asyncio
@@ -126,16 +129,21 @@ class MemoryCog(commands.Cog):
         if self.worker_mode:
             self.status_loop.change_interval(seconds=5)
             self.scan_history_task.start()
+            self.refresh_watcher.start()
             self.idle_log_archiver.start()
         else:
             self.status_loop.start()
             self.scan_history_task.start()
+            self.refresh_watcher.start()
             # Archive logic is Worker-only
-            # self.idle_log_archiver.start() 
+            # self.idle_log_archiver.start()
+            self.surplus_token_burner.start() # [Feature] Daily Burner 
+        
+        # Cleanup should run in ALL modes to ensure UI is clean
+        asyncio.create_task(self.cleanup_stuck_profiles())
         
         if self.worker_mode:
             logger.info("MemoryCog: WORKER MODE (ヘビータスク優先) で起動しました。")
-            asyncio.create_task(self.cleanup_stuck_profiles())
         else:
             logger.info("MemoryCog: MAIN MODE (リアルタイム応答 + フォールバック) で起動しました。")
 
@@ -164,8 +172,8 @@ class MemoryCog(commands.Cog):
                 
                 if data.get("status") in ["Processing", "Pending"]:
                     # Fix it
-                    data["status"] = "Error"
-                    data["impression"] = "システム再起動によりリセット (Stalled State Fixed)"
+                    data["status"] = "Idle"
+                    data["impression"] = "Optimization Reset (Ready)"
                     
                     # Atomic Write with Lock
                     await self._save_user_profile_atomic(path, data)
@@ -201,7 +209,7 @@ class MemoryCog(commands.Cog):
         if not guild: return False
         
         # Check if Worker Bot (1447556986756530296) is in this guild
-        worker_id = int(os.getenv("WORKER_BOT_ID", 1447556986756530296))
+        worker_id = int(os.getenv("WORKER_BOT_ID", 0))
         member = guild.get_member(worker_id)
         
         if member:
@@ -218,8 +226,89 @@ class MemoryCog(commands.Cog):
         # Worker not present. Main bot takes over as Fallback.
         return True
 
+    @tasks.loop(minutes=30)
+    async def surplus_token_burner(self):
+        """
+        [Feature] Daily Surplus Burner (Optimization).
+        Checks remaining daily budget at 08:30 JST (23:30 UTC) and burns it on Deep Optimization.
+        """
+        now = datetime.now(pytz.utc)
+        # Target: 23:30 UTC = 08:30 JST (30 mins before 09:00 reset)
+        if not (now.hour == 23 and now.minute >= 30):
+             return
+
+        # Access CostManager
+        ora_cog = self.bot.get_cog("ORACog")
+        if not ora_cog or not ora_cog.cost_manager:
+            return
+            
+        remaining = ora_cog.cost_manager.get_remaining_budget("stable", "openai")
+        if remaining == -1: return # No limit
+        
+        # Threshold: If we have > 50,000 tokens left, use them.
+        if remaining > 50000:
+            logger.info(f"🔥 [Surplus Burner] Detected {remaining} unused tokens before reset. Engaging Deep Optimization...")
+            
+            # Find users who need optimization (Pending / Oldest)
+            # Scan memory dir
+            candidates = []
+            if os.path.exists(MEMORY_DIR):
+                 for f in os.listdir(MEMORY_DIR):
+                     if f.endswith(".json"):
+                         candidates.append(f.replace(".json", "")) # user_id or uid_gid
+            
+            # Shuffle or pick pending
+            import random
+            random.shuffle(candidates)
+            
+            burned = 0
+            for cid in candidates[:5]: # Cap at 5 users to avoid timeouts
+                # Parse ID
+                try:
+                    if "_" in cid: # uid_gid
+                        uid_str, gid_str = cid.split("_", 1)
+                        if gid_str.endswith("_public") or gid_str.endswith("_private"):
+                            gid_str = gid_str.replace("_public","").replace("_private","")
+                        uid = int(uid_str)
+                        gid = int(gid_str)
+                    else:
+                        uid = int(cid)
+                        gid = None
+                    
+                    # Trigger Scan
+                    # Force "Deep" via usage ratio check inside _analyze_batch (which sees ratio is low -> uses Deep)
+                    # wait, _analyze_batch logic uses 'usage_ratio > 0.8' to DOWNGRADE.
+                    # We need to Ensure it uses UPGRADE. 
+                    # Actually _analyze_batch defaults to "Extreme" if budget allows.
+                    # So calling it is enough.
+                    
+                    # We need to load messages.
+                    # This requires reading history.
+                    profile = await self.get_user_profile(uid, gid)
+                    raw_history = profile.get("raw_history", []) if profile else []
+                    
+                    # Convert raw history to messages
+                    msgs = []
+                    for entry in raw_history[-50:]:
+                        msgs.append({"content": entry["content"], "timestamp": entry["timestamp"]})
+                        
+                    if msgs:
+                        logger.info(f"🔥 [Surplus Burner] Burning tokens on {uid}...")
+                        asyncio.create_task(self._analyze_wrapper(uid, msgs, gid, True))
+                        burned += 1
+                        
+                except Exception as e:
+                    logger.error(f"Burner failed for {cid}: {e}")
+            
+            if burned > 0:
+                logger.info(f"🔥 [Surplus Burner] Triggered optimization for {burned} users.")
+
     def cog_unload(self):
+        self.status_loop.cancel()
         self.memory_worker.cancel()
+        self.name_sweeper.cancel()
+        self.scan_history_task.cancel()
+        self.surplus_token_burner.cancel()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -317,6 +406,28 @@ class MemoryCog(commands.Cog):
                     
                 if guild_id_str and data.get("guild_id") != guild_id_str:
                     data["guild_id"] = guild_id_str
+                    changed = True
+                
+                # [Feature] Avatar & Nitro Sync
+                avatar = str(user.display_avatar.url)
+                banner = str(user.banner.url) if user.banner else None
+                is_nitro = False
+                
+                # Heuristic for Nitro
+                if user.display_avatar.is_animated(): is_nitro = True
+                if user.banner: is_nitro = True
+                if isinstance(user, discord.Member) and user.premium_since: is_nitro = True
+                
+                if data.get("avatar_url") != avatar:
+                    data["avatar_url"] = avatar
+                    changed = True
+                
+                if data.get("banner_url") != banner:
+                    data["banner_url"] = banner
+                    changed = True
+
+                if data.get("is_nitro") != is_nitro:
+                    data["is_nitro"] = is_nitro
                     changed = True
 
                 if changed:
@@ -473,6 +584,14 @@ class MemoryCog(commands.Cog):
                 if k == "traits":
                     current["traits"] = v
                     current["points"] = len(v)
+                elif k == "layer3_recent_summaries":
+                    # Smart Merge: Append and Keep Last 15 (Sliding Window)
+                    old_list = current.get("layer3_recent_summaries", [])
+                    if isinstance(old_list, list) and isinstance(v, list):
+                        merged = old_list + v
+                        current[k] = merged[-15:] # Keep last 15
+                    else:
+                        current[k] = v # Fallback if types mismatch
                 else:
                     current[k] = v
             
@@ -483,7 +602,18 @@ class MemoryCog(commands.Cog):
                 if guild:
                     current["guild_name"] = guild.name
 
-            current["last_updated"] = datetime.now().isoformat()
+            current["last_updated"] = datetime.now(pytz.utc).isoformat()
+            
+            # FIX: Force creation of Layer 1 Meta if missing to ensure Dashboard Timestamp updates
+            if "layer1_session_meta" not in current or not isinstance(current["layer1_session_meta"], dict):
+                 current["layer1_session_meta"] = {}
+                 
+            current["layer1_session_meta"]["updated"] = current["last_updated"]
+            
+            # Fallback legacy support (optional, keeping existing logic if needed)
+            if "metadata" in current and isinstance(current["metadata"], dict):
+                 current["metadata"]["updated"] = current["last_updated"]
+            
             if data.get("name") and data["name"] != "Unknown":
                 current["name"] = data["name"]
             
@@ -509,19 +639,32 @@ class MemoryCog(commands.Cog):
         cleaned_text = text.replace("```json", "").replace("```", "").strip()
         
         # 2. Extract JSON block (greedy outer braces)
-        # Find first '{' and last '}'
         start = cleaned_text.find('{')
         end = cleaned_text.rfind('}')
         
-        if start == -1 or end == -1:
-            raise ValueError("No JSON object found in response")
-            
-        potential_json = cleaned_text[start:end+1]
+        potential_json = cleaned_text
+        if start != -1 and end != -1:
+            potential_json = cleaned_text[start:end+1]
+        else:
+             # Try Regex Fallback if braces not found via valid find
+             import re
+             match = re.search(r"\{[\s\S]*\}", cleaned_text)
+             if match:
+                 potential_json = match.group(0)
+             else:
+                 # If still no braces, blindly try the whole text (could be unwrapped)
+                 pass
         
         # 3. Parse with fallback repair
         try:
             return json.loads(potential_json, strict=False)
         except json.JSONDecodeError:
+            try:
+                 # Try cleaning newlines/tabs
+                 return json.loads(potential_json.replace('\n', '').replace('\t', ''), strict=False)
+            except:
+                pass
+
             logger.warning("Memory: JSONデコード失敗。修復を試みます...")
             repaired = robust_json_repair(potential_json)
             # Log the tail for debugging
@@ -569,27 +712,29 @@ class MemoryCog(commands.Cog):
         prompt = [
             {"role": "developer", "content": (
                 f"You are a World-Class Psychologist AI implementing a '4-Layer Memory System'. Analysis Mode: {depth_mode}. Output MUST be in Japanese.\n"
-                "Layers:\n"
-                "1. **Layer 1 (Metadata)**: Status, Device (managed by system, ignore in output).\n"
-                "2. **Layer 2 (User Memory)**: Static facts (Name, Age, Job) and Personality Traits.\n"
-                "3. **Layer 3 (Summary)**: A conceptual map of the conversation context.\n"
-                "4. **Layer 4 (Session)**: Raw logs (provided as input)."
+                "Layers (Strict Implementation):\n"
+                "1. **Layer 1 (Session Metadata)**: Ephemeral Environment Info (Device, Time, Mood, Activity). Context for *how* to answer (e.g., Mobile=Short, Late=Soft).\n"
+                "2. **Layer 2 (User Memory)**: Long-term Facts (The 'Axis'). Name, Goals, Prefs, Projects. Fixed facts that don't change often.\n"
+                "3. **Layer 3 (Recent Summary)**: 'Map of Interests'. A digest of recent chats (Title + Timestamp + User Snippet). continuity.\n"
+                "4. **Layer 4 (Current Session)**: Raw logs (Input).\n"
             )},
             {"role": "user", "content": (
                 f"Analyze the chat logs for this user based on the 4-Layer Memory Architecture.\n"
                 f"Extract:\n"
-                f"1. **Layer 2 - Facts**: ユーザーに関する確定的な事実（名前、年齢、職業、居住地など）。推測は含めないこと。\n"
-                f"2. **Layer 2 - Traits**: 性格、話し方の特徴 (e.g., 明るい, 皮肉屋).\n"
-                f"3. **Layer 2 - Impression**: ユーザーを一言で表すキャッチフレーズ。\n"
-                f"4. **Layer 3 - Global Map**: これまでの会話の大まかな地図・要約。\n"
-                f"5. **Interests**: 興味のあるトピック。\n"
+                f"1. **Layer 1 - Metadata**: 今回のセッションの環境的コンテキスト (e.g., 深夜, テンション高め, PC/Mobile推定, 活動内容)。\n"
+                f"2. **Layer 2 - Facts**: ユーザーの「ブレない軸」となる確定事実（名前, 職業, 継続中のプロジェクト, 価値観）。\n"
+                f"3. **Layer 3 - Digest**: 今回の会話の「タイトル＋タイムスタンプ＋ユーザー発言の要約」のリスト。\n"
+                f"4. **Interests/Impression**: 補足的な興味・印象データ。\n"
+                f"   - **Impression**: ユーザーを表す短い「一言」キャッチフレーズ（20文字以内・UI表示用）。\n"
                 f"{extra_instructions}\n\n"
                 f"Chat Log:\n{chat_log}\n\n"
                 f"Output strictly in this JSON format (All values in Japanese):\n"
                 f"{{ \n"
+                f"  \"layer1_session_meta\": {{ \"environment\": \"...\", \"mood\": \"...\", \"device_est\": \"...\" }},\n"
                 f"  \"layer2_user_memory\": {{ \"facts\": [\"...\"], \"traits\": [\"...\"], \"impression\": \"...\", \"interests\": [\"...\"] }},\n"
-                f"  \"layer3_summary\": {{ \"global_summary\": \"...\", \"deep_profile\": \"...\", \"future_pred\": \"...\" }}\n"
-                f"}}"
+                f"  \"layer3_recent_summaries\": [ {{ \"title\": \"...\", \"timestamp\": \"...\", \"snippet\": \"...\" }} ]\n"
+                f"}}\n"
+                f"Do not include any text outside the JSON block."
             )}
         ]
         
@@ -617,11 +762,11 @@ class MemoryCog(commands.Cog):
                      try:
                          # o1/gpt-5 ready (mapped internally)
                          # Explicitly pass None for temperature if needed, but client handles it now.
-                         logger.info(f"Memory: 📡 Sending analysis request to OpenAI (Timeout: 180s)...")
+                         logger.info(f"Memory: 📡 Sending analysis request to OpenAI (Timeout: 600s)...")
                          start_t = time.time()
                          response_text, _, usage_dict = await asyncio.wait_for(
                              self._llm.chat("openai", prompt, temperature=None, max_tokens=max_output),
-                             timeout=180.0
+                             timeout=600.0
                          )
                          logger.info(f"Memory: 📥 LLM Response received in {time.time() - start_t:.2f}s")
                      except asyncio.TimeoutError:
@@ -668,20 +813,37 @@ class MemoryCog(commands.Cog):
                 data["last_context"] = messages
                 
                 # Merge Layers
+                l1_meta = data.get("layer1_session_meta", {})
                 l2 = data.get("layer2_user_memory", {})
-                l3 = data.get("layer3_summary", {})
+                l3_list = data.get("layer3_recent_summaries", [])
                 
                 final_data = {
                     "traits": l2.get("traits", []),
                     "impression": l2.get("impression", "Analyzed"),
+                    "layer1_session_meta": l1_meta,
                     "layer2_user_memory": l2,
-                    "layer3_summary": l3,
+                    "layer3_recent_summaries": l3_list,
                     "status": "Optimized",
                     "message_count": len(messages)
                 }
                 
                 await self.update_user_profile(user_id, final_data, guild_id, is_public)
                 logger.info(f"Memory: 分析完了: {user_id}")
+                
+                # USER REQUEST: Sync OpenAI Usage immediately after optimization
+                if cost_manager:
+                    try:
+                        logger.info("Memory: 🔄 Triggering OpenAI Usage Sync (Post-Optimization)...")
+                        # Assuming API key is in bot.config.openai_api_key, but we need to access it.
+                        # memory.py doesn't have direct access to bot.config easily unless self.bot has it.
+                        # self.bot is passed in __init__.
+                        api_key = getattr(self.bot.config, "openai_api_key", None)
+                        if api_key:
+                            # Fix: specific session for sync to avoid missing session/AttributeError
+                            async with aiohttp.ClientSession() as session:
+                                await cost_manager.sync_openai_usage(session, api_key, update_local=True)
+                    except Exception as sx:
+                        logger.warning(f"Memory: Post-optimization sync failed: {sx}")
             
         except Exception as e:
             logger.error(f"Memory: 分析失敗 ({user_id}): {e}")
@@ -998,11 +1160,11 @@ class MemoryCog(commands.Cog):
         await self.bot.wait_until_ready()
         # Initial wait to let bot settle if it's the first run
         if self.scan_history_task.current_loop == 0:
-            logger.info("AutoScan: Waiting 10s before initial optimization scan...")
+            logger.debug("AutoScan: Waiting 10s before initial optimization scan...")
             await asyncio.sleep(10)
 
         count = 0
-        logger.info("AutoScan: Searching for online 'New' users to optimize...")
+        logger.debug("AutoScan: Searching for online 'New' users to optimize...")
         
         for guild in self.bot.guilds:
             if not await self._should_process_guild(guild.id):
@@ -1016,13 +1178,36 @@ class MemoryCog(commands.Cog):
                 profile = await self.get_user_profile(member.id, guild.id)
                 status = profile.get("status", "New") if profile else "New"
                 
+                is_target = False
                 if status == "New":
+                    is_target = True
+                elif status == "Optimized":
+                    # Backlog check: Re-optimize if older than 7 days
+                    last_upd = profile.get("last_updated")
+                    if last_upd:
+                        try:
+                            # Handle ISO format
+                            dt = datetime.fromisoformat(last_upd)
+                            # Naive check (assuming UTC or Local consistent)
+                            # If no timezone, assume local/naive.
+                            if dt.tzinfo:
+                                now = datetime.now(dt.tzinfo)
+                            else:
+                                now = datetime.now()
+                                
+                            if (now - dt).days >= 7:
+                                is_target = True
+                                logger.debug(f"AutoScan: {member.display_name} is stale ({last_upd}). Re-queueing.")
+                        except:
+                            is_target = True # Bad date, re-scan
+                
+                if is_target:
                     target_members.append(member)
             
             if not target_members:
                 continue
 
-            logger.info(f"AutoScan: Found {len(target_members)} targets in {guild.name}. Starting BATCH scan...")
+            logger.debug(f"AutoScan: Found {len(target_members)} targets in {guild.name}. Starting BATCH scan...")
 
             # 2. Batch Scan Strategy (O(Channels) instead of O(Users*Channels))
             # We scan channels once and distribute messages to all waiting users.
@@ -1092,7 +1277,7 @@ class MemoryCog(commands.Cog):
             for member in target_members:
                 history = user_buffers[member.id]
                 if history:
-                    logger.info(f"AutoScan: Batch collected {len(history)} msgs for {member.display_name}. Queueing...")
+                    logger.debug(f"AutoScan: Batch collected {len(history)} msgs for {member.display_name}. Queueing...")
                     # Force update status
                     profile = await self.get_user_profile(member.id, guild.id) or {}
                     profile["status"] = "Pending"
@@ -1101,12 +1286,25 @@ class MemoryCog(commands.Cog):
                     
                     asyncio.create_task(self._analyze_wrapper(member.id, history, guild.id))
                     count += 1
+                    # Full Speed Mode (User Requested)
+                    # Semaphore will control concurrency
+                    await asyncio.sleep(0.1)
                 else:
-                     logger.debug(f"AutoScan: {member.display_name} - No history found in batch scan.")
+                     logger.debug(f"AutoScan: {member.display_name} - No history found. Marking as Optimized (Empty).")
+                     # FIX: Update profile to prevent infinite loop
+                     profile = await self.get_user_profile(member.id, guild.id) or {}
+                     profile["status"] = "Optimized"
+                     profile["impression"] = "No recent activity found during scan."
+                     profile["name"] = member.display_name
+                     # Initialize empty structure if missing
+                     if "layer2_user_memory" not in profile:
+                         profile["layer2_user_memory"] = {"facts": [], "traits": [], "impression": "No activity.", "interests": []}
+                     
+                     await self.update_user_profile(member.id, profile, guild.id)
             
             await asyncio.sleep(1.0) # Yield between guilds
 
-        logger.info(f"AutoScan: Complete. Queued {count} users for auto-optimization.")
+        logger.debug(f"AutoScan: Complete. Queued {count} users for auto-optimization.")
     @tasks.loop(hours=24)
     async def name_sweeper(self):
         """Proactively resolve 'Unknown' or ID-based names for all local profiles."""
@@ -1345,8 +1543,10 @@ class MemoryCog(commands.Cog):
         duration = time.time() - start_time
         return f"✅ Analyzed {count} existing files. Backfilled {processed_ghosts} ghost users in {duration:.2f}s."
 
+    @tasks.loop(seconds=5)
     async def refresh_watcher(self):
-        """Watch for trigger file to refresh profiles."""
+        """Watch for trigger file to refresh profiles & Process Optimize Queue."""
+        # 1. Trigger File (Manual Refresh)
         trigger_path = "refresh_profiles.trigger"
         if os.path.exists(trigger_path):
             logger.info("Memory: Trigger file detected! Refreshing profiles...")
@@ -1357,39 +1557,79 @@ class MemoryCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Memory: Failed to handle refresh trigger: {e}")
 
-        # Optimize Queue Watcher (IPC) - ONLY IN WORKER MODE to prevent Main Bot from slowing down
+        # 2. Cooperative Optimize Queue (Smart Claim + Locking)
         queue_path = r"L:\ORA_State\optimize_queue.json"
-        if self.worker_mode and os.path.exists(queue_path):
+        if not os.path.exists(queue_path): return
+
+        lock_path = queue_path + ".lock"
+        
+        # Simple File Lock Mechanism (Cross-Process)
+        # Try to acquire lock by creating a file
+        acquired = False
+        try:
+            # Try to create lock file (Excl mode)
+            # Retries
+            for _ in range(3):
+                try:
+                    fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    os.close(fd)
+                    acquired = True
+                    break
+                except FileExistsError:
+                    # Lock exists, wait a bit
+                    await asyncio.sleep(0.2)
+            
+            if not acquired:
+                # Could not acquire lock, skip this cycle
+                return
+
+            # --- CRITICAL SECTION ---
             try:
-                # Read, Process, Clear
-                requests_to_process = []
+                # 1. Read
                 async with aiofiles.open(queue_path, "r", encoding="utf-8") as f:
                     content = await f.read()
-                    if content.strip():
-                        try:
-                            requests_to_process = json.loads(content)
-                        except json.JSONDecodeError:
-                            requests_to_process = []
+                    all_requests = json.loads(content) if content.strip() else []
                 
-                if requests_to_process:
-                    # Clear Queue immediately to prevent double processing
+                if not all_requests:
+                    return
+
+                # 2. Filter: Only claim jobs for guilds I can see
+                my_jobs = []
+                remaining_jobs = []
+                
+                for req in all_requests:
+                    gid = req.get("guild_id")
+                    if gid and self.bot.get_guild(int(gid)):
+                        my_jobs.append(req)
+                    else:
+                        remaining_jobs.append(req)
+                
+                # 3. Write Back (Atomic-ish due to lock)
+                if my_jobs:
                     async with aiofiles.open(queue_path, "w", encoding="utf-8") as f:
-                        await f.write("[]")
+                        await f.write(json.dumps(remaining_jobs))
                     
-                    logger.info(f"Memory: Processing {len(requests_to_process)} optimization requests from queue.")
+                    logger.info(f"Memory: Claimed {len(my_jobs)} jobs. Left {len(remaining_jobs)}.")
                     
-                    for req in requests_to_process:
+                    # 4. Process
+                    for req in my_jobs:
                         uid = req.get("user_id")
                         gid = req.get("guild_id")
-                        
                         if uid:
-                            logger.info(f"Memory: Forcing input optimization for {uid} (Guild: {gid})")
+                            logger.info(f"Memory: Processing optimization for {uid} (Guild: {gid})")
                             asyncio.create_task(self.force_user_optimization(uid, gid))
-                            # Add small delay to prevent cpu spike
-                            await asyncio.sleep(0.5)
-
+                            await asyncio.sleep(0.5) 
+            
             except Exception as e:
-                logger.error(f"Memory: Failed to process optimize queue: {e}")
+                logger.error(f"Memory: Queue processing error inside lock: {e}")
+            
+            finally:
+                # --- RELEASE LOCK ---
+                if os.path.exists(lock_path):
+                    os.remove(lock_path)
+
+        except Exception as e:
+            logger.error(f"Memory: Queue lock error: {e}")
 
     @tasks.loop(minutes=5)
     async def idle_log_archiver(self):

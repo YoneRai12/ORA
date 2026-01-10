@@ -1,5 +1,6 @@
 import discord
 import asyncio
+import time
 from typing import List, Optional
 
 
@@ -18,18 +19,25 @@ class StatusManager:
         self.message: Optional[discord.Message] = None
         self.steps: List[dict] = [] # List of {"label": str, "done": bool}
         self._lock = asyncio.Lock()
+        self._last_update_time = 0.0
+        self._update_task = None
 
-    async def start(self, label: str = "思考中"):
-        """Send the initial status message."""
+    async def start(self, label: str = "思考中", mode: str = "normal"):
+        """
+        Send the initial status message.
+        mode: "normal" | "override"
+        """
         self.steps = [{"label": label, "done": False}]
-        content = self._build_content()
+        self.mode = mode
+        
+        embed = self._build_embed()
         try:
-            self.message = await self.channel.send(content)
+            self.message = await self.channel.send(embed=embed)
         except Exception:
             pass # Ignore if permission error etc.
 
-    async def next_step(self, label: str):
-        """Mark current step as done and add a new step."""
+    async def next_step(self, label: str, force: bool = False):
+        """Mark current step as done and add a new step. Set force=True for animations."""
         async with self._lock:
             if not self.message:
                 return
@@ -41,16 +49,16 @@ class StatusManager:
             # Add new step
             self.steps.append({"label": label, "done": False})
             
-            await self._update()
+            await self._update(force=force)
 
-    async def update_current(self, label: str):
-        """Update the text of the *current* running step."""
+    async def update_current(self, label: str, force: bool = False):
+        """Update the text of the *current* running step. Set force=True for animations."""
         async with self._lock:
             if not self.message or not self.steps:
                 return
             
             self.steps[-1]["label"] = label
-            await self._update()
+            await self._update(force=force)
 
     async def finish(self):
         """Mark all as done and delete the message."""
@@ -59,29 +67,83 @@ class StatusManager:
                 return
             
             try:
+                # Instead of deleting, we might want to keep the final log if debug mode?
+                # But standard behavior is delete.
                 await self.message.delete()
             except Exception:
                 pass
             self.message = None
 
-    async def _update(self):
-        """Edit the message with current steps."""
+    async def _update(self, force: bool = False):
+        """Edit the message with current steps (Debounced)."""
         if not self.message:
             return
         
-        content = self._build_content()
+        now = time.time()
+        
+        # Immediate update if Forced
+        if force:
+            await self._force_update()
+            return
+
+        # RATE LIMIT PREVENTER: Max 1 update per 2.0 seconds
+        if now - self._last_update_time < 2.0:
+            # If a task is already waiting to update, let it handle it.
+            if self._update_task and not self._update_task.done():
+                return
+            
+            # Create a delayed update task
+            async def delayed():
+                await asyncio.sleep(2.0 - (time.time() - self._last_update_time))
+                await self._force_update()
+            
+            self._update_task = asyncio.create_task(delayed())
+            return
+        
+        await self._force_update()
+
+    async def _force_update(self):
+        """Internal immediate update."""
+        if not self.message: return
+        
+        # Guard for deleted message
         try:
-            await self.message.edit(content=content)
+            embed = self._build_embed()
+            await self.message.edit(embed=embed)
+            self._last_update_time = time.time()
+        except discord.NotFound:
+            # Message was deleted (e.g. by finish()), stop updating
+            self.message = None
         except Exception:
             pass
 
-    def _build_content(self) -> str:
+    def _build_embed(self) -> discord.Embed:
+        # Build text description
         lines = []
         for step in self.steps:
             icon = self.EMOJI_DONE if step["done"] else self.EMOJI_PROCESSING
-            # User Preference: "Icon Label" (Left aligned) looks better
+            # Format: icon **Label**
             lines.append(f"{icon} **{step['label']}**")
-        return "\n".join(lines)
+        
+        desc = "\n".join(lines)
+        
+        # Style based on Mode
+        if hasattr(self, "mode") and self.mode == "override":
+            title = "🚨 SYSTEM OVERRIDE"
+            color = 0xFF0000 # Red
+            footer = "⚠️ 警告: セーフティ・リミッター解除中"
+        else:
+            title = "⚙️ System Processing"
+            color = 0x2ECC71 # Green
+            footer = "ORA Universal Brain"
+        
+        embed = discord.Embed(
+            title=title,
+            description=desc,
+            color=color,
+        )
+        embed.set_footer(text=footer)
+        return embed
 
 class EmbedFactory:
     """Factory for creating consistent Discord Embeds."""

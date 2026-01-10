@@ -154,7 +154,7 @@ class SystemCog(commands.Cog):
         if not batch:
             return
 
-        channel_id = getattr(self.bot.config, "log_channel_id", 1455097004433604860)
+        channel_id = getattr(self.bot.config, "log_channel_id", 0)
         channel = self.bot.get_channel(channel_id)
         if not channel:
             return # Channel not found or bot not ready fully
@@ -241,9 +241,9 @@ class SystemCog(commands.Cog):
 
     def _check_admin(self, interaction: discord.Interaction) -> bool:
         admin_id = self.bot.config.admin_user_id
-        creator_id = 1069941291661672498
-        if interaction.user.id == admin_id or interaction.user.id == creator_id:
-            return True
+        # creator_id lookup via config if needed, or just admin check
+        if interaction.user.id == admin_id:
+             return True
         return False
 
     def _log_audit(self, user: discord.User | discord.Object, action: str, details: str, success: bool):
@@ -348,6 +348,27 @@ class SystemCog(commands.Cog):
         self._log_audit(interaction.user, action, f"value={value}", success)
         await interaction.followup.send(msg, ephemeral=True)
 
+    @commands.command(name="sync", hidden=True)
+    async def sync_prefix(self, ctx: commands.Context, guild_id: Optional[int] = None, spec: Optional[str] = None) -> None:
+        """
+        Manually sync commands to the current guild (Panic Button).
+        Usage: !sync
+        """
+        # Only Admin or Creator
+        admin_id = self.bot.config.admin_user_id
+        if ctx.author.id != admin_id:
+             return
+
+        async with ctx.typing():
+            if spec == "global":
+                synced = await self.bot.tree.sync()
+                await ctx.send(f"🌍 Globally synced {len(synced)} commands. (May take up to 1h to propagate)")
+            else:
+                # Sync to CURRENT guild
+                self.bot.tree.copy_global_to(guild=ctx.guild)
+                synced = await self.bot.tree.sync(guild=ctx.guild)
+                await ctx.send(f"🏠 Synced {len(synced)} commands to THIS guild ({ctx.guild.id})!")
+            
     @app_commands.command(name="reload", description="Bot拡張機能(Cog)を再読み込みします (Admin Only)")
     @app_commands.describe(extension="再読み込みする拡張機能名 (例: media, system)")
     async def reload_cog(self, interaction: discord.Interaction, extension: str):
@@ -399,8 +420,7 @@ class SystemCog(commands.Cog):
         """
         # Admin Check
         admin_id = self.bot.config.admin_user_id
-        creator_id = 1069941291661672498
-        if user_id != admin_id and user_id != creator_id:
+        if user_id != admin_id:
              self._log_audit(discord.Object(id=user_id), action, "Unauthorized Tool Call", False)
              return {"status": False, "message": "⛔ 権限がありません。"}
 

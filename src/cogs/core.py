@@ -92,7 +92,8 @@ class CoreCog(commands.Cog):
         #    raise app_commands.CheckFailure("管理者権限が必要です。")
 
         # Special stealth mode for specific user
-        if interaction.user.id == 1069941291661672498:
+        # Admin check
+        if interaction.user.id == self.bot.config.admin_user_id:
             await interaction.channel.send(text)
             await interaction.response.send_message("送信しました（匿名モード）", ephemeral=True)
         else:
@@ -369,3 +370,70 @@ class CoreCog(commands.Cog):
             interaction.user,
             getattr(interaction.user, "id", "unknown"),
         )
+
+    @app_commands.command(name="messages", description="このチャンネルの最近のメッセージを表示します。")
+    @app_commands.describe(count="表示する件数 (デフォルト10, 最大50)")
+    async def messages(self, interaction: discord.Interaction, count: int = 10) -> None:
+        """Fetch recent messages from the current channel."""
+        await interaction.response.defer(ephemeral=True)
+        
+        channel = interaction.channel
+        if not hasattr(channel, "history"):
+            await interaction.followup.send("このチャンネルではメッセージ履歴を取得できません。", ephemeral=True)
+            return
+
+        amount = max(1, min(50, count))
+        try:
+            history = [m async for m in channel.history(limit=amount)]
+            history.reverse() # Oldest first
+
+            if not history:
+                content = "メッセージが見つかりませんでした。"
+            else:
+                content = _format_messages(history)
+
+            embed = discord.Embed(
+                title="📝 最近のメッセージ",
+                description=content,
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            embed.set_footer(text=f"表示: {len(history)}件")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except discord.Forbidden:
+            await interaction.followup.send("メッセージ履歴を読む権限がありません。", ephemeral=True)
+        except Exception as e:
+            logger.exception("Failed to fetch messages")
+            await interaction.followup.send(f"エラーが発生しました: {e}", ephemeral=True)
+
+def _format_messages(messages: list[discord.Message], limit: int = 3900) -> str:
+    lines = []
+    total_len = 0
+    
+    for msg in messages:
+        snippet = msg.content.replace("\n", " ").strip() if msg.content else ""
+        if not snippet:
+            extras = []
+            if msg.attachments: extras.append(f"{len(msg.attachments)} attach")
+            if msg.embeds: extras.append(f"{len(msg.embeds)} embeds")
+            snippet = f"[{', '.join(extras)}]" if extras else "[no content]"
+            
+        # Sanitize / Truncate
+        snippet = snippet.replace("`", "") # Remove backticks
+        if len(snippet) > 100:
+            snippet = snippet[:97] + "..."
+            
+        author = msg.author.display_name
+        ts = int(msg.created_at.timestamp())
+        
+        line = f"• <t:{ts}:t> **{author}**: {snippet}"
+        
+        if total_len + len(line) > limit:
+            lines.append("...(truncated)")
+            break
+            
+        lines.append(line)
+        total_len += len(line) + 1
+        
+    return "\n".join(lines)
