@@ -141,8 +141,9 @@ class LLMClient:
         # Allow model override
         model_name = kwargs.get("model", self._model)
         # Determine Endpoint and Payload Structure
-        # FIX: Codex (gpt-5.1-codex) is a Next-Gen Agentic Model using /responses
-        is_next_gen = (any(x in model_name for x in ["o1-", "o3-"]) and "gpt-5" not in model_name) or "codex" in model_name
+        # FIX: Codex (gpt-5.1-codex) and all GPT-5/O-Series are Next-Gen Agentic Models using /responses
+        # User confirmed Request Format is different for these.
+        is_next_gen = any(x in model_name for x in ["gpt-5", "gpt-4.1", "o1", "o3", "o4", "codex"])
         is_legacy_completions = any(x in model_name for x in ["davinci", "curie", "babbage", "ada"]) and "chat" not in model_name
 
         if is_next_gen:
@@ -227,16 +228,19 @@ class LLMClient:
             }
             
             # Temperature and Token Handling
+            # FIX: User Instruction "Temperature must not be included" for Next-Gen models.
             should_omit_temp = any(x in model_name for x in ["gpt-5", "gpt-4.1", "o1", "o3", "codex", "o4"])
+            
             if temperature is not None and not should_omit_temp:
                 payload["temperature"] = temperature
             
+            # Map max_tokens -> max_completion_tokens for o1/gpt-5 models
             if should_omit_temp:
                  if "max_tokens" in kwargs:
-                     try:
-                         kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
-                     except: pass
-
+                     payload["max_completion_tokens"] = kwargs.pop("max_tokens")
+                 elif "max_completion_tokens" in kwargs:
+                     payload["max_completion_tokens"] = kwargs.pop("max_completion_tokens")
+     
         # Inject Tools and other kwargs (Common to both)
         # We exclude keys already handled or standard internally (model, messages, input, instructions)
         excluded_keys = {"model", "messages", "input", "instructions", "temperature", "stream"}
@@ -250,11 +254,22 @@ class LLMClient:
 
         # Parameter Mapping for v1/responses
         if is_next_gen:
-            # Responses API uses 'max_output_tokens' instead of 'max_tokens' or 'max_completion_tokens'
-            if "max_tokens" in kwargs:
-                kwargs["max_output_tokens"] = kwargs.pop("max_tokens")
+            # Responses API STRICTLY requires 'max_output_tokens'.
+            # It REJECTS 'max_completion_tokens' and 'max_tokens'.
+            
+            # 1. Extract intent from any of the possible keys
+            val = kwargs.pop("max_tokens", None) or kwargs.pop("max_completion_tokens", None) or kwargs.pop("max_output_tokens", None)
+            
+            # 2. Set strictly 'max_output_tokens'
+            if val is not None:
+                kwargs["max_output_tokens"] = val
+            
+            # 3. Ensure forbidden keys are GONE
+            # (popping above handles it, but safety check)
             if "max_completion_tokens" in kwargs:
-                kwargs["max_output_tokens"] = kwargs.pop("max_completion_tokens")
+                del kwargs["max_completion_tokens"]
+            if "max_tokens" in kwargs:
+                del kwargs["max_tokens"]
 
         # Flatten tool schema for v1/responses endpoint (Agentic)
         # Some endpoints (like gpt-5/o1 proxies) expect 'name' and 'type' at the same level.
@@ -289,14 +304,55 @@ class LLMClient:
                 if "error" in data:
                      raise RuntimeError(f"API Returned Error: {data['error']}")
                 
-                try:
+                # Parse Response Content
+                content = None
+                tool_calls = None
+                
+                # Check for Standard ChatCompletion
+                if "choices" in data and len(data["choices"]) > 0:
                     msg_data = data["choices"][0]["message"]
                     content = msg_data.get("content")
-                except KeyError:
+                    tool_calls = msg_data.get("tool_calls")
+                    
+                # Check for Agentic /responses "output"
+                elif "output" in data:
+                    out_val = data["output"]
+                    if isinstance(out_val, list):
+                        # Agentic API returns a stream of items (Reasoning, Message, etc.)
+                        # We need to extract the 'message' content.
+                        extracted_text = []
+                        for item in out_val:
+                            if not isinstance(item, dict): continue
+                            
+                            item_type = item.get("type")
+                            
+                            # Handle 'message' items (The actual response)
+                            if item_type == "message":
+                                msg_content = item.get("content")
+                                if isinstance(msg_content, list):
+                                    for part in msg_content:
+                                        if isinstance(part, dict) and part.get("type") == "output_text":
+                                            if "text" in part:
+                                                extracted_text.append(part["text"])
+                                        elif isinstance(part, str):
+                                             extracted_text.append(part)
+                                elif isinstance(msg_content, str):
+                                    extracted_text.append(msg_content)
+                                    
+                        content = "".join(extracted_text)
+                    else:
+                        content = str(out_val)
+                    
+                    # Tool calls might be top-level or inside output?
+                    # Generally /responses output is the text result.
+                    tool_calls = data.get("tool_calls")
+
+                # Fallback / Error
+                else:
                      # If 'choices' missing, log the structure for debugging
                      logger.error(f"Invalid API Response Keys: {list(data.keys())} | Raw: {str(data)[:200]}...")
-                     raise
-                tool_calls = msg_data.get("tool_calls")
+                     raise KeyError("Response parsing failed: No 'choices' or 'output' found.")
+
                 usage = data.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
                 return content, tool_calls, usage
 
@@ -350,8 +406,8 @@ class LLMClient:
                     data = await robust_json_request(self._session, "POST", new_url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=new_payload)
                     
                     if data.get("object") == "response":
-                         logger.info(f"DEBUG v1/responses KEYS: {list(data.keys())}")
-                         logger.info(f"DEBUG v1/responses USAGE: {data.get('usage')}")
+                         logger.debug(f"DEBUG v1/responses KEYS: {list(data.keys())}")
+                         logger.debug(f"DEBUG v1/responses USAGE: {data.get('usage')}")
                          content = data.get("output")
                          if isinstance(content, list):
                              content = "".join([str(c) for c in content])
@@ -371,8 +427,8 @@ class LLMClient:
                     
                     if data.get("object") == "response":
                         # New v1/responses Schema
-                        logger.info(f"DEBUG v1/responses Keys: {list(data.keys())}")
-                        logger.info(f"DEBUG v1/responses Usage: {data.get('usage')}")
+                        logger.debug(f"DEBUG v1/responses Keys: {list(data.keys())}")
+                        logger.debug(f"DEBUG v1/responses Usage: {data.get('usage')}")
                         content = data.get("output")
                         if isinstance(content, list):
                              # v1/responses returns a list of objects (Reasoning, Message, etc.)
@@ -386,7 +442,7 @@ class LLMClient:
                              for item in content:
                                  if isinstance(item, dict):
                                      # Debug unknown types - FORCE LOGGING
-                                     logger.warning(f"DEBUG v1/responses ITEM: {str(item)[:10000]}")
+                                     logger.debug(f"DEBUG v1/responses ITEM: {str(item)[:10000]}")
                                      
                                      # Ultra Greedy: Check ANY dict for content/text
                                      # Try "content"

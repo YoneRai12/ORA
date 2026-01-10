@@ -174,9 +174,11 @@ class MixingAudioSource(discord.AudioSource):
 
 class GuildMusicState:
     def __init__(self):
-        self.queue = []  # List of (url_or_path, title, is_stream)
+        self.queue = []  # List of (url_or_path, title, is_stream, duration)
         self.is_looping = False
-        self.current = None  # (url_or_path, title, is_stream)
+        self.current = None  # (url_or_path, title, is_stream, duration)
+        self.current_start_time = 0.0 # Unix timestamp
+        self.current_track_duration = 0.0 # Saved duration for current track
         self.volume = 0.06
         self.voice_client: Optional[discord.VoiceClient] = None
         self.history = [] # List of (url_or_path, title, is_stream)
@@ -184,6 +186,140 @@ class GuildMusicState:
         # TTS Queue
         self.tts_queue = [] # List of (member, text)
         self.tts_processing = False
+        self.speed = 1.0
+        self.pitch = 1.0
+        self.start_offset = 0.0
+
+# ... (VoiceManager methods) ...
+
+    def _play_next(self, guild_id: int):
+        state = self.get_music_state(guild_id)
+        if not state.voice_client:
+            return
+
+        # Check if currently playing (e.g. TTS)
+        if state.voice_client.is_playing():
+            # If playing, wait and retry later
+            asyncio.run_coroutine_threadsafe(self._schedule_next(guild_id), self._bot.loop)
+            return
+
+        # Determine next song
+        if state.is_looping and state.current:
+            # Replay current
+            url_or_path, title, is_stream, duration = state.current
+        elif state.queue:
+            # Save current to history before switching
+            if state.current:
+                state.history.insert(0, state.current)
+                if len(state.history) > 20: # Limit history
+                    state.history.pop()
+            
+            # Get next from queue
+            url_or_path, title, is_stream, duration = state.queue.pop(0)
+            state.current = (url_or_path, title, is_stream, duration)
+            state.current_track_duration = duration if duration else 0.0
+        else:
+            # Queue empty
+            if state.current:
+                state.history.insert(0, state.current)
+                if len(state.history) > 20: 
+                    state.history.pop()
+            state.current = None
+            state.current_start_time = 0.0
+            return
+
+        # Create Source
+        try:
+            # FFmpeg Filters Calculation
+            filters = []
+            
+            # 1. Speed (atempo)
+            # FFmpeg `atempo` is limited to 0.5 - 2.0 per instance. Chain them for larger values.
+            # We will cap it for safety between 0.5 and 2.0 for now, or implement chaining if needed.
+            # actually we can chain: "atempo=2.0,atempo=1.5"
+            current_speed = state.speed
+            if abs(current_speed - 1.0) > 0.01:
+                 # Limitation hack: just support 0.5-2.0 for now to keep code simple
+                 current_speed = max(0.5, min(2.0, current_speed))
+                 filters.append(f"atempo={current_speed}")
+
+            # 2. Pitch (asetrate)
+            if state.pitch != 1.0:
+                # asetrate = 48000 * pitch
+                # aresample = 48000 (resample back to 48k)
+                # But this changes speed too by factor 'pitch'.
+                # To keep speed at 'speed', we need to adjust temp:
+                # final_speed = speed
+                # pitch_speed_change = pitch
+                # required_tempo_change = speed / pitch
+                
+                # Filters
+                filters.append("aresample=48000")
+                filters.append(f"asetrate={48000 * state.pitch}")
+                filters.append("aresample=48000")
+                
+                # Adjust tempo compensation
+                tempo_comp = state.speed / state.pitch
+                if abs(tempo_comp - 1.0) > 0.01:
+                    filters.append(f"atempo={tempo_comp}")
+            
+            ffmpeg_opts = {
+                "before_options": "",
+                "options": "-vn"
+            }
+            
+            if is_stream:
+                ffmpeg_opts["before_options"] += " -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+            
+            # Apply filters
+            if filters:
+                 ffmpeg_opts["options"] += f' -filter:a "{",".join(filters)}"'
+            
+            # Apply Seek / Start Offset
+            if state.start_offset > 0:
+                ffmpeg_opts["before_options"] += f" -ss {state.start_offset}"
+                state.current_start_time = time.time() - state.start_offset
+                state.start_offset = 0.0 # Reset
+            else:
+                state.current_start_time = time.time()
+                
+            source = discord.FFmpegPCMAudio(url_or_path, **ffmpeg_opts)
+            
+            if not is_stream:
+                # Cleanup local file after playback
+                original_cleanup = source.cleanup
+                def cleanup():
+                    original_cleanup()
+                    if os.path.exists(url_or_path):
+                        try:
+                            os.remove(url_or_path)
+                        except: pass
+                source.cleanup = cleanup
+
+            # Apply Volume
+            source = discord.PCMVolumeTransformer(source, volume=state.volume)
+            
+            def after_callback(error):
+                if error:
+                    logger.error(f"Player error: {error}")
+                # Schedule next song
+                future = asyncio.run_coroutine_threadsafe(self._schedule_next(guild_id), self._bot.loop)
+                try:
+                    future.result()
+                except: pass
+
+            state.voice_client.play(source, after=after_callback)
+            import time
+            state.current_start_time = time.time()
+            logger.info(f"Playing: {title} (Volume: {state.volume})")
+            
+            # Notifying dashboard update? 
+            # Ideally VoiceManager emits an event, but MediaCog handles updates.
+
+        except Exception as e:
+            logger.exception(f"Failed to play music: {e}")
+            # Try next one
+            self._play_next(guild_id)
 
 class VoiceManager:
     """Manages Discord voice clients for playback, recording, and music queue."""
@@ -478,7 +614,7 @@ class VoiceManager:
             # Ensure cleanup happens even if play fails
             cleanup(e)
 
-    async def play_music(self, member: discord.Member, url_or_path: str, title: str, is_stream: bool) -> bool:
+    async def play_music(self, member: discord.Member, url_or_path: str, title: str, is_stream: bool, duration: float = 0.0) -> bool:
         """Add music to queue and start playing if idle."""
         voice_client = await self.ensure_voice_client(member)
         if not voice_client:
@@ -488,7 +624,7 @@ class VoiceManager:
         state.voice_client = voice_client
         
         # Add to queue
-        state.queue.append((url_or_path, title, is_stream))
+        state.queue.append((url_or_path, title, is_stream, duration))
         
         if not voice_client.is_playing():
             self._play_next(member.guild.id)
@@ -509,7 +645,7 @@ class VoiceManager:
         # Determine next song
         if state.is_looping and state.current:
             # Replay current
-            url_or_path, title, is_stream = state.current
+            url_or_path, title, is_stream, duration = state.current
         elif state.queue:
             # Save current to history before switching
             if state.current:
@@ -518,8 +654,8 @@ class VoiceManager:
                     state.history.pop()
             
             # Get next from queue
-            url_or_path, title, is_stream = state.queue.pop(0)
-            state.current = (url_or_path, title, is_stream)
+            url_or_path, title, is_stream, duration = state.queue.pop(0)
+            state.current = (url_or_path, title, is_stream, duration)
         else:
             # Queue empty
             if state.current:
@@ -645,15 +781,146 @@ class VoiceManager:
         state = self.get_music_state(guild_id)
         state.is_looping = enabled
 
+    def set_speed_pitch(self, guild_id: int, speed: float, pitch: float):
+        state = self.get_music_state(guild_id)
+        
+        # Calculate current position before updating state
+        current_pos = 0.0
+        if state.voice_client and state.voice_client.is_playing() and state.current_start_time > 0:
+             import time
+             elapsed_real = time.time() - state.current_start_time
+             # Adjusted for previous speed?
+             # If we were playing at x2.0 for 10s, we are at 20s mark in file.
+             # So elapsed_file = elapsed_real * state.speed
+             current_pos = elapsed_real * state.speed
+             
+        state.speed = speed
+        state.pitch = pitch
+        
+        # Restart current track to apply effects
+        if state.current and state.voice_client and state.voice_client.is_playing():
+             # Resume from current position
+             state.start_offset = current_pos
+             
+             # Re-queue current to front
+             state.queue.insert(0, state.current)
+             state.current = None
+             state.voice_client.stop()
+
+    def seek_music(self, guild_id: int, seconds: float):
+        state = self.get_music_state(guild_id)
+        if not state.current:
+            return
+            
+        state.start_offset = max(0.0, seconds)
+        
+        # Push current back to queue to be picked up by _play_next
+        state.queue.insert(0, state.current)
+        state.current = None # Reset current so _play_next picks from queue
+        
+        if state.voice_client and (state.voice_client.is_playing() or state.voice_client.is_paused()):
+            state.voice_client.stop()
+        else:
+            # If not playing, force start?
+            # _play_next called by stop() callback usually.
+            pass
+
+    def toggle_loop(self, guild_id: int) -> bool:
+        """Toggle loop mode and return new state."""
+        state = self.get_music_state(guild_id)
+        state.is_looping = not state.is_looping
+        return state.is_looping
+
+    def stop_player(self, guild_id: int):
+        """Alias for stop_music."""
+        self.stop_music(guild_id)
+
+    def skip_track(self, guild_id: int):
+        """Alias for skip_music."""
+        self.skip_music(guild_id)
+
+    def shuffle_queue(self, guild_id: int):
+        """Shuffle the current queue."""
+        import random
+        state = self.get_music_state(guild_id)
+        if state.queue:
+            random.shuffle(state.queue)
+
     def get_queue_info(self, guild_id: int) -> dict:
         state = self.get_music_state(guild_id)
+        current_title = state.current[1] if state.current else None
+        current_duration = state.current[3] if state.current and len(state.current) > 3 else 0.0
+        
+        # Safe access for duration in queue
+        queue_list = []
+        for item in state.queue:
+             # item is (url, title, stream, duration)
+             queue_list.append({"title": item[1], "duration": item[3] if len(item)>3 else 0.0})
+
         return {
-            "current": state.current[1] if state.current else None,
-            "queue": [item[1] for item in state.queue],
+            "current": current_title,
+            "current_duration": current_duration, 
+            "queue": queue_list, # List of dicts
             "is_looping": state.is_looping,
+            "current_start_time": state.current_start_time,
             "volume": state.volume,
-            "tts_volume": state.tts_volume
+            "tts_volume": state.tts_volume,
+            "speed": state.speed,
+            "pitch": state.pitch
         }
+
+    def set_speed_pitch(self, guild_id: int, speed: float = 1.0, pitch: float = 1.0):
+        """Set speed/pitch and restart current track at approximate position."""
+        state = self.get_music_state(guild_id)
+        
+        # Clamp values for safety
+        speed = max(0.5, min(2.0, speed))
+        pitch = max(0.5, min(2.0, pitch))
+        
+        state.speed = speed
+        state.pitch = pitch
+        
+        # Apply immediately if playing
+        if state.voice_client and state.voice_client.is_playing() and state.current:
+            # We need to seek to current position?
+            # Calculating current position is hard because speed changes heavily affect it.
+            # Assuming simple restart for now is safer, OR we try to estimate.
+            
+            import time
+            elapsed = time.time() - state.current_start_time
+            # Apply previous speed factor to get "Real" audio time elapsed?
+            # Too complex. Let's just restart the track with new settings (User knows "Tune" might reset)
+            # OR we implement 'ss' option?
+            
+            # Let's try to 'seek' if possible.
+            # If it's a stream, we can't really seek easily without restarting stream.
+            
+            # RESTART STRATEGY:
+            # 1. Stop current (which triggers _play_next)
+            # 2. _play_next sees state.current.
+            # 3. But wait, `stop()` usually clears `state.current` or `_play_next` advances queue?
+            # Check `_play_next` logic:
+            # `if state.is_looping and state.current:` -> Replays.
+            # Else pops from Queue.
+            
+            # If we want to restart CURRENT track, we must ensure it stays as `state.current` 
+            # AND `_play_next` decides to play `state.current` again instead of popping.
+            
+            # HACK: Push current back to front of queue?
+            # state.queue.insert(0, state.current)
+            # state.voice_client.stop() 
+            # -> `stop` triggers `after` -> `_play_next` -> pops from queue (which is our track).
+            
+            # But wait, `_play_next` logic at line 208:
+            # `elif state.queue:` -> Pops.
+            
+            # So yes, pushing to front of queue works.
+            
+            if state.current:
+                state.queue.insert(0, state.current)
+                # Force stop to trigger next
+                state.voice_client.stop()
+
 
     def set_music_volume(self, guild_id: int, volume: float):
         """Set music volume (0.0 to 2.0)."""

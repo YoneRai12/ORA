@@ -2,6 +2,7 @@ import logging
 import traceback
 import discord
 import io
+import os
 from typing import Optional
 from .llm_client import LLMClient
 
@@ -18,8 +19,8 @@ class HealerView(discord.ui.View):
         self.value = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # SECURITY: Only Specific User
-        if interaction.user.id != 1069941291661672498:
+        # SECURITY: Only Admin
+        if interaction.user.id != self.bot.config.admin_user_id:
             await interaction.response.send_message("⛔ あなたにはこの操作を行う権限がありません。", ephemeral=True)
             return False
         return True
@@ -140,7 +141,7 @@ class Healer:
         Analyzes the error and proposes a fix to the Debug Channel.
         """
         # Target Channel (Configured or Default)
-        channel_id = getattr(self.bot.config, "log_channel_id", 1455097004433604860)
+        channel_id = getattr(self.bot.config, "log_channel_id", 0)
         
         # Get traceback
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
@@ -183,12 +184,6 @@ class Healer:
                 "new_content": "COMPLETE content of the file with fix applied"
             }}
             """
-            
-            import json
-            import os
-            import shutil
-            import aiofiles
-            import time
             
             # Using 'gpt-5.1-codex' if routed, or fall back to high intel
             analysis_json = await self.llm.chat(
@@ -441,15 +436,18 @@ class Healer:
                - Refer to existing files in the Tree (e.g. `src/cogs/media.py` for voice).
                - If Config is needed, assume `bot.store` has methods or Create generic SQL in the Cog using `bot.store`.
             
-            3. **SECURITY**:
+            3. **SECURITY & RISK**:
                - Ensure no admin abuse.
-               - DO NOT LEAK internal paths in the output 'analysis' text if possible (keep it high level), but 'code' must use real paths.
+               - Calculate a **RISK SCORE (0-100)**.
+               - 0-9: Trivial (Log change, Text fix, Safe addition).
+               - 10-100: Complex/Risky (DB change, Delete file, Auth change).
             
             Output STRICT JSON:
             {{
                 "scope_analysis": "Explanation of Scope (Global/Local/Temp) in Japanese",
                 "analysis": "Implementation Plan in Japanese",
                 "security_impact": "Risk Analysis in Japanese",
+                "risk_score": 0,
                 "filename": "suggested_filename.py",
                 "code": "COMPLETE Python code"
             }}
@@ -480,10 +478,13 @@ class Healer:
             # Step 3: Decision (Auto vs Manual)
             # Admin ID hardcoded for safety: 1069941291661672498
             is_admin = (requester.id == 1069941291661672498)
-            auto_evolve = is_safe and is_admin 
+            risk_score = data.get("risk_score", 100) # Default to High Risk if missing
+            
+            # Auto-Evolve Condition: Safe + Admin + Low Risk (<10)
+            auto_evolve = is_safe and is_admin and (risk_score < 10) 
             
             # Config Channel
-            channel_id = getattr(self.bot.config, "log_channel_id", 1455097004433604860)
+            channel_id = getattr(self.bot.config, "log_channel_id", 0)
             channel = self.bot.get_channel(channel_id)
             
             # Privacy Routing
@@ -725,9 +726,11 @@ class Healer:
                - Refer to existing files in the Tree (e.g. `src/cogs/media.py` for voice).
                - If Config is needed, assume `bot.store` has methods or Create generic SQL.
             
-            3. **SECURITY**:
-               - Ensure no admin abuse.
-               - DO NOT LEAK internal paths in the output 'analysis' text if possible (keep it high level), but 'code' must use real paths.
+            3. **SECURITY & PERMISSIONS (CRITICAL)**:
+               - **MUST** include permission checks for any destructive or admin-level action.
+               - Used `await self.bot.get_cog('ORACog')._check_permission(ctx.author.id, 'sub_admin')` for custom roles, OR `ctx.author.guild_permissions.XXX`.
+               - **NEVER** generate code that allows @everyone to mod/admin settings.
+               - DO NOT LEAK internal paths in the output 'analysis' text.
             
             Output STRICT JSON:
             {{
@@ -735,7 +738,7 @@ class Healer:
                 "analysis": "Implementation Plan in Japanese",
                 "security_impact": "Risk Analysis in Japanese",
                 "filename": "suggested_filename.py",
-                "code": "COMPLETE Python code"
+                "code": "COMPLETE Python code (WITH PERMISSION CHECKS)"
             }}
             """
             
@@ -762,12 +765,12 @@ class Healer:
             is_safe = await self._critique_code(code)
             
             # Step 3: Decision (Auto vs Manual)
-            # Admin ID hardcoded: 1069941291661672498
-            is_admin = (requester.id == 1069941291661672498)
+            # Admin Check
+            is_admin = (requester.id == self.bot.config.admin_user_id)
             auto_evolve = is_safe and is_admin 
             
             # Config Channel
-            channel_id = getattr(self.bot.config, "log_channel_id", 1455097004433604860)
+            channel_id = getattr(self.bot.config, "log_channel_id", 0)
             channel = self.bot.get_channel(channel_id)
             
             # Privacy Routing

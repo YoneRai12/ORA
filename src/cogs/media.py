@@ -21,7 +21,7 @@ import asyncio
 import aiohttp
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from ..storage import Store
 from ..utils.voice_manager import VoiceManager, HotwordCallback, VoiceConnectionError
@@ -31,6 +31,7 @@ from ..utils.flag_utils import flag_to_iso, iso_to_flag, country_to_flag, get_co
 from ..utils.search_client import SearchClient
 from ..utils.llm_client import LLMClient
 from ..utils import image_tools
+from src.views.music_dashboard import MusicPlayerView, create_music_embed
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,20 @@ class MediaCog(commands.Cog):
         
         # VC Points Tracking (User ID -> Start Timestamp)
         self.vc_start_times: dict[int, float] = {}
+        
+        # Dashboard Message Cache (Guild ID -> Message)
+        self.dashboard_messages: dict[int, discord.Message] = {}
 
         # Check for Voice Dependencies
         self.check_voice_dependencies()
+        
+    def cog_load(self):
+        """Start background tasks."""
+        self.music_dashboard_loop.start()
+        
+    def cog_unload(self):
+        """Stop background tasks."""
+        self.music_dashboard_loop.cancel()
 
     def check_voice_dependencies(self):
         """Check if Opus and PyNaCl are available."""
@@ -312,7 +324,7 @@ class MediaCog(commands.Cog):
     # ------------------------------------------------------------------
     # YouTube playback
     # ------------------------------------------------------------------
-    @app_commands.command(name="ytplay", description="YouTube の音声を VC で再生します。URL または検索キーワードを指定します。")
+    @app_commands.command(name="play", description="音楽を再生します (YouTube URLまたは検索ワード)")
     @app_commands.describe(
         query="YouTube の URL または検索キーワード",
         mode="stream で直接ストリーム再生、download で音声を一時ファイルに保存して再生します (任意)",
@@ -324,7 +336,7 @@ class MediaCog(commands.Cog):
             app_commands.Choice(name="download", value="download"),
         ]
     )
-    async def ytplay(
+    async def play(
         self,
         interaction: discord.Interaction,
         query: str,
@@ -376,13 +388,92 @@ class MediaCog(commands.Cog):
         # Build response message
         if played:
             state = self._voice_manager.get_music_state(interaction.guild.id)
-            if len(state.queue) > 0:
-                 msg = f"キューに追加しました: {title} (現在のキュー: {len(state.queue)}曲)"
-            else:
-                 msg = f"再生を開始します: {title}"
+            
+            # --- MUSIC DASHBOARD INTEGRATION ---
+            from ..views.music_dashboard import MusicPlayerView, create_music_embed
+            
+            # Create View
+            view = MusicPlayerView(self, interaction.guild.id)
+            
+            # Create Initial Embed
+            # We need track_info. VoiceManager sets this in `current`.
+            # We'll fetch the fresh state.
+            # state is GuildMusicState object
+            
+            track_info = {"title": title, "url": query if "http" in query else ""}
+            queue_preview = [{"title": t[1]} for t in state.queue] # Convert tuples to dicts
+            
+            dashboard_embed = create_music_embed(
+                track_info=track_info,
+                status="Playing" if not state.queue else "Queued", 
+                play_time_sec=0,
+                total_duration_sec=0, # Unknown initially
+                queue_preview=queue_preview,
+                speed=state.speed,
+                pitch=state.pitch
+            )
+            
+            await interaction.followup.send(embed=dashboard_embed, view=view, ephemeral=send_ephemeral)
+            
+            # Store message for updates
+            msg = await interaction.original_response()
+            if not hasattr(self, "dashboard_messages"):
+                self.dashboard_messages = {}
+            self.dashboard_messages[interaction.guild.id] = msg
+            
+            # -----------------------------------
         else:
             msg = f"{title} を再生できませんでした。ボイスチャンネルに参加しているか確認してください。"
-        await interaction.followup.send(msg, ephemeral=send_ephemeral)
+            await interaction.followup.send(msg, ephemeral=send_ephemeral)
+
+    async def update_music_dashboard(self, guild_id: int):
+        """Refreshes the music dashboard message for a guild."""
+        if not hasattr(self, "dashboard_messages"): return
+        msg = self.dashboard_messages.get(guild_id)
+        if not msg: return
+        
+        try:
+            from ..views.music_dashboard import MusicPlayerView, create_music_embed
+            
+            state = self._voice_manager.get_queue_info(guild_id)
+            
+            # If nothing playing and queue empty, maybe remove dashboard?
+            # Or just show "Stopped"
+            
+            # Calculate progress
+            import time
+            current_start = state.get("current_start_time", 0)
+            play_time = 0
+            if current_start > 0:
+                play_time = time.time() - current_start
+            
+            embed = create_music_embed(
+                track_info={"title": state["current"] or "None"},
+                status="Playing" if state["current"] else "Stopped",
+                play_time_sec=play_time,
+                total_duration_sec=state.get("current_duration", 0), 
+                queue_preview=state.get("queue", []),
+                speed=state.get("speed", 1.0),
+                pitch=state.get("pitch", 1.0)
+            )
+            
+            await msg.edit(embed=embed, view=MusicPlayerView(self, guild_id))
+        except Exception as e:
+            # logger.error(f"Failed to update music dashboard: {e}") 
+            # Log verbose only if needed
+            
+            # If message deleted, remove from cache
+            if isinstance(e, discord.NotFound):
+                del self.dashboard_messages[guild_id]
+
+    @tasks.loop(seconds=5.0)
+    async def music_dashboard_loop(self):
+        """Periodically update active music dashboards to animate progress bar."""
+        if not hasattr(self, "dashboard_messages"): return
+        
+        # Iterate copy of keys
+        for guild_id in list(self.dashboard_messages.keys()):
+            await self.update_music_dashboard(guild_id)
 
     @app_commands.command(name="queue", description="現在の再生キューを表示します。")
     async def queue(self, interaction: discord.Interaction):
@@ -424,6 +515,150 @@ class MediaCog(commands.Cog):
     async def stop(self, interaction: discord.Interaction):
         self._voice_manager.stop_music(interaction.guild.id)
         await interaction.response.send_message("再生を停止しました。", ephemeral=True)
+
+    @app_commands.command(name="tune", description="再生速度とピッチを変更します (0.5 - 2.0)。")
+    @app_commands.describe(speed="再生速度 (例: 1.0, 1.25, 1.5)", pitch="ピッチ (例: 1.0 = 標準, 1.2 = 高い)")
+    async def tune(self, interaction: discord.Interaction, speed: float = 1.0, pitch: float = 1.0):
+        await interaction.response.defer(ephemeral=True)
+        # Validate
+        speed = max(0.5, min(2.0, speed))
+        pitch = max(0.5, min(2.0, pitch))
+        
+        self._voice_manager.set_speed_pitch(interaction.guild.id, speed, pitch)
+        await interaction.followup.send(f"🎵 再生設定を変更しました: Speed={speed}, Pitch={pitch} (再生をリセットしました)")
+
+    @app_commands.command(name="seek", description="再生位置を変更します (例: 1:30, 90)")
+    @app_commands.describe(timestamp="時間 (MM:SS または 秒数)")
+    async def seek(self, interaction: discord.Interaction, timestamp: str):
+        await interaction.response.defer(ephemeral=True)
+        
+        seconds = parse_timestamp(timestamp)
+        if seconds is None:
+            await interaction.followup.send("時間の形式が正しくありません (例: 1:30, 90)", ephemeral=True)
+            return
+
+        self._voice_manager.seek_music(interaction.guild.id, seconds)
+        await interaction.followup.send(f"⏩ 再生位置を {timestamp} ({seconds}秒) に変更しました")
+
+    async def play_from_ai(self, ctx: commands.Context, query: str) -> None:
+        """Helper for AI to play music directly via Context."""
+        # Ensure Voice
+        if not ctx.author.voice:
+             await ctx.send("❌ ボイスチャンネルに参加してからリクエストしてください。")
+             return
+
+        # 1. Resolve URL
+        stream_url, title, _duration = await get_youtube_audio_stream_url(query)
+        if not title:
+            await ctx.send(f"❌ '{query}' の再生に失敗しました。")
+            return
+
+        # 2. Play (Await once!)
+        played = await self._voice_manager.play_music(ctx.author, stream_url, title, is_stream=True)
+        
+    async def play_from_ai(self, ctx: commands.Context, query: str) -> None:
+        """Helper for AI to play music directly via Context."""
+        # Ensure Voice
+        if not ctx.author.voice:
+             await ctx.send("❌ ボイスチャンネルに参加してからリクエストしてください。")
+             return
+
+        # 1. Resolve URL
+        stream_url, title, _duration = await get_youtube_audio_stream_url(query)
+        if not title:
+            await ctx.send(f"❌ '{query}' の再生に失敗しました。")
+            return
+
+        # 2. Play (Await once!)
+        played = await self._voice_manager.play_music(ctx.author, stream_url, title, is_stream=True)
+        
+        if played:
+             # --- MUSIC DASHBOARD INTEGRATION ---
+             if ctx.guild:
+                 guild_id = ctx.guild.id
+                 # Check if dashboard exists
+                 if hasattr(self, "dashboard_messages") and self.dashboard_messages.get(guild_id):
+                     # Just update
+                     try:
+                         await self.update_music_dashboard(guild_id)
+                     except:
+                         # If update fails (e.g. deleted), recreate
+                         pass
+                 
+                 # Create New Dashboard if needed (or if update failed/didn't exist)
+                 # Re-check existence to be sure
+                 if not hasattr(self, "dashboard_messages") or not self.dashboard_messages.get(guild_id):
+                     try:
+                         from ..views.music_dashboard import MusicPlayerView, create_music_embed
+                         state = self._voice_manager.get_music_state(guild_id)
+                         
+                         track_info = {"title": title, "url": query if "http" in query else ""}
+                         queue_preview = [{"title": t[1]} for t in state.queue]
+                         
+                         dashboard_embed = create_music_embed(
+                             track_info=track_info,
+                             status="Playing" if not state.queue else "Queued",
+                             play_time_sec=0,
+                             total_duration_sec=0,
+                             queue_preview=queue_preview,
+                             speed=state.speed,
+                             pitch=state.pitch
+                         )
+                         
+                         view = MusicPlayerView(self, guild_id)
+                         msg = await ctx.send(embed=dashboard_embed, view=view)
+                         
+                         if not hasattr(self, "dashboard_messages"):
+                             self.dashboard_messages = {}
+                         self.dashboard_messages[guild_id] = msg
+                     except Exception as e:
+                         logger.error(f"Failed to create dashboard in play_from_ai: {e}")
+                         # Fallback to text if dashboard fails
+                         await ctx.send(f"🎵 再生を開始します: **{title}**")
+                 else:
+                     # Dashboard already exists and updated, no text needed.
+                     pass
+        else:
+             await ctx.send(f"❌ 再生エラー: VoiceClientへの接続に失敗しました。")
+
+    async def control_from_ai(self, ctx: commands.Context, action: str) -> None:
+        """Helper for AI to control music (stop/skip/loop)."""
+        guild_id = ctx.guild.id
+        if action == "stop":
+            self._voice_manager.stop_music(guild_id)
+            await ctx.send("⏹️ 再生を停止しました。")
+        elif action == "skip":
+            self._voice_manager.skip_music(guild_id)
+            await ctx.send("⏭️ スキップしました。")
+        elif action == "loop_on":
+            self._voice_manager.set_loop(guild_id, True)
+            await ctx.send("🔁 ループ再生を有効にしました。")
+        elif action == "loop_off":
+            self._voice_manager.set_loop(guild_id, False)
+            await ctx.send("➡️ ループ再生を解除しました。")
+        else:
+            await ctx.send(f"⚠️ Unknown music action: {action}")
+        
+        if ctx.guild:
+            await self.update_music_dashboard(ctx.guild.id)
+
+def parse_timestamp(ts: str) -> Optional[float]:
+    """Parse a timestamp like ``1:23`` or ``90`` and return seconds."""
+    ts = ts.strip()
+    try:
+        if ":" in ts:
+            parts = ts.split(":")
+            if len(parts) == 2:
+                m, s = map(int, parts)
+                return m * 60 + s
+            elif len(parts) == 3:
+                h, m, s = map(int, parts)
+                return h * 3600 + m * 60 + s
+        else:
+            return float(ts)
+    except ValueError:
+        return None
+    return None
 
     # ------------------------------------------------------------------
     # Country flag translation
@@ -566,6 +801,17 @@ class MediaCog(commands.Cog):
         """
         # Ignore messages from bots (including ourselves)
         if message.author.bot:
+            return
+
+        # Ignore messages that are likely commands/triggers for the bot (to avoid reading "@ORA hello")
+        # 1. Check for Bot Mention
+        if self.bot.user in message.mentions:
+            return
+            
+        # 2. Check for Text Triggers (@ORA, @ROA)
+        content = message.content.strip()
+        triggers = ["@ORA", "@ROA", "＠ORA", "＠ROA", "@ora", "@roa"]
+        if any(content.startswith(t) for t in triggers):
             return
         guild = message.guild
         if guild is None:
@@ -747,12 +993,48 @@ class MediaCog(commands.Cog):
 
         played = await self._voice_manager.play_music(ctx.author, stream_url, title, is_stream=True)
         if played:
-            state = self._voice_manager.get_music_state(ctx.guild.id)
-            if len(state.queue) > 0:
-                 await ctx.send(f"キューに追加しました: {title}")
-            else:
-                 await ctx.send(f"再生を開始します: {title}")
+            try:
+                # Dashboard Integration
+                guild_id = ctx.guild.id
+                state = self._voice_manager.get_music_state(guild_id)
+                
+                # Create View and Embed
+                # Correct Usage: No await, correct args, only Embed return
+                track_info = {"title": title, "url": query if "http" in query else ""}
+                queue_preview = [{"title": t[1]} for t in state.queue]
+                
+                embed = create_music_embed(
+                    track_info=track_info,
+                    status="Playing", # Assumed valid since logic falls through here
+                    play_time_sec=0,
+                    total_duration_sec=_duration if _duration else 0,
+                    queue_preview=queue_preview,
+                    speed=state.speed,
+                    pitch=state.pitch
+                )
+                
+                view = MusicPlayerView(self, guild_id)
+                
+                # Clean up old dashboard if exists
+                if not hasattr(self, "dashboard_messages"):
+                    self.dashboard_messages = {}
+                    
+                if guild_id in self.dashboard_messages:
+                    try:
+                        old_msg = self.dashboard_messages[guild_id]
+                        if old_msg:
+                            await old_msg.delete()
+                    except:
+                        pass
+                
+                # Send New Dashboard
+                msg = await ctx.send(embed=embed, view=view)
+                self.dashboard_messages[guild_id] = msg
             
+            except Exception as e:
+                logger.error(f"Failed to show dashboard in play_from_ai: {e}")
+                await ctx.send(f"再生を開始します: {title}")
+
             # Start auto-disconnect monitor
             await self._start_auto_disconnect(ctx.guild.id, ctx.guild.voice_client)
         else:

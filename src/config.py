@@ -16,13 +16,23 @@ else:
     # Mac/Linux path
     STATE_DIR = os.path.expanduser("~/ORA_State")
 
+# Buffer & Sync Constants
+SAFETY_BUFFER_RATIO = 0.95 
+AUTO_SYNC_INTERVAL = 20 # Increased from 5 to reduce blocking latency 
+
 # Burn Lane: Gemini Trial ($300 limit)
 # Stable Lane: OpenAI Shared (gp-4o-mini: 2.5M tokens/day!)
 # High Lane: OpenAI Shared High (gpt-4o: 250k tokens/day)
 # BYOK Lane: User Keys (Optional Limits)
-# High Lane: OpenAI Shared High (gpt-5.1: 250k tokens/day)
-# Stable Lane: OpenAI Shared Low (gpt-5-mini: 2.5M tokens/day)
-# BYOK Lane: User Keys (Optional Limits)
+#
+# --- USER DEFINED MODEL LIMITS (2026 Policy) ---
+# "gpt-5.1, gpt-5.1-codex, gpt-5, gpt-5-codex, gpt-5-chat-latest, gpt-4.1, gpt-4o, o1, o3 
+#  全体で 1 日あたり最大 25 万トークン"
+#
+# "gpt-5.1-codex-mini, gpt-5-mini, gpt-5-nano, gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini, 
+#  o1-mini, o3-mini, o4-mini, codex-mini-latest 
+#  全体で 1 日あたり最大 250 万トークン"
+# -----------------------------------------------
 COST_LIMITS = {
   "high": {
     "openai": { 
@@ -115,6 +125,8 @@ class Config:
     # actually GOOGLE_API_KEY is used by google_client directly from os.environ usually.
     # Let's standardize on Config.
     log_channel_id: int
+    sub_admin_ids: set[int]
+    vc_admin_ids: set[int]
 
     @classmethod
     def load(cls) -> "Config":
@@ -188,13 +200,8 @@ class Config:
         # Google Cloud (Gemini API)
         google_api_key = os.getenv("GOOGLE_API_KEY")
 
-        # OpenAI Configuration (Explicit Load & Debug)
+        # OpenAI Configuration
         openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-             masked = f"{openai_key[:8]}...{openai_key[-4:]}" if len(openai_key) > 10 else "SHORT/INVALID"
-             print(f"DEBUG: Loaded OpenAI Key: {masked}")
-        else:
-             print("DEBUG: OpenAI Key is NONE or EMPTY")
 
         # Speech-to-text configuration
         stt_model = os.getenv("STT_MODEL", "tiny")
@@ -215,16 +222,30 @@ class Config:
                 admin_user_id = int(admin_user_id_raw)
             except ValueError:
                 pass
-
-            except ValueError:
+        
+        # Sub Admins & VC Admins (List)
+        sub_admin_ids = set()
+        sub_admin_raw = os.getenv("SUB_ADMIN_IDS", "")
+        if sub_admin_raw:
+            try:
+                sub_admin_ids = {int(x.strip()) for x in sub_admin_raw.split(",") if x.strip()}
+            except:
                 pass
-            
+
+        vc_admin_ids = set()
+        vc_admin_raw = os.getenv("VC_ADMIN_IDS", "")
+        if vc_admin_raw:
+            try:
+                vc_admin_ids = {int(x.strip()) for x in vc_admin_raw.split(",") if x.strip()}
+            except:
+                pass
+
         # Debug Log Channel
-        log_channel_raw = os.getenv("ORA_LOG_CHANNEL_ID", "1455097004433604860")
+        log_channel_raw = os.getenv("ORA_LOG_CHANNEL_ID", "0") # Default to 0 if not set
         try:
             log_channel_id = int(log_channel_raw)
         except ValueError:
-            log_channel_id = 1455097004433604860
+            log_channel_id = 0
                 
         # Stable Diffusion API
         sd_api_url = "http://127.0.0.1:8188" # Force ComfyUI Port
@@ -273,6 +294,8 @@ class Config:
             openai_api_key=openai_key,
             gemini_api_key=os.getenv("GOOGLE_API_KEY"),
             log_channel_id=log_channel_id,
+            sub_admin_ids=sub_admin_ids,
+            vc_admin_ids=vc_admin_ids,
         )
 
     def validate(self) -> None:

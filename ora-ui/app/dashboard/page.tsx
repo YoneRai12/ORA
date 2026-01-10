@@ -213,6 +213,8 @@ interface CostState {
         openai_sum?: number;
     };
     last_reset: string;
+    unlimited_mode?: boolean;
+    unlimited_users?: string[];
 }
 
 interface User {
@@ -241,6 +243,7 @@ interface User {
     message_count?: number; // New: Analyzed message count
     traits?: string[]; // New: Extracted traits
     is_nitro?: boolean; // New: Nitro status
+    last_updated?: string; // New: Last optimization time
 }
 
 interface UserProfile {
@@ -253,12 +256,14 @@ interface UserProfile {
     relationship?: string;   // New: Interaction Analysis
 
     // 4-Layer Architecture
+    layer1_session_meta?: any; // New: Session Metadata
     layer2_user_memory?: {
         facts: string[];
         traits: string[];
         impression: string;
         interests: string[];
     };
+    layer3_recent_summaries?: any[]; // New: List of summaries
     layer3_summary?: {
         global_summary: string;
         deep_profile: string;
@@ -929,14 +934,18 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
     const bgColor = theme === "cyan" ? "bg-cyan-950/10" : "bg-purple-950/10";
     const panelBg = "bg-neutral-900/50";
 
-    // Data Resolution (Layer vs Flat Fallback)
+    // Data Resolution
+    const l1 = profile.layer1_session_meta || {}; // New Layer 1
     const l2 = profile.layer2_user_memory || {
         facts: [],
         traits: profile.traits || [],
         impression: profile.impression || "Analyzing...",
         interests: []
     };
-    const l3 = profile.layer3_summary || {
+
+    // Layer 3 Resolution: List (New) vs Object (Legacy)
+    const l3List = profile.layer3_recent_summaries; // Array
+    const l3Legacy = profile.layer3_summary || {
         global_summary: profile.history_summary || "No summary available.",
         deep_profile: profile.deep_profile || "",
         future_pred: profile.future_pred || ""
@@ -945,13 +954,45 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
     return (
         <div className="space-y-6">
 
-            {/* Layer 1: Metadata (Lightweight) */}
-            <div className={`flex items-center gap-3 text-xs text-neutral-500 font-mono border-b ${borderColor} pb-2`}>
-                <div className="flex items-center gap-1">
-                    <Activity className="w-3 h-3" />
-                    <span>Layer 1: Metadata</span>
+            {/* Layer 1: Session Metadata (Ephemeral) */}
+            <div className={`p-3 rounded-lg border ${borderColor} bg-neutral-900/30 flex flex-col gap-2`}>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-neutral-400">
+                        <Activity className="w-3 h-3" />
+                        <span>LAYER 1: SESSION METADATA</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-600 font-mono">
+                        UPDATED: {new Date(profile.last_updated).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} (JST)
+                    </span>
                 </div>
-                <span className="ml-auto opacity-70">Updated: {new Date(profile.last_updated).toLocaleString()}</span>
+                {Object.keys(l1).length > 0 ? (
+                    <div className="flex flex-wrap gap-2 mt-1">
+                        {l1.environment && (
+                            <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] border border-neutral-700 font-mono">
+                                ENV: {l1.environment}
+                            </span>
+                        )}
+                        {l1.device_est && (
+                            <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] border border-neutral-700 font-mono">
+                                DEVICE: {l1.device_est}
+                            </span>
+                        )}
+                        {l1.mood && (
+                            <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] border border-neutral-700 font-mono">
+                                MOOD: {l1.mood}
+                            </span>
+                        )}
+                        {l1.activity && (
+                            <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] border border-neutral-700 font-mono">
+                                ACT: {l1.activity}
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    <div className="text-[10px] text-neutral-600 italic pl-5">
+                        Waiting for next analysis...
+                    </div>
+                )}
             </div>
 
             {/* Layer 2: User Memory (Facts & Traits) */}
@@ -964,7 +1005,7 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
                 {/* Facts (New) */}
                 {l2.facts && l2.facts.length > 0 && (
                     <div className="space-y-1">
-                        <span className="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Facts</span>
+                        <span className="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Facts (Anchor)</span>
                         <div className="flex flex-wrap gap-2">
                             {l2.facts.map((f, i) => (
                                 <span key={i} className="px-2 py-0.5 bg-neutral-800 rounded text-[11px] text-neutral-300 border border-neutral-700/50">
@@ -976,7 +1017,7 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
                 )}
 
                 {/* Traits & Interests */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
                     <div className="space-y-1">
                         <span className="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Traits</span>
                         <div className="flex flex-wrap gap-1.5">
@@ -1002,8 +1043,9 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
                     )}
                 </div>
                 {/* Impression Quote */}
-                <div className={`${bgColor} p-3 rounded-lg border border-${theme}-500/10 italic text-${theme}-200/80 text-sm`}>
-                    "{l2.impression}"
+                <div className={`${bgColor} p-3 rounded-lg border border-${theme}-500/10 italic text-${theme}-200/80 text-sm flex items-start gap-2`}>
+                    <span className="text-xs font-bold opacity-50 not-italic">IMPRESSION:</span>
+                    <span>"{l2.impression}"</span>
                 </div>
             </div>
 
@@ -1011,33 +1053,42 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
             <div className={`p-4 rounded-xl ${panelBg} border ${borderColor} space-y-4`}>
                 <div className="flex items-center gap-2 mb-2">
                     <Database className={`w-4 h-4 ${accentColor}`} />
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Layer 3: Summary & Map</h3>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Layer 3: Recent Summary</h3>
                 </div>
 
-                <div className="text-neutral-300 text-sm leading-relaxed font-serif">
-                    <TypewriterText text={l3.global_summary} speed={2} delay={100} key={l3.global_summary} />
-                </div>
-
-                {(l3.deep_profile || l3.future_pred || profile.relationship) && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-neutral-800">
-                        {l3.deep_profile && (
-                            <div className="space-y-1">
-                                <h4 className="text-[10px] font-bold text-purple-400 flex items-center gap-1">
-                                    <Sparkles className="w-3 h-3" /> DEEP PROFILE
-                                </h4>
-                                <p className="text-[11px] text-neutral-400 leading-tight bg-purple-950/20 p-2 rounded border border-purple-500/10">
-                                    {l3.deep_profile}
+                {l3List && Array.isArray(l3List) && l3List.length > 0 ? (
+                    // NEW: List View for Summaries
+                    <div className="space-y-3">
+                        {l3List.map((item, i) => (
+                            <div key={i} className="bg-neutral-950/30 p-3 rounded border border-neutral-800/50 flex flex-col gap-1">
+                                <div className="flex justify-between items-start">
+                                    <span className={`text-xs font-bold ${accentColor}`}>{item.title}</span>
+                                    <span className="text-[10px] text-neutral-600 font-mono">{item.timestamp}</span>
+                                </div>
+                                <p className="text-xs text-neutral-400 leading-relaxed pl-2 border-l-2 border-neutral-800">
+                                    {item.snippet}
                                 </p>
                             </div>
-                        )}
-                        {l3.future_pred && (
-                            <div className="space-y-1">
-                                <h4 className="text-[10px] font-bold text-cyan-400 flex items-center gap-1">
-                                    <Zap className="w-3 h-3" /> PREDICTION
-                                </h4>
-                                <p className="text-[11px] text-neutral-400 leading-tight bg-cyan-950/20 p-2 rounded border border-cyan-500/10">
-                                    {l3.future_pred}
-                                </p>
+                        ))}
+                    </div>
+                ) : (
+                    // FALLBACK: Legacy Text View
+                    <div className="text-neutral-300 text-sm leading-relaxed font-serif">
+                        <TypewriterText text={l3Legacy.global_summary} speed={2} delay={100} key={l3Legacy.global_summary} />
+                        {(l3Legacy.deep_profile || l3Legacy.future_pred) && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-neutral-800 mt-3">
+                                {l3Legacy.deep_profile && (
+                                    <div className="space-y-1">
+                                        <h4 className="text-[10px] font-bold text-purple-400 flex items-center gap-1"><Sparkles className="w-3 h-3" /> DEEP PROFILE</h4>
+                                        <p className="text-[11px] text-neutral-400 leading-tight bg-purple-950/20 p-2 rounded border border-purple-500/10">{l3Legacy.deep_profile}</p>
+                                    </div>
+                                )}
+                                {l3Legacy.future_pred && (
+                                    <div className="space-y-1">
+                                        <h4 className="text-[10px] font-bold text-cyan-400 flex items-center gap-1"><Zap className="w-3 h-3" /> PREDICTION</h4>
+                                        <p className="text-[11px] text-neutral-400 leading-tight bg-cyan-950/20 p-2 rounded border border-cyan-500/10">{l3Legacy.future_pred}</p>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1045,13 +1096,13 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
             </div>
 
             {/* Layer 4: Session (Raw Logs) */}
-            {profile.last_context && profile.last_context.length > 0 && (
+            {profile.last_context && profile.last_context.length > 0 ? (
                 <div className={`p-4 rounded-xl ${panelBg} border border-neutral-800/50 space-y-3`}>
                     <div className="flex items-center gap-2">
                         <Server className={`w-4 h-4 ${accentColor}`} />
                         <h3 className="text-sm font-bold text-white uppercase tracking-wider">Layer 4: Current Session</h3>
                     </div>
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-2 custom-scrollbar">
                         {profile.last_context.map((msg, i) => (
                             <div key={i} className="bg-black/40 rounded p-2 border border-neutral-800">
                                 <div className="flex justify-between text-[10px] text-neutral-600 mb-1 font-mono">
@@ -1062,6 +1113,10 @@ function ProfileContent({ profile, theme }: { profile: UserProfile, theme: "cyan
                             </div>
                         ))}
                     </div>
+                </div>
+            ) : (
+                <div className="p-4 rounded-xl border border-neutral-800/30 text-center text-neutral-600 text-xs">
+                    Layer 4: No active session log.
                 </div>
             )}
         </div>
@@ -1485,11 +1540,10 @@ export default function DashboardPage() {
             const dB = discordOrder[b.discord_status || "offline"] ?? 3;
             if (dA !== dB) return dA - dB;
 
-            // 4. Primary Sort: Recency (created_at/last_updated) Descending
-            // This ensures recently active users (chatting now) float to top
-            if (a.created_at && b.created_at) {
-                return b.created_at.localeCompare(a.created_at);
-            }
+            // 4. Primary Sort: Recency (last_updated/created_at) Descending
+            const tA = a.last_updated ? new Date(a.last_updated).getTime() : (a.created_at ? new Date(a.created_at).getTime() : 0);
+            const tB = b.last_updated ? new Date(b.last_updated).getTime() : (b.created_at ? new Date(b.created_at).getTime() : 0);
+            if (tA !== tB) return tB - tA;
 
             // 5. Secondary Sort: High Usage (Desc) as fallback
             const usageA = a.cost_usage?.high || 0;
@@ -1552,7 +1606,8 @@ export default function DashboardPage() {
                     const getFreshness = (us: User[]) => Math.max(0, ...us.map(u => {
                         const t1 = u.last_message ? new Date(u.last_message).getTime() : 0;
                         const t2 = u.created_at ? new Date(u.created_at).getTime() : 0;
-                        return Math.max(t1, t2);
+                        const t3 = u.last_updated ? new Date(u.last_updated).getTime() : 0; // Optimization Time
+                        return Math.max(t1, t2, t3);
                     }));
                     const aFresh = getFreshness(a[1]);
                     const bFresh = getFreshness(b[1]);
@@ -2145,7 +2200,72 @@ export default function DashboardPage() {
     return (
         <div className={`relative min-h-screen bg-neutral-950 text-neutral-200 font-sans w-full p-2 md:p-4 overflow-x-hidden ${screenshotMode ? 'cursor-none select-none' : ''}`}>
             {matrixMode && <MatrixRain />}
-            {/* Beautiful Reload Shimmer */}
+            {/* Beautiful Reload Shimmer & NERV Alert */}
+            <AnimatePresence>
+                {(usage?.unlimited_mode || (usage?.unlimited_users && usage.unlimited_users.length > 0)) && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="fixed top-0 left-0 right-0 z-[100] h-12 nerv-alert flex items-center justify-between px-4 md:px-8 backdrop-blur-md"
+                    >
+                        {/* Hex Grid Background */}
+                        <div className="nerv-hex-grid"></div>
+
+                        {/* Left Warning */}
+                        <div className="flex items-center gap-4 relative z-10">
+                            <div className="bg-red-600 text-black font-black text-xs md:text-sm px-2 py-1 nerv-blink border border-black">
+                                EMERGENCY
+                            </div>
+                            <span className="text-red-600 font-bold text-lg md:text-2xl nerv-title tracking-[0.2em]">
+                                SYSTEM OVERRIDE
+                            </span>
+                        </div>
+
+                        {/* Center Scroll Text (Desktop) */}
+                        <div className="hidden md:block relative z-10">
+                            <span className="text-red-600/80 font-mono text-xs tracking-widest animate-pulse">
+                                PATTERN RED // UNIDENTIFIED ACCESS DETECTED // SAFETY PROTOCOLS DISABLED
+                            </span>
+                        </div>
+
+                        {/* Right Status */}
+                        <div className="flex items-center gap-3 relative z-10">
+                            <span className="text-red-500 font-serif font-bold text-xs md:text-sm">
+                                {usage?.unlimited_mode ? "GLOBAL: INFINITE" : `USER BYPASS: ${usage?.unlimited_users?.length}`}
+                            </span>
+                            <AlertTriangle className="w-5 h-5 text-red-600 nerv-blink" />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Global Warning Background Overlay */}
+            <AnimatePresence>
+                {(usage?.unlimited_mode || (usage?.unlimited_users && usage.unlimited_users.length > 0)) && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 1 }}
+                        className="fixed inset-0 z-[-1] pointer-events-none"
+                    >
+                        {/* Red Tint & Vignette */}
+                        <div className="absolute inset-0 bg-red-950/20 mix-blend-overlay"></div>
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(50,0,0,0.4)_100%)]"></div>
+
+                        {/* Hex Grid (Large, Faint) */}
+                        <div className="absolute inset-0 nerv-hex-grid opacity-[0.05] scale-150"></div>
+
+                        {/* Scanlines */}
+                        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(255,0,0,0.02),rgba(255,0,0,0.06))] bg-[length:100%_4px,6px_100%] pointer-events-none"></div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+
+
+            {/* Refreshing Shimmer */}
             <AnimatePresence>
                 {refreshing && (
                     <motion.div
@@ -2164,430 +2284,430 @@ export default function DashboardPage() {
             </AnimatePresence>
 
             <LayoutGroup id="user-cards">
-            <motion.div
-                className="w-full max-w-[2560px] mx-auto space-y-3 md:space-y-4"
-                variants={containerVariants}
-                initial="hidden"
-                animate="visible"
-            >
-
-
-
-
-                {/* Header: Scaled & Tight */}
-                <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-neutral-800 pb-4 mb-2 gap-4">
-                    <div>
-                        <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-1 flex items-center gap-3 md:gap-6">
-                            <span>ORA <span className="text-cyan-500">SYSTEM</span></span>
-                            <span className="text-xs md:text-lg font-bold text-neutral-950 bg-neutral-200 px-2 md:px-3 py-0.5 md:py-1 rounded border border-neutral-800 whitespace-nowrap self-center mt-1 md:mt-2">
-                                {screenshotMode ? "PRIVACY SAFE" : "v3.9 FINAL"}
-                            </span>
-                        </h1>
-                        <p className="text-neutral-200 font-medium font-mono text-xs md:text-sm flex items-center gap-2">
-                            <Activity className="w-4 h-4 md:w-5 md:h-5" />
-                            コスト追跡 & 自律最適化ダッシュボード
-                        </p>
-                    </div>
-                    <div className="text-left md:text-right w-full md:w-auto flex flex-col items-end gap-2">
-                        <button
-                            onClick={toggleSimulation}
-                            className={`px-2 py-0.5 border rounded text-[10px] font-mono transition-colors ${isSimulating
-                                ? "bg-cyan-900/40 border-cyan-500/50 text-cyan-400 animate-pulse"
-                                : "bg-neutral-900 border-neutral-800 text-neutral-600 hover:text-cyan-400 hover:border-cyan-900/50"
-                                }`}
-                        >
-                            {isSimulating ? "STOP SIMULATION (ESC)" : "DEMO: SIMULATE LOOP"}
-                        </button>
-                        <div className="text-[10px] md:text-xs text-neutral-600 font-mono mb-1 uppercase tracking-widest">Current System Time</div>
-                        <SystemClock />
-                    </div>
-                </motion.div>
-
-                {/* Global Usage Cards: Large Text / Tight Padding */}
-                {/* Reorderable Usage Cards */}
-                <Reorder.Group
-                    axis="x"
-                    onReorder={setItems}
-                    values={items}
-                    className={`grid gap-4 transition-all duration-300 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 auto-rows-[minmax(200px,auto)]`}
-                    as="div"
-                    variants={topContainerVariants}
+                <motion.div
+                    className="w-full max-w-[2560px] mx-auto space-y-3 md:space-y-4"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
                 >
-                    {/* Toggle Grouping at Top Right of Grid? No, place above user list. */}
-                    {items.map((item) => {
-                        const isExpanded = expandedCard === item;
-                        return (
-                            <Reorder.Item
-                                key={item}
-                                value={item}
-                                as="div"
-                                layout
-                                onDragStart={() => { isDraggingRef.current = true; }}
-                                onDragEnd={() => { setTimeout(() => { isDraggingRef.current = false; }, 100); }}
-                                // Remove CSS transition-all to prevent conflict with Framer Motion layout animation
-                                className={`${isExpanded ? "md:col-span-2 md:row-span-2 z-10" : "md:col-span-1 md:row-span-1 z-0"}`}
-                                transition={{
-                                    layout: { type: "spring", stiffness: 300, damping: 30 }, // Snappy swap
-                                    default: { duration: 0.2 }
-                                }}
-                                style={{ height: isExpanded ? "50vh" : "auto" }}
-                                animate={gravityMode ? {
-                                    y: [0, -20 - (item.length % 5) * 2, 0, 15, 0],
-                                    rotate: [0, 1 + (item.length % 2), -1, 0],
-                                    transition: {
-                                        duration: 5 + (item.length % 3),
-                                        repeat: Infinity,
-                                        ease: "easeInOut",
-                                        delay: (item.length % 5) * 0.2
-                                    }
-                                } : undefined}
-                            >
-                                {renderCard(item)}
-                            </Reorder.Item>
-                        );
-                    })}
-                </Reorder.Group>
-
-                {/* Lifetime Usage Row */}
-                <motion.div variants={itemVariants} className="bg-neutral-900 border border-neutral-800/50 rounded-xl p-3 md:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <span className="text-sm font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap md:mr-8">全期間 (History)</span>
-                    {/* Fixed: Grid instead of overflow-x-auto */}
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 w-full gap-4 md:gap-8">
-                        <div className="flex flex-col">
-                            <span className="text-[10px] md:text-xs text-neutral-600 leading-none mb-1">Stable Chat</span>
-                            <span className="text-lg md:text-2xl font-mono text-green-400 leading-none">
-                                <AnimatedCounter value={usage?.lifetime_tokens?.stable || 0} />
-                            </span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] md:text-xs text-neutral-600 leading-none mb-1">High Think</span>
-                            <span className="text-lg md:text-2xl font-mono text-cyan-400 leading-none">
-                                <AnimatedCounter value={usage?.lifetime_tokens?.high || 0} />
-                            </span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] md:text-xs text-neutral-600 leading-none mb-1">Optimization</span>
-                            <span className="text-lg md:text-2xl font-mono text-purple-400 leading-none">
-                                <AnimatedCounter value={usage?.lifetime_tokens?.optimization || 0} />
-                            </span>
-                        </div>
-                        <div className="flex flex-col lg:border-l border-neutral-800 lg:pl-8">
-                            <span className="text-[10px] md:text-xs text-neutral-500 leading-none mb-1">Total Tokens</span>
-                            <span className="text-lg md:text-2xl font-mono text-white leading-none">
-                                <AnimatedCounter value={
-                                    (usage?.lifetime_tokens?.high || 0) +
-                                    (usage?.lifetime_tokens?.stable || 0) +
-                                    (usage?.lifetime_tokens?.optimization || 0) +
-                                    (usage?.lifetime_tokens?.burn || 0)
-                                } />
-                            </span>
-                        </div>
-                        <div className="flex flex-col lg:border-l border-neutral-800 lg:pl-8 col-span-2 md:col-span-1">
-                            <span className="text-[10px] md:text-xs text-neutral-500 leading-none mb-1">Total USD</span>
-                            <span className="text-lg md:text-2xl font-mono text-white leading-none">
-                                $<AnimatedCounter value={usage?.total_usd || 0} formatter={(v) => v.toFixed(4)} />
-                            </span>
-                        </div>
-                    </div>
-                </motion.div>
-
-                {/* User Grid */}
-                <motion.div variants={itemVariants} className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-2xl p-3 md:p-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-                        <div className="flex items-center gap-4">
-                            <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
-                                <Server className="w-5 h-5 md:w-6 md:h-6 text-indigo-500" />
-                                アクティビティ
-                            </h2>
-                            <span className="hidden md:block text-xs text-neutral-500 border-l border-neutral-800 pl-4 leading-none">
-                                Density: Scaled + Tight (16px)
-                            </span>
-                        </div>
-
-                        {/* Status Legend */}
-                        <div className="flex gap-4 md:gap-6">
-                            <div className="flex items-center gap-2 text-xs text-neutral-500">
-                                <span className="w-2 h-2 rounded-full bg-neutral-500"></span> 待機中
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-neutral-500">
-                                <span className="w-2 h-2 rounded-full bg-cyan-500"></span> 処理中
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-neutral-500">
-                                <span className="w-2 h-2 rounded-full bg-green-500"></span> 最適化済
-                            </div>
-                        </div>
-                    </div>
 
 
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 px-1 gap-3">
-                        <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                            {/* Toggle Grouping */}
-                            <button
-                                onClick={() => setGroupByServer(!groupByServer)}
-                                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-colors flex items-center gap-2 border border-neutral-700"
-                            >
-                                {groupByServer ? <List className="w-3 h-3" /> : <LayoutGrid className="w-3 h-3" />}
-                                {groupByServer ? "全ユーザー" : "サーバー別"}
-                            </button>
-
-                            {/* Toggle Offline Users */}
-                            <button
-                                onClick={() => setShowOffline(!showOffline)}
-                                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-all flex items-center gap-2 border ${showOffline
-                                    ? "bg-indigo-900/40 border-indigo-500/50 text-indigo-300 hover:bg-indigo-800/50"
-                                    : "bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-neutral-400"
-                                    }`}
-                            >
-                                {showOffline ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                {showOffline ? "オフラインを隠す" : `オフライン`}
-                            </button>
-
-                            <button
-                                onClick={() => setShowBots(!showBots)}
-                                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-all flex items-center gap-2 border ${showBots
-                                    ? "bg-blue-900/40 border-blue-500/50 text-blue-300 hover:bg-blue-800/50"
-                                    : "bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-neutral-400"
-                                    }`}
-                            >
-                                <Bot className="w-3 h-3" />
-                                {showBots ? "BOTを隠す" : "BOTを表示"}
-                            </button>
-
-                            <button
-                                onClick={() => {
-                                    if (autoSortServers) {
-                                        // Switching from Auto -> Manual: Capture current order
-                                        const currentOrder = sortedGroupedUsers.map(g => g.serverName);
-                                        setManualOrder(currentOrder);
-                                    }
-                                    setAutoSortServers(!autoSortServers);
-                                }}
-                                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-all flex items-center gap-2 border ${autoSortServers
-                                    ? "bg-cyan-900/40 border-cyan-500/50 text-cyan-300 hover:bg-cyan-800/50"
-                                    : "bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-neutral-400"
-                                    }`}
-                            >
-                                {autoSortServers ? <Zap className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                                {autoSortServers ? "自動ソート" : "手動ソート"}
-                            </button>
-                        </div>
-
-                        <button
-                            onClick={() => setRefreshConfirmOpen(true)}
-                            className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-colors flex items-center gap-2 border border-neutral-700 ml-auto md:ml-0 active:scale-95"
-                        >
-
-                            <RefreshCcw className="w-3 h-3" />
-                            強制更新
-                        </button>
-                    </div>
-
-                    <div className="flex flex-col gap-8">
-                        {groupByServer ? (
-                            autoSortServers ? (
-                                // Auto Sort Mode (Standard List)
-                                visibleGroupedUsers.map(({ serverName, users }) => (
-                                    <div key={serverName} className="flex flex-col gap-4">
-                                        <motion.h3
-                                            layout
-                                            initial={{ opacity: 0, x: -20 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            className="text-lg font-bold text-white/80 pl-4 border-l-4 border-cyan-500 flex items-center gap-2"
-                                        >
-                                            <Server className="w-4 h-4 text-cyan-400" />
-                                            <span className={`transition-all ${screenshotMode ? "blur-md opacity-50" : ""}`}>
-                                                {serverName}
-                                            </span>
-                                            <span className="text-xs font-normal text-neutral-600 bg-neutral-900/50 px-2 py-0.5 rounded-full border border-neutral-800">
-                                                {users.length} Users
-                                            </span>
-                                        </motion.h3>
-
-                                        <motion.div
-                                            layout
-                                            className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3"
-                                        >
-                                            <AnimatePresence initial={false}>
-                                                {users.map((user, index) => (
-                                                    <UserCard
-                                                        key={user.discord_user_id}
-                                                        user={user}
-                                                        index={index}
-                                                        screenshotMode={screenshotMode}
-                                                        setSelectedUser={setSelectedUser}
-                                                        isSelected={selectedUser === user.discord_user_id}
-                                                    />
-                                                ))}
-                                            </AnimatePresence>
-                                        </motion.div>
-                                    </div>
-                                ))
-                            ) : (
-                                // Manual Sort Mode (Reorderable)
-                                <Reorder.Group axis="y" values={visibleGroupedUsers.map(g => g.serverName)} onReorder={setManualOrder} className="flex flex-col gap-8">
-                                    {visibleGroupedUsers.map(({ serverName, users }) => (
-                                        <Reorder.Item key={serverName} value={serverName} className="flex flex-col gap-4 bg-neutral-900/20 rounded-xl p-2 border border-neutral-800/50 cursor-move">
-                                            <div className="flex items-center gap-2 pl-2">
-                                                <GripVertical className="w-4 h-4 text-neutral-600" />
-                                                <h3 className="text-lg font-bold text-white/80 pl-2 border-l-4 border-neutral-600 flex items-center gap-2">
-                                                    <Server className="w-4 h-4 text-neutral-400" />
-                                                    <span className={`transition-all ${screenshotMode ? "blur-md opacity-50" : ""}`}>
-                                                        {serverName}
-                                                    </span>
-                                                    <span className="text-xs font-normal text-neutral-600 bg-neutral-900/50 px-2 py-0.5 rounded-full border border-neutral-800">
-                                                        {users.length} Users
-                                                    </span>
-                                                </h3>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3 pointer-events-none lg:pointer-events-auto">
-                                                {users.map((user, index) => (
-                                                    <UserCard
-                                                        key={user.discord_user_id}
-                                                        user={user}
-                                                        index={index}
-                                                        screenshotMode={screenshotMode}
-                                                        setSelectedUser={setSelectedUser}
-                                                        isSelected={selectedUser === user.discord_user_id}
-                                                    />
-                                                ))}
-                                            </div>
-                                        </Reorder.Item>
-                                    ))}
-                                </Reorder.Group>
-                            )
-                        ) : (
-                            <motion.div
-                                layout
-                                className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3"
-                            >
-                                <AnimatePresence initial={false}>
-                                    {visibleAllUsers.map((user, index) => (
-                                        <UserCard
-                                            key={user.discord_user_id}
-                                            user={user}
-                                            index={index}
-                                            screenshotMode={screenshotMode}
-                                            setSelectedUser={setSelectedUser}
-                                            isSelected={selectedUser === user.discord_user_id}
-                                        />
-                                    ))}
-                                </AnimatePresence>
-                            </motion.div>
-                        )}
-                    </div>
-                </motion.div>
-            </motion.div>
 
 
-            {/* Float Button */}
-            {
-                !screenshotMode && (
-                    <button
-                        onClick={toggleScreenshotMode}
-                        className="fixed bottom-8 right-8 bg-black text-white p-4 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-transform z-50 group flex items-center justify-center gap-2 border border-neutral-700"
-                    >
-                        {screenshotMode ? <EyeOff className="w-6 h-6" /> : <Camera className="w-6 h-6" />}
-
-                        <span className="absolute right-full mr-4 bg-black text-white text-sm px-3 py-1.5 rounded border border-neutral-800 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none font-medium">
-                            Video Mode (Press ESC to Exit)
-                        </span>
-                    </button>
-                )
-            }
-            {/* Modal */}
-            <AnimatePresence>
-                {selectedUser && (() => {
-                    // Find user object for initial data
-                    const initialUser = sortedAllUsers.find(u => u.discord_user_id === selectedUser) || null;
-                    return (
-                        <UserDetailModal
-                            key={selectedUser}
-                            userId={selectedUser}
-                            initialUser={initialUser}
-                            onClose={() => setSelectedUser(null)}
-                        />
-                    );
-                })()}
-            </AnimatePresence>
-
-            {/* Confirmation Modal */}
-            <AnimatePresence>
-                {refreshConfirmOpen && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-                        onClick={() => setRefreshConfirmOpen(false)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl relative overflow-hidden"
-                        >
-                            {/* Background FX */}
-                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 to-purple-500" />
-
-                            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                                <RefreshCcw className="w-5 h-5 text-cyan-400" />
-                                強制更新の確認
-                            </h3>
-                            <p className="text-neutral-400 text-sm mb-6 leading-relaxed">
-                                全ユーザーのプロファイルを再スキャンします。<br />
-                                <span className="text-yellow-500/80 text-xs">※未登録(Ghost)ユーザーも自動的に最適化されます。</span>
+                    {/* Header: Scaled & Tight */}
+                    <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-neutral-800 pb-4 mb-2 gap-4">
+                        <div>
+                            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-1 flex items-center gap-3 md:gap-6">
+                                <span>ORA <span className="text-cyan-500">SYSTEM</span></span>
+                                <span className="text-xs md:text-lg font-bold text-neutral-950 bg-neutral-200 px-2 md:px-3 py-0.5 md:py-1 rounded border border-neutral-800 whitespace-nowrap self-center mt-1 md:mt-2">
+                                    {screenshotMode ? "PRIVACY SAFE" : "v3.9 FINAL"}
+                                </span>
+                            </h1>
+                            <p className="text-neutral-200 font-medium font-mono text-xs md:text-sm flex items-center gap-2">
+                                <Activity className="w-4 h-4 md:w-5 md:h-5" />
+                                コスト追跡 & 自律最適化ダッシュボード
                             </p>
+                        </div>
+                        <div className="text-left md:text-right w-full md:w-auto flex flex-col items-end gap-2">
+                            <button
+                                onClick={toggleSimulation}
+                                className={`px-2 py-0.5 border rounded text-[10px] font-mono transition-colors ${isSimulating
+                                    ? "bg-cyan-900/40 border-cyan-500/50 text-cyan-400 animate-pulse"
+                                    : "bg-neutral-900 border-neutral-800 text-neutral-600 hover:text-cyan-400 hover:border-cyan-900/50"
+                                    }`}
+                            >
+                                {isSimulating ? "STOP SIMULATION (ESC)" : "DEMO: SIMULATE LOOP"}
+                            </button>
+                            <div className="text-[10px] md:text-xs text-neutral-600 font-mono mb-1 uppercase tracking-widest">Current System Time</div>
+                            <SystemClock />
+                        </div>
+                    </motion.div>
 
-                            <div className="flex justify-end gap-3">
-                                <button
-                                    onClick={() => setRefreshConfirmOpen(false)}
-                                    className="px-4 py-2 rounded-lg text-sm text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
-                                >
-                                    キャンセル
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            await fetch("http://127.0.0.1:8000/api/system/refresh_profiles", { method: "POST" });
-                                            setRefreshConfirmOpen(false);
-                                            setRefreshSuccess(true);
-                                            setTimeout(() => setRefreshSuccess(false), 3000); // Hide success after 3s
-                                        } catch (e) {
-                                            console.error("Error:", e);
-                                            alert("エラーが発生しました: " + e);
-                                        }
+                    {/* Global Usage Cards: Large Text / Tight Padding */}
+                    {/* Reorderable Usage Cards */}
+                    <Reorder.Group
+                        axis="x"
+                        onReorder={setItems}
+                        values={items}
+                        className={`grid gap-4 transition-all duration-300 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 auto-rows-[minmax(200px,auto)]`}
+                        as="div"
+                        variants={topContainerVariants}
+                    >
+                        {/* Toggle Grouping at Top Right of Grid? No, place above user list. */}
+                        {items.map((item) => {
+                            const isExpanded = expandedCard === item;
+                            return (
+                                <Reorder.Item
+                                    key={item}
+                                    value={item}
+                                    as="div"
+                                    layout
+                                    onDragStart={() => { isDraggingRef.current = true; }}
+                                    onDragEnd={() => { setTimeout(() => { isDraggingRef.current = false; }, 100); }}
+                                    // Remove CSS transition-all to prevent conflict with Framer Motion layout animation
+                                    className={`${isExpanded ? "md:col-span-2 md:row-span-2 z-10" : "md:col-span-1 md:row-span-1 z-0"}`}
+                                    transition={{
+                                        layout: { type: "spring", stiffness: 300, damping: 30 }, // Snappy swap
+                                        default: { duration: 0.2 }
                                     }}
-                                    className="px-4 py-2 rounded-lg text-sm font-bold bg-white text-black hover:scale-105 active:scale-95 transition-all shadow-lg shadow-cyan-500/20"
+                                    style={{ height: isExpanded ? "50vh" : "auto" }}
+                                    animate={gravityMode ? {
+                                        y: [0, -20 - (item.length % 5) * 2, 0, 15, 0],
+                                        rotate: [0, 1 + (item.length % 2), -1, 0],
+                                        transition: {
+                                            duration: 5 + (item.length % 3),
+                                            repeat: Infinity,
+                                            ease: "easeInOut",
+                                            delay: (item.length % 5) * 0.2
+                                        }
+                                    } : undefined}
                                 >
-                                    実行する
+                                    {renderCard(item)}
+                                </Reorder.Item>
+                            );
+                        })}
+                    </Reorder.Group>
+
+                    {/* Lifetime Usage Row */}
+                    <motion.div variants={itemVariants} className="bg-neutral-900 border border-neutral-800/50 rounded-xl p-3 md:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <span className="text-sm font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap md:mr-8">全期間 (History)</span>
+                        {/* Fixed: Grid instead of overflow-x-auto */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 w-full gap-4 md:gap-8">
+                            <div className="flex flex-col">
+                                <span className="text-[10px] md:text-xs text-neutral-600 leading-none mb-1">Stable Chat</span>
+                                <span className="text-lg md:text-2xl font-mono text-green-400 leading-none">
+                                    <AnimatedCounter value={usage?.lifetime_tokens?.stable || 0} />
+                                </span>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] md:text-xs text-neutral-600 leading-none mb-1">High Think</span>
+                                <span className="text-lg md:text-2xl font-mono text-cyan-400 leading-none">
+                                    <AnimatedCounter value={usage?.lifetime_tokens?.high || 0} />
+                                </span>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] md:text-xs text-neutral-600 leading-none mb-1">Optimization</span>
+                                <span className="text-lg md:text-2xl font-mono text-purple-400 leading-none">
+                                    <AnimatedCounter value={usage?.lifetime_tokens?.optimization || 0} />
+                                </span>
+                            </div>
+                            <div className="flex flex-col lg:border-l border-neutral-800 lg:pl-8">
+                                <span className="text-[10px] md:text-xs text-neutral-500 leading-none mb-1">Total Tokens</span>
+                                <span className="text-lg md:text-2xl font-mono text-white leading-none">
+                                    <AnimatedCounter value={
+                                        (usage?.lifetime_tokens?.high || 0) +
+                                        (usage?.lifetime_tokens?.stable || 0) +
+                                        (usage?.lifetime_tokens?.optimization || 0) +
+                                        (usage?.lifetime_tokens?.burn || 0)
+                                    } />
+                                </span>
+                            </div>
+                            <div className="flex flex-col lg:border-l border-neutral-800 lg:pl-8 col-span-2 md:col-span-1">
+                                <span className="text-[10px] md:text-xs text-neutral-500 leading-none mb-1">Total USD</span>
+                                <span className="text-lg md:text-2xl font-mono text-white leading-none">
+                                    $<AnimatedCounter value={usage?.total_usd || 0} formatter={(v) => v.toFixed(4)} />
+                                </span>
+                            </div>
+                        </div>
+                    </motion.div>
+
+                    {/* User Grid */}
+                    <motion.div variants={itemVariants} className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-2xl p-3 md:p-4">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                            <div className="flex items-center gap-4">
+                                <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
+                                    <Server className="w-5 h-5 md:w-6 md:h-6 text-indigo-500" />
+                                    アクティビティ
+                                </h2>
+                                <span className="hidden md:block text-xs text-neutral-500 border-l border-neutral-800 pl-4 leading-none">
+                                    Density: Scaled + Tight (16px)
+                                </span>
+                            </div>
+
+                            {/* Status Legend */}
+                            <div className="flex gap-4 md:gap-6">
+                                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                    <span className="w-2 h-2 rounded-full bg-neutral-500"></span> 待機中
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                    <span className="w-2 h-2 rounded-full bg-cyan-500"></span> 処理中
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                    <span className="w-2 h-2 rounded-full bg-green-500"></span> 最適化済
+                                </div>
+                            </div>
+                        </div>
+
+
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 px-1 gap-3">
+                            <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                                {/* Toggle Grouping */}
+                                <button
+                                    onClick={() => setGroupByServer(!groupByServer)}
+                                    className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-colors flex items-center gap-2 border border-neutral-700"
+                                >
+                                    {groupByServer ? <List className="w-3 h-3" /> : <LayoutGrid className="w-3 h-3" />}
+                                    {groupByServer ? "全ユーザー" : "サーバー別"}
+                                </button>
+
+                                {/* Toggle Offline Users */}
+                                <button
+                                    onClick={() => setShowOffline(!showOffline)}
+                                    className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-all flex items-center gap-2 border ${showOffline
+                                        ? "bg-indigo-900/40 border-indigo-500/50 text-indigo-300 hover:bg-indigo-800/50"
+                                        : "bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-neutral-400"
+                                        }`}
+                                >
+                                    {showOffline ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                    {showOffline ? "オフラインを隠す" : `オフライン`}
+                                </button>
+
+                                <button
+                                    onClick={() => setShowBots(!showBots)}
+                                    className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-all flex items-center gap-2 border ${showBots
+                                        ? "bg-blue-900/40 border-blue-500/50 text-blue-300 hover:bg-blue-800/50"
+                                        : "bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-neutral-400"
+                                        }`}
+                                >
+                                    <Bot className="w-3 h-3" />
+                                    {showBots ? "BOTを隠す" : "BOTを表示"}
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        if (autoSortServers) {
+                                            // Switching from Auto -> Manual: Capture current order
+                                            const currentOrder = sortedGroupedUsers.map(g => g.serverName);
+                                            setManualOrder(currentOrder);
+                                        }
+                                        setAutoSortServers(!autoSortServers);
+                                    }}
+                                    className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-all flex items-center gap-2 border ${autoSortServers
+                                        ? "bg-cyan-900/40 border-cyan-500/50 text-cyan-300 hover:bg-cyan-800/50"
+                                        : "bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-neutral-400"
+                                        }`}
+                                >
+                                    {autoSortServers ? <Zap className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                                    {autoSortServers ? "自動ソート" : "手動ソート"}
                                 </button>
                             </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
 
-            {/* Success Toast */}
-            <AnimatePresence>
-                {refreshSuccess && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 50 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 20 }}
-                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[110] bg-green-500/10 border border-green-500/50 text-green-400 px-6 py-3 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-3"
-                    >
-                        <CheckCircle2 className="w-5 h-5" />
-                        <span className="font-bold">最適化を開始しました</span>
+                            <button
+                                onClick={() => setRefreshConfirmOpen(true)}
+                                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium transition-colors flex items-center gap-2 border border-neutral-700 ml-auto md:ml-0 active:scale-95"
+                            >
+
+                                <RefreshCcw className="w-3 h-3" />
+                                強制更新
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col gap-8">
+                            {groupByServer ? (
+                                autoSortServers ? (
+                                    // Auto Sort Mode (Standard List)
+                                    visibleGroupedUsers.map(({ serverName, users }) => (
+                                        <div key={serverName} className="flex flex-col gap-4">
+                                            <motion.h3
+                                                layout
+                                                initial={{ opacity: 0, x: -20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                className="text-lg font-bold text-white/80 pl-4 border-l-4 border-cyan-500 flex items-center gap-2"
+                                            >
+                                                <Server className="w-4 h-4 text-cyan-400" />
+                                                <span className={`transition-all ${screenshotMode ? "blur-md opacity-50" : ""}`}>
+                                                    {serverName}
+                                                </span>
+                                                <span className="text-xs font-normal text-neutral-600 bg-neutral-900/50 px-2 py-0.5 rounded-full border border-neutral-800">
+                                                    {users.length} Users
+                                                </span>
+                                            </motion.h3>
+
+                                            <motion.div
+                                                layout
+                                                className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3"
+                                            >
+                                                <AnimatePresence initial={false}>
+                                                    {users.map((user, index) => (
+                                                        <UserCard
+                                                            key={user.discord_user_id}
+                                                            user={user}
+                                                            index={index}
+                                                            screenshotMode={screenshotMode}
+                                                            setSelectedUser={setSelectedUser}
+                                                            isSelected={selectedUser === user.discord_user_id}
+                                                        />
+                                                    ))}
+                                                </AnimatePresence>
+                                            </motion.div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    // Manual Sort Mode (Reorderable)
+                                    <Reorder.Group axis="y" values={visibleGroupedUsers.map(g => g.serverName)} onReorder={setManualOrder} className="flex flex-col gap-8">
+                                        {visibleGroupedUsers.map(({ serverName, users }) => (
+                                            <Reorder.Item key={serverName} value={serverName} className="flex flex-col gap-4 bg-neutral-900/20 rounded-xl p-2 border border-neutral-800/50 cursor-move">
+                                                <div className="flex items-center gap-2 pl-2">
+                                                    <GripVertical className="w-4 h-4 text-neutral-600" />
+                                                    <h3 className="text-lg font-bold text-white/80 pl-2 border-l-4 border-neutral-600 flex items-center gap-2">
+                                                        <Server className="w-4 h-4 text-neutral-400" />
+                                                        <span className={`transition-all ${screenshotMode ? "blur-md opacity-50" : ""}`}>
+                                                            {serverName}
+                                                        </span>
+                                                        <span className="text-xs font-normal text-neutral-600 bg-neutral-900/50 px-2 py-0.5 rounded-full border border-neutral-800">
+                                                            {users.length} Users
+                                                        </span>
+                                                    </h3>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3 pointer-events-none lg:pointer-events-auto">
+                                                    {users.map((user, index) => (
+                                                        <UserCard
+                                                            key={user.discord_user_id}
+                                                            user={user}
+                                                            index={index}
+                                                            screenshotMode={screenshotMode}
+                                                            setSelectedUser={setSelectedUser}
+                                                            isSelected={selectedUser === user.discord_user_id}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </Reorder.Item>
+                                        ))}
+                                    </Reorder.Group>
+                                )
+                            ) : (
+                                <motion.div
+                                    layout
+                                    className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3"
+                                >
+                                    <AnimatePresence initial={false}>
+                                        {visibleAllUsers.map((user, index) => (
+                                            <UserCard
+                                                key={user.discord_user_id}
+                                                user={user}
+                                                index={index}
+                                                screenshotMode={screenshotMode}
+                                                setSelectedUser={setSelectedUser}
+                                                isSelected={selectedUser === user.discord_user_id}
+                                            />
+                                        ))}
+                                    </AnimatePresence>
+                                </motion.div>
+                            )}
+                        </div>
                     </motion.div>
+                </motion.div>
+
+
+                {/* Float Button */}
+                {
+                    !screenshotMode && (
+                        <button
+                            onClick={toggleScreenshotMode}
+                            className="fixed bottom-8 right-8 bg-black text-white p-4 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-transform z-50 group flex items-center justify-center gap-2 border border-neutral-700"
+                        >
+                            {screenshotMode ? <EyeOff className="w-6 h-6" /> : <Camera className="w-6 h-6" />}
+
+                            <span className="absolute right-full mr-4 bg-black text-white text-sm px-3 py-1.5 rounded border border-neutral-800 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none font-medium">
+                                Video Mode (Press ESC to Exit)
+                            </span>
+                        </button>
+                    )
+                }
+                {/* Modal */}
+                <AnimatePresence>
+                    {selectedUser && (() => {
+                        // Find user object for initial data
+                        const initialUser = sortedAllUsers.find(u => u.discord_user_id === selectedUser) || null;
+                        return (
+                            <UserDetailModal
+                                key={selectedUser}
+                                userId={selectedUser}
+                                initialUser={initialUser}
+                                onClose={() => setSelectedUser(null)}
+                            />
+                        );
+                    })()}
+                </AnimatePresence>
+
+                {/* Confirmation Modal */}
+                <AnimatePresence>
+                    {refreshConfirmOpen && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+                            onClick={() => setRefreshConfirmOpen(false)}
+                        >
+                            <motion.div
+                                initial={{ scale: 0.9, y: 20 }}
+                                animate={{ scale: 1, y: 0 }}
+                                exit={{ scale: 0.9, y: 20 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl relative overflow-hidden"
+                            >
+                                {/* Background FX */}
+                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 to-purple-500" />
+
+                                <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                                    <RefreshCcw className="w-5 h-5 text-cyan-400" />
+                                    強制更新の確認
+                                </h3>
+                                <p className="text-neutral-400 text-sm mb-6 leading-relaxed">
+                                    全ユーザーのプロファイルを再スキャンします。<br />
+                                    <span className="text-yellow-500/80 text-xs">※未登録(Ghost)ユーザーも自動的に最適化されます。</span>
+                                </p>
+
+                                <div className="flex justify-end gap-3">
+                                    <button
+                                        onClick={() => setRefreshConfirmOpen(false)}
+                                        className="px-4 py-2 rounded-lg text-sm text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
+                                    >
+                                        キャンセル
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                await fetch("http://127.0.0.1:8000/api/system/refresh_profiles", { method: "POST" });
+                                                setRefreshConfirmOpen(false);
+                                                setRefreshSuccess(true);
+                                                setTimeout(() => setRefreshSuccess(false), 3000); // Hide success after 3s
+                                            } catch (e) {
+                                                console.error("Error:", e);
+                                                alert("エラーが発生しました: " + e);
+                                            }
+                                        }}
+                                        className="px-4 py-2 rounded-lg text-sm font-bold bg-white text-black hover:scale-105 active:scale-95 transition-all shadow-lg shadow-cyan-500/20"
+                                    >
+                                        実行する
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Success Toast */}
+                <AnimatePresence>
+                    {refreshSuccess && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 50 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[110] bg-green-500/10 border border-green-500/50 text-green-400 px-6 py-3 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-3"
+                        >
+                            <CheckCircle2 className="w-5 h-5" />
+                            <span className="font-bold">最適化を開始しました</span>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+                {historyLane && (
+                    <HistoryModal lane={historyLane} onClose={() => setHistoryLane(null)} />
                 )}
-            </AnimatePresence>
-            {historyLane && (
-                <HistoryModal lane={historyLane} onClose={() => setHistoryLane(null)} />
-            )}
             </LayoutGroup>
-        </div>
+        </div >
     );
 }
 
@@ -2660,7 +2780,7 @@ const UserCardBase = ({ user, index, screenshotMode, setSelectedUser, isSelected
 `}>
             {/* Background Layer */}
             <div
-                className={`absolute inset-0 rounded-xl border transition-colors duration-300
+                className={`absolute inset-0 rounded-xl border transition-colors duration-300 bg-cover bg-center
                 ${isOptimized
                         ? "bg-neutral-950/50 border-neutral-800/50 group-hover:bg-neutral-900/80"
                         : isProcessing
@@ -2672,8 +2792,17 @@ const UserCardBase = ({ user, index, screenshotMode, setSelectedUser, isSelected
                                     : "bg-neutral-900/50 border-neutral-800"
                     }
                 ${!isProcessing && !isOptimized && !isPending && !isError ? "opacity-60 grayscale-[0.5] group-hover:grayscale-0" : ""}
+                ${(user as any).banner_url ? "opacity-30 group-hover:opacity-50 grayscale-[0.8] group-hover:grayscale-0" : ""}
                 `}
+                style={{
+                    backgroundImage: (user as any).banner_url ? `url(${(user as any).banner_url})` : undefined
+                }}
             />
+
+            {/* Overlay Gradient for Text Readability if Banner Exists */}
+            {(user as any).banner_url && (
+                <div className="absolute inset-0 bg-gradient-to-r from-neutral-950/90 via-neutral-950/80 to-transparent z-0 rounded-xl" />
+            )}
 
             {/* Content Container */}
             <div className="relative z-10 flex items-center gap-4 w-full">
@@ -2728,24 +2857,24 @@ const UserCardBase = ({ user, index, screenshotMode, setSelectedUser, isSelected
                     </div>
                 </motion.div>
 
+
                 {/* Hidden Content Wrapper (Fades out when selected) */}
                 <motion.div animate={hiddenAnim} className="flex-1 min-w-0 flex items-center gap-4 pl-1">
 
                     {/* Impression Badge */}
                     {(user.impression || isProcessing || isPending || isError) && (
-                        <div className={`absolute top-[-0.75rem] right-[-0.75rem] px-2 py-0.5 text-[10px] font-bold border-l border-b rounded-bl-lg backdrop-blur-sm z-10 transition-colors
+                        <div className={`absolute top-[-0.75rem] right-[-0.75rem] px-2 py-0.5 text-[10px] font-bold border-l border-b rounded-bl-lg backdrop-blur-sm z-10 transition-colors max-w-[120px] truncate
                             ${isProcessing ? "bg-cyan-900/80 text-cyan-200 border-cyan-500/30 shadow-[0_0_8px_rgba(6,182,212,0.3)]" :
                                 isError ? "bg-red-950/90 text-red-200 border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.4)]" :
                                     isPending ? "bg-amber-950/80 text-amber-400 border-amber-500/30" :
                                         "bg-cyan-950/80 text-cyan-400 border-cyan-500/20 group-hover:bg-cyan-900 group-hover:text-cyan-200"}
-                        `}>
+                        `} title={user.impression || ""}>
                             {user.impression || (isProcessing ? "分析実行中..." : isPending ? "キュー待機中..." : "")}
                         </div>
                     )}
 
                     {/* Main Info - Grid Layout */}
                     <div className="flex-grow min-w-0 grid grid-cols-12 gap-4 items-center">
-
                         {/* Identity */}
                         <div className="col-span-4 lg:col-span-4">
                             <div className="flex items-center gap-2 overflow-hidden">
@@ -2864,11 +2993,11 @@ const UserCardBase = ({ user, index, screenshotMode, setSelectedUser, isSelected
 
                     </div>
                     {/* End Grid */}
-                </motion.div>
+                </motion.div >
                 {/* End Hidden Content Wrapper */}
-            </div>
+            </div >
             {/* End Content Container */}
-        </motion.div>
+        </motion.div >
     );
 };
 

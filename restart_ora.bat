@@ -11,12 +11,7 @@ echo 2. Stopping Node.js (Vision UI)...
 taskkill /F /IM node.exe >nul 2>&1
 
 echo 3. Closing Command Windows...
-taskkill /F /FI "WINDOWTITLE eq ORA Web API" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq ORA Vision UI" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq ComfyUI" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq Voice Engine*" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq Layer Service*" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq ORA Bot" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.MainWindowTitle -like 'ORA Bot*' -or $_.MainWindowTitle -like 'ORA Worker Bot*' -or $_.MainWindowTitle -like 'ORA Web API*' -or $_.MainWindowTitle -like 'ORA Vision UI*' -or $_.MainWindowTitle -like 'ComfyUI*' -or $_.MainWindowTitle -like 'Voice Engine*' -or $_.MainWindowTitle -like 'Layer Service*' -or $_.MainWindowTitle -like 'Ngrok*' } | Stop-Process -Force"
 
 echo.
 echo ✅ Cleanup Complete.

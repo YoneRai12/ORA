@@ -206,6 +206,14 @@ async def get_dashboard_usage():
     
     state_path = Path("L:/ORA_State/cost_state.json")
     
+    # Calculate Today in JST
+    # Calculate Today (Match CostManager Timezone)
+    import pytz
+    from src.config import COST_TZ
+    
+    tz = pytz.timezone(COST_TZ)
+    today_str = datetime.now(tz).strftime("%Y-%m-%d")
+    
     # Default Structure
     response_data = {
         "total_usd": 0.0,
@@ -214,7 +222,9 @@ async def get_dashboard_usage():
             "stable": 0,
             "burn": 0
         },
-        "last_reset": ""
+        "last_reset": "",
+        "unlimited_mode": False,
+        "unlimited_users": []
     }
     
     if not state_path.exists():
@@ -266,15 +276,16 @@ async def get_dashboard_usage():
             "lifetime_tokens": {
                 "high": 0, "stable": 0, "burn": 0, "optimization": 0, "openai_sum": 0
             },
-            "last_reset": datetime.now().isoformat()
+            "last_reset": datetime.now().isoformat(),
+            "unlimited_mode": raw_data.get("unlimited_mode", False),
+            "unlimited_users": raw_data.get("unlimited_users", [])
         }
 
         # 1. Process Global Buckets (Current - Daily)
         for key, bucket in raw_data.get("global_buckets", {}).items():
-            usd_gain = add_usage(key, bucket, response_data["daily_tokens"])
-            # Daily OpenAI Sum isn't strictly needed unless we want "Today's OpenAI Tokens"
-            # But let's keep it clean
-            response_data["total_usd"] += usd_gain
+            if bucket.get("day") == today_str:
+                usd_gain = add_usage(key, bucket, response_data["daily_tokens"])
+                response_data["total_usd"] += usd_gain
             
         # 1b. Process Global History (Lifetime)
         # First, add Today's usage to Lifetime
@@ -297,10 +308,16 @@ async def get_dashboard_usage():
         
         for user_buckets in raw_data.get("user_buckets", {}).values():
             for key, bucket in user_buckets.items():
-                usd_gain = add_usage(key, bucket, response_data["daily_tokens"])
-                
-                # Accumulate Total USD from Users
-                response_data["total_usd"] += usd_gain
+                if bucket.get("day") == today_str:
+                    usd_gain = add_usage(key, bucket, response_data["daily_tokens"])
+                    # Accumulate Total USD from Users (Wait, total_usd is usually lifetime?)
+                    # If we only sum today, it's Daily Cost. If we sum all, it's Lifetime.
+                    # The UI likely separates them.
+                    # But the variable is `total_usd` at root.
+                    # If the bug was "Not Resetting", it means Daily Tokens wasn't resetting,
+                    # AND total_usd (Daily Cost?) wasnt resetting.
+                    # So we should filter USD too.
+                    response_data["total_usd"] += usd_gain
                 
                 # CRITICAL FIX: Also aggregate User Usage into Lifetime Tokens
                 # This ensures that if Global History is missing/desynced, the Dashboard still shows the sum of known users.
@@ -518,10 +535,10 @@ async def get_dashboard_users(response: Response):
 
                         # Deduplication Check
                         # If we already have this (real_id, guild_name) tuple, keep the one with more points/optimized status
-                        # Deduplication Logic: Prioritize Optimized > Processing > New
+                        # Deduplication Logic: Prioritize Processing (Show activity) > Optimized > Error > New
                         score_base = 0
-                        if raw_status.lower() == "optimized": score_base = 2000
-                        elif raw_status.lower() == "processing": score_base = 1500
+                        if raw_status.lower() == "processing": score_base = 2500
+                        elif raw_status.lower() == "optimized": score_base = 2000
                         elif raw_status.lower() == "error": score_base = 1000
 
                         entry = {
@@ -715,6 +732,49 @@ async def get_dashboard_users(response: Response):
         for u in final_users:
             u.pop("_sort_score", None)
 
+        # Global Property Sync (Fix for Header/Nitro/Impression mismatch across servers)
+        # 1. Collect Best Global Props
+        global_props = {}
+        for u in final_users:
+            rid = u.get("real_user_id")
+            if not rid: continue
+
+            if rid not in global_props:
+                global_props[rid] = {"banner_url": None, "is_nitro": False, "impression": None}
+            
+            # Propagate Banner (First non-null wins, or prefer one with value)
+            if u.get("banner_url") and not global_props[rid]["banner_url"]:
+                global_props[rid]["banner_url"] = u["banner_url"]
+            
+            # Propagate Nitro (True wins)
+            if u.get("is_nitro"):
+                global_props[rid]["is_nitro"] = True
+
+            # Propagate Impression (Prefer General Profile i.e. no underscore in ID, or just first non-null)
+            # General profile usually has ID == Real ID
+            is_general = str(u["discord_user_id"]) == str(rid)
+            if u.get("impression"):
+                # If we encounter the General Profile's impression, It wins (or at least is stored).
+                # If we haven't stored any impression yet, store this one.
+                # If we already have one, only overwrite if this is the General one.
+                if is_general:
+                     global_props[rid]["impression"] = u["impression"]
+                elif not global_props[rid]["impression"]:
+                     global_props[rid]["impression"] = u["impression"]
+
+        # 2. Apply Global Props
+        for u in final_users:
+            rid = u.get("real_user_id")
+            if rid and rid in global_props:
+                props = global_props[rid]
+                if props["banner_url"] and not u.get("banner_url"):
+                    u["banner_url"] = props["banner_url"]
+                if props["is_nitro"]:
+                    u["is_nitro"] = True
+                # Backfill Impression
+                if props["impression"] and not u.get("impression"):
+                    u["impression"] = props["impression"]
+                    
         return {"ok": True, "data": final_users}
 
     except Exception as e:
@@ -749,7 +809,15 @@ async def get_user_details(user_id: str):
     try:
         # 1. Try Specific Profile
         if gid:
-            path_spec = MEMORY_DIR / f"{uid}_{gid}.json"
+            # FIX: Check public/private suffixes matching memory.py
+            path_spec = MEMORY_DIR / f"{uid}_{gid}_public.json"
+            if not path_spec.exists():
+                 path_spec = MEMORY_DIR / f"{uid}_{gid}_private.json"
+            
+            # Legacy fallback
+            if not path_spec.exists():
+                 path_spec = MEMORY_DIR / f"{uid}_{gid}.json"
+
             if path_spec.exists():
                 with open(path_spec, "r", encoding="utf-8") as f:
                     specific_data = json.load(f)
@@ -782,6 +850,84 @@ async def request_profile_refresh():
         trigger_path = Path("refresh_profiles.trigger")
         trigger_path.touch()
         return {"ok": True, "message": "Profile refresh requested"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@router.get("/dashboard/history")
+async def get_dashboard_history(request: Request):
+    """Get historical usage data (hourly/daily) for charts."""
+    try:
+        if not hasattr(request.app.state, "bot") or not request.app.state.bot:
+             return {"ok": False, "error": "Bot not initialized"}
+        
+        cm = request.app.state.bot.cost_manager
+        if not cm:
+             return {"ok": False, "error": "CostManager not available"}
+        
+        # 1. Build Hourly Data (Past 25 hours)
+        # Global Hourly is Dict[lane:provider, Dict[hour_iso, Usage]]
+        # We need List[{hour: iso, high: int, stable: int, optimization: int, usd: float}]
+        
+        hourly_map = {} # hour_iso -> {high: 0, stable: 0, ...}
+        
+        # Iterate all tracked keys in global_hourly
+        for key, hours in cm.global_hourly.items():
+            if ":" in key:
+                lane, provider = key.split(":", 1)
+            else:
+                lane = key
+            
+            for h_iso, usage in hours.items():
+                if h_iso not in hourly_map:
+                    hourly_map[h_iso] = {"hour": h_iso, "high": 0, "stable": 0, "optimization": 0, "usd": 0.0}
+                
+                # Sum Tokens (In+Out)
+                total_tokens = usage.tokens_in + usage.tokens_out
+                if lane in hourly_map[h_iso]:
+                    hourly_map[h_iso][lane] += total_tokens
+                
+                # Sum USD
+                hourly_map[h_iso]["usd"] += usage.usd
+
+        hourly_list = sorted(hourly_map.values(), key=lambda x: x["hour"])
+
+        # 2. Build Daily Timeline (Past 7 days)
+        # Using global_history (List[Bucket]) + global_buckets (Current Day)
+        # Key: lane:provider
+        
+        daily_map = {} # date_iso -> {date: iso, high: 0, ...}
+
+        # Helper to merge bucket
+        def merge_bucket(lane, bucket):
+            d_iso = bucket.day
+            if d_iso not in daily_map:
+                daily_map[d_iso] = {"date": d_iso, "high": 0, "stable": 0, "optimization": 0, "usd": 0.0}
+            
+            total = bucket.used.tokens_in + bucket.used.tokens_out
+            if lane in daily_map[d_iso]:
+                 daily_map[d_iso][lane] += total
+            daily_map[d_iso]["usd"] += bucket.used.usd
+
+        # Process History
+        for key, buckets in cm.global_history.items():
+            lane = key.split(":")[0] if ":" in key else key
+            for b in buckets:
+                merge_bucket(lane, b)
+
+        # Process Current (Active) Buckets
+        for key, bucket in cm.global_buckets.items():
+            lane = key.split(":")[0] if ":" in key else key
+            merge_bucket(lane, bucket)
+
+        timeline_list = sorted(daily_map.values(), key=lambda x: x["date"])
+
+        return {
+            "ok": True,
+            "data": {
+                "hourly": hourly_list,
+                "timeline": timeline_list
+            }
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

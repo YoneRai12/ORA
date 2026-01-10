@@ -1,16 +1,16 @@
-
 import json
 import os
 import logging
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, date, timedelta
 import pytz
+import aiohttp
 from typing import Dict, Optional, Literal, Any
-from src.config import COST_LIMITS, COST_TZ, STATE_DIR
+from src.config import COST_LIMITS, COST_TZ, STATE_DIR, SAFETY_BUFFER_RATIO
 
-logger = logging.getLogger("ORA.CostManager")
+logger = logging.getLogger(__name__)
 
-Lane = Literal["burn", "stable", "byok"]
+Lane = Literal["high", "stable", "burn", "byok", "optimization"]
 Provider = Literal["local", "openai", "gemini_dev", "gemini_trial", "claude", "grok"]
 
 @dataclass
@@ -57,8 +57,38 @@ class CostManager:
         self.user_history: Dict[str, Dict[str, list[Bucket]]] = {}
         self.global_hourly: Dict[str, Dict[str, Usage]] = {}
         self.user_hourly: Dict[str, Dict[str, Dict[str, Usage]]] = {}
+        
+        # [Override] Unlimited Users (Set of User IDs)
+        self.unlimited_users = set()
+        
+        # Pre-load requested Admin ID if needed, but better to rely on state
+        # self.unlimited_users.add("1069941291661672498")
+
+        self.unlimited_mode = False # Deprecated but kept for safe migration (will be removed logic-wise)
 
         self._load_state()
+
+    def toggle_unlimited_mode(self, enabled: bool, user_id: str = None):
+        """
+        Toggle unlimited mode for a specific user.
+        If user_id is None, it acts as a Global Toggle (Legacy/Emergency).
+        """
+        if user_id:
+            uid = str(user_id)
+            if enabled:
+                self.unlimited_users.add(uid)
+                logger.warning(f"⚠️ SYSTEM OVERRIDE: Unlimited Mode ENABLED for User {uid}")
+            else:
+                self.unlimited_users.discard(uid)
+                logger.info(f"ℹ️ SYSTEM OVERRIDE: Unlimited Mode DISABLED for User {uid}")
+        else:
+            # Fallback to global (or just ignore/clear all?)
+            # Let's keep global flag for emergency 'STOP ALL' or 'OPEN ALL' if ever needed,
+            # but for this specific request "Only me", we prioritize user list.
+            self.unlimited_mode = enabled
+            logger.warning(f"⚠️ SYSTEM OVERRIDE: Global Unlimited Mode set to {enabled}")
+            
+        self._save_state()
 
     def _get_current_time_keys(self):
         now = datetime.now(self.timezone)
@@ -104,6 +134,10 @@ class CostManager:
                     k: {hour: self._dict_to_usage(u) for hour, u in hour_map.items()}
                     for k, hour_map in user_hour_map.items()
                 }
+            
+            # Restore Unlimited Users
+            self.unlimited_users = set(data.get("unlimited_users", []))
+            self.unlimited_mode = data.get("unlimited_mode", False)
                 
             logger.info("Cost state loaded successfully.")
         except Exception as e:
@@ -165,7 +199,9 @@ class CostManager:
                 "user_hourly": {
                     uid: {k: {hour: asdict(u) for hour, u in hour_map.items()} for k, hour_map in uhists.items()}
                     for uid, uhists in self.user_hourly.items()
-                }
+                },
+                "unlimited_mode": self.unlimited_mode,
+                "unlimited_users": list(self.unlimited_users)
             }
             with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -227,6 +263,13 @@ class CostManager:
         return bucket
 
     def can_call(self, lane: Lane, provider: Provider, user_id: Optional[int], est: Usage) -> AllowDecision:
+        # [Override] Check Unlimited Mode (Global OR User-Specific)
+        if self.unlimited_mode:
+             return AllowDecision(allowed=True, reason="System Override Active (Global Unlimited)")
+        
+        if user_id and str(user_id) in self.unlimited_users:
+             return AllowDecision(allowed=True, reason="System Override Active (User Unlimited)")
+
         limits = COST_LIMITS.get(lane, {}).get(provider, {})
         if not limits:
              # No limits defined = Allowed (e.g. Local)
@@ -244,10 +287,21 @@ class CostManager:
         # Check Daily Token Limit (Stable)
         daily_limit = limits.get("daily_tokens")
         if daily_limit:
+            # Apply Safety Buffer
+            safe_limit = daily_limit * SAFETY_BUFFER_RATIO
+            
             current_total = bucket.used.tokens_in + bucket.used.tokens_out + bucket.reserved.tokens_in + bucket.reserved.tokens_out
             est_total = est.tokens_in + est.tokens_out
-            if current_total + est_total > daily_limit:
-                 return AllowDecision(allowed=False, reason=f"Daily Token Limit Exceeded ({current_total}/{daily_limit})", fallback_to="local")
+            if current_total + est_total > safe_limit:
+                 return AllowDecision(allowed=False, reason=f"Daily Token Limit Exceeded (Buffer {int(SAFETY_BUFFER_RATIO*100)}%): {current_total}/{daily_limit})", fallback_to="local")
+
+            # Check Global Limit (if user_id is provided, we must ALSO check global)
+            if user_id is not None:
+                global_bucket = self._get_or_create_bucket(lane, provider, None)
+                global_current = global_bucket.used.tokens_in + global_bucket.used.tokens_out + global_bucket.reserved.tokens_in + global_bucket.reserved.tokens_out
+                # Check Global vs Same Limit (assuming 2.5M is server total)
+                if global_current + est_total > safe_limit:
+                     return AllowDecision(allowed=False, reason=f"Global Daily Limit Exceeded (Buffer {int(SAFETY_BUFFER_RATIO*100)}%): {global_current}/{daily_limit}", fallback_to="local")
 
         # Check Burn Limit (USD)
         total_usd_limit = limits.get("total_usd")
@@ -311,6 +365,123 @@ class CostManager:
         bucket.last_update_iso = datetime.now(self.timezone).isoformat()
         self._save_state()
 
+
+
+    async def sync_openai_usage(self, session: aiohttp.ClientSession, api_key: str, update_local: bool = False) -> Dict[str, Any]:
+        """
+        Fetches official usage from OpenAI API (v1/usage) for the current month.
+        Returns a summary dict: {'total_tokens': int, 'breakdown': dict}.
+        If update_local is True, it updates the 'stable/openai' Global Bucket to match reality.
+        """
+        if not api_key:
+            return {"error": "No API Key"}
+
+        try:
+            today = datetime.now(self.timezone).date()
+            # Start from 1st of month
+            start_date = today.replace(day=1)
+            
+            total_tokens = 0
+            
+            # OpenAI /v1/usage is by date (UTC).
+            current = start_date
+            while current <= today:
+                date_str = current.strftime("%Y-%m-%d")
+                url = f"https://api.openai.com/v1/usage?date={date_str}"
+                
+                async with session.get(url, headers={"Authorization": f"Bearer {api_key}"}) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        day_tokens = 0
+                        for entry in data.get("data", []):
+                            day_tokens += entry.get("n_generated_tokens_total", 0) + entry.get("n_context_tokens_total", 0)
+                        
+                        total_tokens += day_tokens
+                    else:
+                        logger.warning(f"OpenAI Usage Sync Failed for {date_str}: {resp.status}")
+                
+                current += timedelta(days=1)
+            
+            result = {"total_tokens": total_tokens, "synced": True, "updated": False}
+
+            if update_local:
+                # Update Global Bucket for Stable Lane (Main Shared Lane)
+                # We assume most usage is Stable/OpenAI.
+                # If we have breakdown by model, we could split, but v1/usage aggregates.
+                # Conservative approach: Assign ALL usage to 'stable/openai' Global Bucket.
+                
+                bucket = self._get_or_create_bucket("stable", "openai", None) # Global
+                
+                # Check current local
+                local_used = bucket.used.tokens_in + bucket.used.tokens_out
+                
+                if total_tokens > local_used:
+                    # Drift detected: Official > Local
+                    diff = total_tokens - local_used
+                    # Add difference to 'tokens_out' (Costliest assumption, or split)
+                    # Just add to tokens_out to ensure limit checking works.
+                    bucket.used.tokens_out += diff
+                    bucket.last_update_iso = datetime.now(self.timezone).isoformat()
+                    self._save_state()
+                    result["updated"] = True
+                    result["drift_added"] = diff
+                    logger.info(f"🔄 [Sync] Updated Local State. Added {diff} tokens to match Official {total_tokens}.")
+                elif total_tokens < local_used:
+                    # Local > Official (Maybe delayed API?)
+                    # Trust Local for safety, do not reduce.
+                    pass
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Sync Logic Error: {e}")
+            return {"error": str(e)}
+
+
+
+    def _check_and_reset_bucket(self, bucket: Bucket, lane: Lane, provider: Provider):
+        """
+        Checks if the bucket's time period has passed and resets if necessary.
+        Resets daily buckets if day changes.
+        """
+        current_day, _ = self._get_current_time_keys()
+        
+        if bucket.day != current_day:
+            # Shift to History/Daily Log before resetting?
+            # For simplicity, just reset Used stats (or archive them if we had archival logic here).
+            # We already have hourly logs, so daily reset is fine.
+            bucket.day = current_day
+            bucket.used = Usage() # Reset
+            bucket.reserved = Usage() # Reset
+            bucket.last_update_iso = datetime.now(self.timezone).isoformat()
+            self._save_state()
+
+    def get_remaining_budget(self, lane: Lane, provider: Provider) -> int:
+        """
+        Returns the number of tokens remaining before the Daily Limit (Safe).
+        Returns -1 if no limit is set.
+        """
+        bucket = self._get_or_create_bucket(lane, provider, None)
+        
+        # Check reset logic first (Implicit)
+        self._check_and_reset_bucket(bucket, lane, provider)
+
+        # Get Limit
+        limits = COST_LIMITS.get(lane, {}).get(provider, {})
+        daily_limit = limits.get("daily_tokens")
+
+        if not daily_limit:
+            return -1
+        
+        # Calculate used
+        current_total = bucket.used.tokens_in + bucket.used.tokens_out + bucket.reserved.tokens_in + bucket.reserved.tokens_out
+        
+        # Apply Safety Buffer (so we don't return tokens that would hit the buffer)
+        safe_limit = int(daily_limit * SAFETY_BUFFER_RATIO)
+        
+        remaining = safe_limit - current_total
+        return max(0, remaining)
+
     def add_cost(self, lane: Lane, provider: Provider, user_id: Optional[int], usage: Usage) -> float:
         """
         Directly add cost (used for background tasks like memory optimization).
@@ -344,3 +515,9 @@ class CostManager:
         
         return current / limit
 
+    
+    def get_current_usage(self, lane: Lane, provider: Provider, user_id: Optional[int] = None) -> int:
+        """Returns the total tokens (In+Out) used today for the specified bucket."""
+        bucket = self._get_or_create_bucket(lane, provider, user_id)
+        self._check_and_reset_bucket(bucket, lane, provider)
+        return bucket.used.tokens_in + bucket.used.tokens_out + bucket.reserved.tokens_in + bucket.reserved.tokens_out

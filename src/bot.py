@@ -125,6 +125,7 @@ class ORABot(commands.Bot):
             "src.cogs.system",
             "src.cogs.resource_manager",
             "src.cogs.memory",
+            "src.cogs.system_shell",
         ]
         for ext in extensions:
             try:
@@ -160,15 +161,22 @@ class ORABot(commands.Bot):
 
     async def _sync_commands(self) -> None:
         if self.config.dev_guild_id:
-            guild = discord.Object(id=self.config.dev_guild_id)
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            logger.info(
-                "Synchronized %d commands to guild %s", len(synced), self.config.dev_guild_id
-            )
-        else:
+            try:
+                guild = discord.Object(id=self.config.dev_guild_id)
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logger.info(
+                    "Synchronized %d commands to Dev Guild %s", len(synced), self.config.dev_guild_id
+                )
+            except Exception as e:
+                logger.warning(f"Failed to sync to Dev Guild: {e}")
+
+        # Always sync globally to ensure commands work in all servers
+        try:
             synced = await self.tree.sync()
             logger.info("全サーバー共通コマンドを同期しました (%d個)", len(synced))
+        except Exception as e:
+            logger.error(f"Global sync failed: {e}")
 
     async def close(self) -> None:
         """Graceful shutdown."""
@@ -209,7 +217,12 @@ class ORABot(commands.Bot):
 
     async def _notify_ngrok_url(self) -> None:
         """Checks for Ngrok tunnel and DMs the URL to the owner."""
-        target_ids = [1069941291661672498, 1454335076048568401]
+        # Add dynamic admin
+        target_ids = []
+        if self.config.admin_user_id:
+             target_ids.append(self.config.admin_user_id)
+        # Add backup/other IDs from config if needed
+        # target_ids.extend(self.config.sub_admin_ids)
         ngrok_api = "http://127.0.0.1:4040/api/tunnels"
         
         # Wait a bit for Ngrok to spin up
@@ -331,7 +344,8 @@ def _configure_signals(stop_event: asyncio.Event) -> None:
         try:
             loop.add_signal_handler(sig, stop_event.set)
         except NotImplementedError:
-            logger.warning("Signal handlers are not supported on this platform.")
+            # Windows does not support add_signal_handler for these signals in this loop type
+            logger.debug("Signal handlers are not supported on this platform (Expected on Windows).")
             break
 
 
