@@ -160,8 +160,22 @@ class MixingAudioSource(discord.AudioSource):
         if overlay_data:
             if main_adjusted:
                 try:
-                    return audioop.add(main_adjusted, overlay_data, 2)
-                except Exception:
+                    # audioop.add requires same length
+                    len_main = len(main_adjusted)
+                    len_overlay = len(overlay_data)
+                    
+                    if len_main == len_overlay:
+                        return audioop.add(main_adjusted, overlay_data, 2)
+                    elif len_main > len_overlay:
+                        # Pad overlay with silence
+                        padding = b"\x00" * (len_main - len_overlay)
+                        return audioop.add(main_adjusted, overlay_data + padding, 2)
+                    else:
+                        # Pad main with silence (should rare for standard 20ms frames)
+                        padding = b"\x00" * (len_overlay - len_main)
+                        return audioop.add(main_adjusted + padding, overlay_data, 2)
+                except Exception as e:
+                    logger.error(f"Mixing failed: {e}")
                     return main_adjusted
             else:
                 return overlay_data
@@ -546,7 +560,7 @@ class VoiceManager:
         # We can use a custom cleanup to delete it.
         
         # For simplicity, we use the same tempfile logic but return the source
-        f = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".wav")
+        f = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".mp3")
         f.write(audio)
         f.close() # Close handle, let ffmpeg open by path
         path = f.name
