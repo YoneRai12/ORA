@@ -3,7 +3,10 @@ import discord
 from discord.ui import View, Button
 import asyncio
 import io
+import logging
 from src.utils.comfy_client import ComfyWorkflow
+
+logger = logging.getLogger(__name__)
 
 
 class StyleSelectView(View):

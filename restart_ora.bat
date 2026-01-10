@@ -5,7 +5,8 @@ cls
 echo ♻️ Restarting ORA System...
 echo ========================================================
 echo 1. Stopping Python Services (Bot, API, ComfyUI, Layer, Voice)...
-taskkill /F /IM python.exe >nul 2>&1
+rem Exclude the Update Guardian from the kill list
+taskkill /F /IM python.exe /FI "WINDOWTITLE neq ORA Update Guardian*" >nul 2>&1
 
 echo 2. Stopping Node.js (Vision UI)...
 taskkill /F /IM node.exe >nul 2>&1

@@ -248,39 +248,7 @@ class CoreCog(commands.Cog):
         embed.add_field(name="Created At", value=target.created_at.strftime("%Y-%m-%d"), inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=await self._get_privacy(interaction.user.id))
 
-    # System Commands
-    system_group = app_commands.Group(name="system", description="システム情報コマンド")
 
-    @system_group.command(name="info", description="詳細なシステム情報を表示します。")
-    async def system_info(self, interaction: discord.Interaction) -> None:
-        cpu_percent = psutil.cpu_percent()
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        
-        embed = discord.Embed(title="System Info", color=discord.Color.green())
-        embed.add_field(name="CPU", value=f"{cpu_percent}%", inline=True)
-        embed.add_field(name="Memory", value=f"{mem.percent}% ({mem.used // (1024**2)}MB / {mem.total // (1024**2)}MB)", inline=True)
-        embed.add_field(name="Disk", value=f"{disk.percent}%", inline=True)
-        
-        await interaction.response.send_message(embed=embed, ephemeral=await self._get_privacy(interaction.user.id))
-
-    @system_group.command(name="process_list", description="CPU使用率の高いプロセスを表示します。")
-    async def system_process_list(self, interaction: discord.Interaction) -> None:
-        procs = []
-        for p in psutil.process_iter(['pid', 'name', 'cpu_percent']):
-            try:
-                procs.append(p.info)
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        
-        # Sort by CPU percent
-        procs.sort(key=lambda x: x['cpu_percent'] or 0, reverse=True)
-        
-        lines = ["**Top 10 Processes by CPU**"]
-        for p in procs[:10]:
-            lines.append(f"`{p['name']}` (PID: {p['pid']}): {p['cpu_percent']}%")
-            
-        await interaction.response.send_message("\n".join(lines), ephemeral=await self._get_privacy(interaction.user.id))
 
     @app_commands.command(name="debug_logs", description="Retrieve system logs (Admin only).")
     @app_commands.describe(

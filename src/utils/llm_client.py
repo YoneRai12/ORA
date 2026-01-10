@@ -140,15 +140,43 @@ class LLMClient:
     async def chat(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.7, **kwargs) -> tuple[Optional[str], Optional[List[Dict[str, Any]]], Dict[str, Any]]:
         # Allow model override
         model_name = kwargs.get("model", self._model)
+        
+        # --- CLOUD ROUTING LOGIC ---
+        # If the model is clearly an OpenAI Cloud Model, route to OpenAI API directly.
+        # This bypasses the Local LLM (vLLM) which might be down.
+        # Known Cloud Models: gpt-4, gpt-3.5, o1-, o3-, chatgpt-4o
+        is_cloud_model = any(m in model_name for m in ["gpt-4", "gpt-3.5", "o1-", "o3-", "chatgpt"])
+        
+        # Current Base URL and Key (Default to Local)
+        request_base_url = self._base_url
+        request_api_key = self._api_key
+        
+        if is_cloud_model:
+            import os
+            # Override with OpenAI Config
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if openai_key:
+                logger.info(f"☁️ Routing '{model_name}' to OpenAI Cloud API.")
+                request_base_url = "https://api.openai.com/v1"
+                request_api_key = openai_key
+            else:
+                logger.warning(f"⚠️ Cloud model '{model_name}' requested but OPENAI_API_KEY is missing. Trying Local...")
+
         # Determine Endpoint and Payload Structure
         # FIX: Codex (gpt-5.1-codex) and all GPT-5/O-Series are Next-Gen Agentic Models using /responses
         # User confirmed Request Format is different for these.
-        is_next_gen = any(x in model_name for x in ["gpt-5", "gpt-4.1", "o1", "o3", "o4", "codex"])
+        # Note: Official OpenAI o1 uses chat/completions, but 'gpt-5.1-codex' (Local) uses /responses.
+        # We need to distinguish "Real Cloud o1" from "Local NextGen".
+        
+        # If we are routing to Cloud, we typically use standard /chat/completions (even for o1-preview currently).
+        # v1/responses is predominantly for the Local Manager (LMS/vLLM custom).
+        
+        is_next_gen_local = any(x in model_name for x in ["gpt-5", "codex"]) and not is_cloud_model
         is_legacy_completions = any(x in model_name for x in ["davinci", "curie", "babbage", "ada"]) and "chat" not in model_name
 
-        if is_next_gen:
+        if is_next_gen_local:
             # New "v1/responses" Endpoint (Agentic)
-            url = f"{self._base_url}/responses"
+            url = f"{request_base_url}/responses"
             
             # Convert Messages to Input/Instructions
             instructions = ""
@@ -185,7 +213,7 @@ class LLMClient:
 
         elif is_legacy_completions:
              # Legacy "v1/completions" Endpoint
-             url = f"{self._base_url}/completions"
+             url = f"{request_base_url}/completions"
              
              # Convert Messages to String Prompt
              prompt_text = ""
@@ -207,7 +235,7 @@ class LLMClient:
 
         else:
             # Standard "v1/chat/completions" Endpoint
-            url = f"{self._base_url}/chat/completions"
+            url = f"{request_base_url}/chat/completions"
             
             # Message Role Mapping (system -> developer for o1/gpt-5)
             should_map_developer = any(x in model_name for x in ["gpt-5", "o1", "o3"])
@@ -253,7 +281,7 @@ class LLMClient:
 
 
         # Parameter Mapping for v1/responses
-        if is_next_gen:
+        if is_next_gen_local:
             # Responses API STRICTLY requires 'max_output_tokens'.
             # It REJECTS 'max_completion_tokens' and 'max_tokens'.
             
@@ -273,7 +301,7 @@ class LLMClient:
 
         # Flatten tool schema for v1/responses endpoint (Agentic)
         # Some endpoints (like gpt-5/o1 proxies) expect 'name' and 'type' at the same level.
-        if is_next_gen and "tools" in kwargs:
+        if is_next_gen_local and "tools" in kwargs:
             flattened_tools = []
             for t in kwargs["tools"]:
                 if isinstance(t, dict) and t.get("type") == "function" and "function" in t:
@@ -295,9 +323,9 @@ class LLMClient:
         if self._session:
             try:
                 # Debug Logging
-                logger.debug(f"Req: {url} | Model: {model_name} | NextGen: {is_next_gen}")
+                logger.debug(f"Req: {url} | Model: {model_name} | NextGen: {is_next_gen_local}")
                 
-                data = await robust_json_request(self._session, "POST", url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=payload)
+                data = await robust_json_request(self._session, "POST", url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {request_api_key}"}, json_data=payload)
                 
                 # Check for wrapped error (OpenAI sometimes returns 200 OK with error body?)
                 # Usually robust_json_request handles status codes.
@@ -360,14 +388,14 @@ class LLMClient:
                 # 404 Fallback Logic for v1/responses
                 # If we hit 404 on chat/completions but message says "use v1/responses", retry!
                 err_str = str(e).lower()
-                if "404" in err_str and "v1/responses" in err_str and not is_next_gen:
+                if "404" in err_str and "v1/responses" in err_str and not is_next_gen_local:
                     logger.warning(f"Caught 404 indicating endpoint mismatch for {model_name}. Retrying with /responses...")
                     # Recursive call? Or just manually construct
                     # Let's recurse but FORCE next_gen treatment? 
                     # Actually, better to just modify logic. But simplest is to act like is_next_gen=True here.
                     
                     # Manually switch URL and Payload specific to this fallback
-                    new_url = f"{self._base_url}/responses"
+                    new_url = f"{request_base_url}/responses"
                     
                     # Convert Payload
                     instructions = ""
@@ -403,7 +431,7 @@ class LLMClient:
                         new_payload["tools"] = kwargs["tools"]
                         
                     # Retry Request
-                    data = await robust_json_request(self._session, "POST", new_url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=new_payload)
+                    data = await robust_json_request(self._session, "POST", new_url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {request_api_key}"}, json_data=new_payload)
                     
                     if data.get("object") == "response":
                          logger.debug(f"DEBUG v1/responses KEYS: {list(data.keys())}")
@@ -420,7 +448,7 @@ class LLMClient:
         else:
             async with aiohttp.ClientSession() as session:
                 try:
-                    data = await robust_json_request(session, "POST", url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}, json_data=payload)
+                    data = await robust_json_request(session, "POST", url, headers={"Content-Type": "application/json", "Authorization": f"Bearer {request_api_key}"}, json_data=payload)
                     
                     if data.get("error"):
                         raise RuntimeError(f"API Returned Error: {data['error']}")

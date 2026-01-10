@@ -612,3 +612,27 @@ class Store:
                 (str(discord_user_id), int(time.time()), level, level)
             )
             await db.commit()
+
+    async def get_rank(self, discord_user_id: int) -> Tuple[int, int]:
+        """Get the rank of a user based on points. Returns (rank, total_users)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            # 1. Get user's points
+            async with db.execute("SELECT points FROM users WHERE discord_user_id=?", (str(discord_user_id),)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return (0, 0)
+                my_points = row[0] if row[0] is not None else 0
+
+            # 2. Count distinct tokens with MORE points
+            # Rank = (Count > my_points) + 1
+            async with db.execute("SELECT COUNT(*) FROM users WHERE points > ?", (my_points,)) as cursor:
+                rank_row = await cursor.fetchone()
+                rank = rank_row[0] + 1
+            
+            # 3. Total Count (with > 0 points)
+            async with db.execute("SELECT COUNT(*) FROM users WHERE points > 0") as cursor:
+                total_row = await cursor.fetchone()
+                total = total_row[0]
+
+            return (rank, total)
+

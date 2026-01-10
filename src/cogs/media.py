@@ -393,9 +393,9 @@ class MediaCog(commands.Cog):
         # Play audio
         played = False
         if file_path:
-            played = await self._voice_manager.play_music(interaction.user, file_path, title, is_stream=False)
+            played = await self._voice_manager.play_music(interaction.user, file_path, title, is_stream=False, duration=_duration or 0.0)
         elif stream_url:
-            played = await self._voice_manager.play_music(interaction.user, stream_url, title, is_stream=True)
+            played = await self._voice_manager.play_music(interaction.user, stream_url, title, is_stream=True, duration=_duration or 0.0)
             
         # Build response message
         if played:
@@ -419,7 +419,7 @@ class MediaCog(commands.Cog):
                 track_info=track_info,
                 status="Playing" if not state.queue else "Queued", 
                 play_time_sec=0,
-                total_duration_sec=0, # Unknown initially
+                total_duration_sec=_duration or 0.0, 
                 queue_preview=queue_preview,
                 speed=state.speed,
                 pitch=state.pitch
@@ -598,7 +598,7 @@ class MediaCog(commands.Cog):
                              track_info=track_info,
                              status="Playing" if not state.queue else "Queued",
                              play_time_sec=0,
-                             total_duration_sec=0,
+                             total_duration_sec=duration_sec or 0.0,
                              queue_preview=queue_preview,
                              speed=state.speed,
                              pitch=state.pitch
