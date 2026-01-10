@@ -976,3 +976,132 @@ class VoiceManager:
             return
 
         self._listener.feed(member, pcm)
+
+    def _play_next(self, guild_id: int):
+        state = self.get_music_state(guild_id)
+        if not state.voice_client:
+            return
+
+        # Check if currently playing (e.g. TTS)
+        if state.voice_client.is_playing():
+            # If playing, wait and retry later
+            asyncio.run_coroutine_threadsafe(self._schedule_next(guild_id), self._bot.loop)
+            return
+
+        # Determine next song
+        if state.is_looping and state.current:
+            # Replay current
+            url_or_path, title, is_stream, duration = state.current
+        elif state.queue:
+            # Save current to history before switching
+            if state.current:
+                state.history.insert(0, state.current)
+                if len(state.history) > 20: # Limit history
+                    state.history.pop()
+            
+            # Get next from queue
+            url_or_path, title, is_stream, duration = state.queue.pop(0)
+            state.current = (url_or_path, title, is_stream, duration)
+            state.current_track_duration = duration if duration else 0.0
+        else:
+            # Queue empty
+            if state.current:
+                state.history.insert(0, state.current)
+                if len(state.history) > 20: 
+                    state.history.pop()
+            state.current = None
+            state.current_start_time = 0.0
+            return
+
+        # Create Source
+        try:
+            # FFmpeg Filters Calculation
+            filters = []
+            
+            # 1. Speed (atempo)
+            # FFmpeg `atempo` is limited to 0.5 - 2.0 per instance. Chain them for larger values.
+            # We will cap it for safety between 0.5 and 2.0 for now, or implement chaining if needed.
+            # actually we can chain: "atempo=2.0,atempo=1.5"
+            current_speed = state.speed
+            if abs(current_speed - 1.0) > 0.01:
+                 # Limitation hack: just support 0.5-2.0 for now to keep code simple
+                 current_speed = max(0.5, min(2.0, current_speed))
+                 filters.append(f"atempo={current_speed}")
+
+            # 2. Pitch (asetrate)
+            if state.pitch != 1.0:
+                # asetrate = 48000 * pitch
+                # aresample = 48000 (resample back to 48k)
+                # But this changes speed too by factor 'pitch'.
+                # To keep speed at 'speed', we need to adjust temp:
+                # final_speed = speed
+                # pitch_speed_change = pitch
+                # required_tempo_change = speed / pitch
+                
+                # Filters
+                filters.append("aresample=48000")
+                filters.append(f"asetrate={48000 * state.pitch}")
+                filters.append("aresample=48000")
+                
+                # Adjust tempo compensation
+                tempo_comp = state.speed / state.pitch
+                if abs(tempo_comp - 1.0) > 0.01:
+                    filters.append(f"atempo={tempo_comp}")
+            
+            ffmpeg_opts = {
+                "before_options": "",
+                "options": "-vn"
+            }
+            
+            if is_stream:
+                ffmpeg_opts["before_options"] += " -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+            
+            # Apply filters
+            if filters:
+                 ffmpeg_opts["options"] += f' -filter:a "{",".join(filters)}"'
+            
+            # Apply Seek / Start Offset
+            if state.start_offset > 0:
+                ffmpeg_opts["before_options"] += f" -ss {state.start_offset}"
+                state.current_start_time = time.time() - state.start_offset
+                state.start_offset = 0.0 # Reset
+            else:
+                state.current_start_time = time.time()
+                
+            source = discord.FFmpegPCMAudio(url_or_path, **ffmpeg_opts)
+            
+            if not is_stream:
+                # Cleanup local file after playback
+                original_cleanup = source.cleanup
+                def cleanup():
+                    original_cleanup()
+                    if os.path.exists(url_or_path):
+                        try:
+                            os.remove(url_or_path)
+                        except: pass
+                source.cleanup = cleanup
+
+            # Apply Volume
+            source = discord.PCMVolumeTransformer(source, volume=state.volume)
+            
+            def after_callback(error):
+                if error:
+                    logger.error(f"Player error: {error}")
+                # Schedule next song
+                future = asyncio.run_coroutine_threadsafe(self._schedule_next(guild_id), self._bot.loop)
+                try:
+                    future.result()
+                except: pass
+
+            state.voice_client.play(source, after=after_callback)
+            import time
+            state.current_start_time = time.time()
+            logger.info(f"Playing: {title} (Volume: {state.volume})")
+            
+            # Notifying dashboard update? 
+            # Ideally VoiceManager emits an event, but MediaCog handles updates.
+
+        except Exception as e:
+            logger.exception(f"Failed to play music: {e}")
+            # Try next one
+            self._play_next(guild_id)

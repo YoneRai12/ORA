@@ -22,6 +22,10 @@ class EdgeTTSClient:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 audio_data.extend(chunk["data"])
+            elif chunk["type"] == "error":
+                logger.error(f"EdgeTTS Error Chunk: {chunk}")
+            else:
+                logger.debug(f"EdgeTTS Other Chunk: {chunk}")
         
         if not audio_data:
             raise RuntimeError("Edge TTS returned no audio data.")
