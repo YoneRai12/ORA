@@ -80,6 +80,21 @@ Stabilized agentic capabilities for the Shared Traffic series.
 
 ---
 
+## 🆕 v4.2 Update (2026/01/10) - Security Hardening & NERV UI
+### 🛡️ Ultimate Security Architecture
+Completed the transition to a fully environment-variable driven configuration.
+*   **Zero Hardcoded Secrets**: All Admin IDs, Channel IDs, and Tokens are now strictly loaded from `.env`.
+*   **Safe-Guard**: Codebase is now completely safe for public GitHub hosting/forking.
+
+### 🚨 NERV-Style Admin Override (Visual Upgrade)
+*   **Red Alert Mode**: When Admin Override is active, the Dashboard background shifts to a dynamic "Hex-Grid Red Alert" state.
+*   **System Telemetry**: Added "Core System Connection" and "Root Injection" sequences to the override animation.
+
+### 🐛 Healer & System Optimization
+*   **Refactored Logic**: `healer.py` and `system.py` permission checks are now dynamic, allowing for seamless transfers between Main and Sub-PCs.
+
+---
+
 ## 🆕 The Mac Expansion (v4.0 - 2025/12/30)
 
 ### 🍎 ORA Mac Migration Support
@@ -141,7 +156,6 @@ ORA is currently evolving to encompass the **9 Pillars of Singularity**:
 The **Omni-Router** intelligently directs traffic to the best possible engine based on complexity and cost.
 
 ```mermaid
-%%{init: { 'theme': 'dark' }}%%
 graph TD
     Input[Input Request] --> Router{Smart Router}
     
