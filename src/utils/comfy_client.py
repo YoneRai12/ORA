@@ -20,7 +20,9 @@ class ComfyWorkflow:
     def __init__(self, server_address: str = "127.0.0.1:8188"):
         self.server_address = server_address
         self.client_id = str(uuid.uuid4())
-        self.workflow_path = os.path.join(os.getcwd(), "flux_api.json")
+        # Updated paths for Deep Cleanup
+        self.workflow_path = os.path.join(os.getcwd(), "config", "workflows", "flux_api.json")
+        self.cache_path = os.path.join(os.getcwd(), "config", "workflows", "graph_cache.json")
         self.workflow_data = self._load_workflow()
 
     def _load_workflow(self) -> Dict[str, Any]:
