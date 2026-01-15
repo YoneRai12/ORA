@@ -3349,6 +3349,9 @@ class ORACog(commands.Cog):
         if message.author.bot:
             return
 
+        # Default Force DM flag
+        force_dm_response = False
+
         # --- SPAM PROTECTION (Token Bucket) ---
         user_id = message.author.id
         now = time.time()
@@ -3417,6 +3420,13 @@ class ORACog(commands.Cog):
                      pass
 
         if message.guild and (self.bot.user in message.mentions or is_reply_to_me):
+            # [SPECIAL OVERRIDE] User: 1067838608104505394 -> Reply "DM..." then force DM for AI
+            force_dm_response = False
+            if message.author.id == 1067838608104505394:
+                await message.reply("DMにそうしんしました", mention_author=True)
+                force_dm_response = True
+                # Continue to normal AI processing with force_dm flag
+
             # Only trigger if specific keywords are present
             content_stripped = message.content.replace(f"<@{self.bot.user.id}>", "").replace(f"<@!{self.bot.user.id}>", "").strip()
             
@@ -3590,7 +3600,7 @@ class ORACog(commands.Cog):
                 # User Policy: "Read it out is OK, just don't move." (VoiceManager is now Sticky)
                 is_voice = True
 
-        await self.handle_prompt(message, prompt, is_voice=is_voice)
+        await self.handle_prompt(message, prompt, is_voice=is_voice, force_dm=force_dm_response)
 
     async def _process_attachments(self, attachments: List[discord.Attachment], prompt: str, context_message: discord.Message, is_reference: bool = False) -> str:
         """Process a list of attachments (Text or Image) and update prompt/context."""
@@ -4506,7 +4516,7 @@ class ORACog(commands.Cog):
 
         return base_prompt
 
-    async def handle_prompt(self, message: discord.Message, prompt: str, existing_status_msg: Optional[discord.Message] = None, is_voice: bool = False) -> None:
+    async def handle_prompt(self, message: discord.Message, prompt: str, existing_status_msg: Optional[discord.Message] = None, is_voice: bool = False, force_dm: bool = False) -> None:
         """Process a user message and generate a response using the LLM."""
         
         # --- Dashboard Update: Immediate Feedback ---
@@ -5451,12 +5461,24 @@ class ORACog(commands.Cog):
                     
                     embed.set_footer(text=footer_text)
                     
-                    await message.reply(embed=embed, files=file_list, mention_author=False)
+                    if force_dm:
+                         await message.author.send(embed=embed, files=file_list)
+                    else:
+                         await message.reply(embed=embed, files=file_list, mention_author=False)
                 else:
                     # Too long for Embed, fall back to text with header
                     header = f"**{style['icon']} {style['name']}**\n"
                     # Split and Send
-                    await self._send_large_message(message, final_response, header=header, files=file_list)
+                    if force_dm:
+                         # Send large message to DM manually (simple split)
+                         chunks = [final_response[i:i+1900] for i in range(0, len(final_response), 1900)]
+                         await message.author.send(header)
+                         for chunk in chunks:
+                             await message.author.send(chunk)
+                         if file_list:
+                             await message.author.send(files=file_list)
+                    else:
+                         await self._send_large_message(message, final_response, header=header, files=file_list)
             
             # Redundant sending logic removed to prevent double replies
             

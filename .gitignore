@@ -57,6 +57,21 @@ out/
 build/
 dist/
 
+# Exclude entire backup/sub-p
+# System & Env
+.env
+.env.local
+__pycache__/
+*.pyc
+
+# Project Artifacts
+*.db
+*.db.*
+*.bak
+*.zip
+.gemini/
+brain/
+
 # Exclude entire backup/sub-project folders forcefully
 Discord-mainORA2/
 RTX5090-DebugSystem-main/

@@ -1207,6 +1207,12 @@ class MemoryCog(commands.Cog):
             if not target_members:
                 continue
 
+            # Limit to 5 users per cycle to prevent Token Explosion
+            MAX_AUTO_SCAN_PER_CYCLE = 5
+            if len(target_members) > MAX_AUTO_SCAN_PER_CYCLE:
+                logger.info(f"AutoScan: Limiting targets to {MAX_AUTO_SCAN_PER_CYCLE}/{len(target_members)} to conserve budget.")
+                target_members = target_members[:MAX_AUTO_SCAN_PER_CYCLE]
+
             logger.debug(f"AutoScan: Found {len(target_members)} targets in {guild.name}. Starting BATCH scan...")
 
             # 2. Batch Scan Strategy (O(Channels) instead of O(Users*Channels))
