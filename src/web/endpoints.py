@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import datetime
 from typing import List
@@ -185,9 +186,9 @@ async def get_latest_conversations(user_id: str | None = None, limit: int = 20):
 
     try:
         convs = await store.get_conversations(user_id, limit)
-        return {"ok": True, "data": convs}
+        return convs
     except Exception as e:
-        return {"ok": False, "error_code": "DB_ERROR", "error_message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/memory/graph")
@@ -511,8 +512,17 @@ async def get_dashboard_users(response: Response):
             pass  # Sync might be writing
 
     try:
-        if MEMORY_DIR.exists():
-            for method_file in MEMORY_DIR.glob("*.json"):
+        memory_path = Path(MEMORY_DIR)
+        user_files = []
+        if memory_path.exists():
+            # 1. Look in root
+            user_files.extend(list(memory_path.glob("*.json")))
+            # 2. Look in users/ subfolder
+            users_sub = memory_path / "users"
+            if users_sub.exists():
+                user_files.extend(list(users_sub.glob("*.json")))
+
+        for method_file in user_files:
                 try:
                     uid = method_file.stem  # Filename without extension = User ID
 
@@ -590,19 +600,26 @@ async def get_dashboard_users(response: Response):
             with open(state_path, "r", encoding="utf-8") as f:
                 cost_data = json.load(f)
 
-        # Use a set of REAL User IDs to prefer checking existence logic
-        existing_real_ids = set()
+        # Use a set of (REAL User ID, Guild Name) to allow same user in different guilds
+        existing_keys = set()
         for u in users:
             uid = str(u.get("real_user_id", u["discord_user_id"]))
-            existing_real_ids.add(uid)
+            gname = u.get("guild_name", "Unknown Server")
+            existing_keys.add((uid, gname))
 
         # 2a. Check for users who have cost activity but NO memory file yet
         all_user_buckets = cost_data.get("user_buckets", {})
         for uid in all_user_buckets:
-            # Check if this user (by real_user_id) is already in our list from memory files
-            # We need to handle composite IDs (UID_GID) vs simple UIDs
-            real_uid_from_bucket = uid.split("_")[0]  # Extract real UID from potential UID_GID
-            if str(real_uid_from_bucket) not in existing_real_ids:
+            real_uid_from_bucket = uid.split("_")[0]  # Extract real UID
+            
+            # Find name/guild for this bucket
+            d_user = discord_state["users"].get(real_uid_from_bucket, {})
+            guild_id = d_user.get("guild_id")
+            guild_name = "Unknown Server"
+            if guild_id and guild_id in discord_state.get("guilds", {}):
+                guild_name = discord_state["guilds"][guild_id]
+            
+            if (str(real_uid_from_bucket), guild_name) not in existing_keys:
                 # Try to resolve Name/Guild from Discord State
                 d_user = discord_state["users"].get(real_uid_from_bucket, {})
                 display_name = d_user.get("name", f"User {real_uid_from_bucket}"[:12] + "...")
@@ -627,16 +644,16 @@ async def get_dashboard_users(response: Response):
                         "discord_status": d_user.get("status", "offline"),
                     }
                 )
-                existing_real_ids.add(str(real_uid_from_bucket))  # Add real UID to set
+                existing_keys.add((str(real_uid_from_bucket), guild_name))
 
         # 2b. Add Purely Online Users (No Memory, No Cost) - Requested by User
         for uid, d_user in discord_state.get("users", {}).items():
-            if str(uid) not in existing_real_ids:
-                # Add only if not already present via Memory or Cost
-                guild_id = d_user.get("guild_id")
-                guild_name = "Unknown Server"
-                if guild_id and guild_id in discord_state.get("guilds", {}):
-                    guild_name = discord_state["guilds"][guild_id]
+            guild_id = d_user.get("guild_id")
+            guild_name = "Unknown Server"
+            if guild_id and guild_id in discord_state.get("guilds", {}):
+                guild_name = discord_state["guilds"][guild_id]
+
+            if (str(uid), guild_name) not in existing_keys:
 
                 users.append(
                     {
@@ -653,7 +670,7 @@ async def get_dashboard_users(response: Response):
                         "is_bot": d_user.get("is_bot", False),
                     }
                 )
-                existing_real_ids.add(str(uid))
+                existing_keys.add((str(uid), guild_name))
 
         # 3. Calculate Cost Usage for ALL Users & Inject Presence
         for u in users:
@@ -889,77 +906,6 @@ async def request_profile_refresh():
         return {"ok": False, "error": str(e)}
 
 
-@router.get("/dashboard/history")
-async def get_dashboard_history(request: Request):
-    """Get historical usage data (hourly/daily) for charts."""
-    try:
-        if not hasattr(request.app.state, "bot") or not request.app.state.bot:
-            return {"ok": False, "error": "Bot not initialized"}
-
-        cm = request.app.state.bot.cost_manager
-        if not cm:
-            return {"ok": False, "error": "CostManager not available"}
-
-        # 1. Build Hourly Data (Past 25 hours)
-        # Global Hourly is Dict[lane:provider, Dict[hour_iso, Usage]]
-        # We need List[{hour: iso, high: int, stable: int, optimization: int, usd: float}]
-
-        hourly_map = {}  # hour_iso -> {high: 0, stable: 0, ...}
-
-        # Iterate all tracked keys in global_hourly
-        for key, hours in cm.global_hourly.items():
-            if ":" in key:
-                lane, provider = key.split(":", 1)
-            else:
-                lane = key
-
-            for h_iso, usage in hours.items():
-                if h_iso not in hourly_map:
-                    hourly_map[h_iso] = {"hour": h_iso, "high": 0, "stable": 0, "optimization": 0, "usd": 0.0}
-
-                # Sum Tokens (In+Out)
-                total_tokens = usage.tokens_in + usage.tokens_out
-                if lane in hourly_map[h_iso]:
-                    hourly_map[h_iso][lane] += total_tokens
-
-                # Sum USD
-                hourly_map[h_iso]["usd"] += usage.usd
-
-        hourly_list = sorted(hourly_map.values(), key=lambda x: x["hour"])
-
-        # 2. Build Daily Timeline (Past 7 days)
-        # Using global_history (List[Bucket]) + global_buckets (Current Day)
-        # Key: lane:provider
-
-        daily_map = {}  # date_iso -> {date: iso, high: 0, ...}
-
-        # Helper to merge bucket
-        def merge_bucket(lane, bucket):
-            d_iso = bucket.day
-            if d_iso not in daily_map:
-                daily_map[d_iso] = {"date": d_iso, "high": 0, "stable": 0, "optimization": 0, "usd": 0.0}
-
-            total = bucket.used.tokens_in + bucket.used.tokens_out
-            if lane in daily_map[d_iso]:
-                daily_map[d_iso][lane] += total
-            daily_map[d_iso]["usd"] += bucket.used.usd
-
-        # Process History
-        for key, buckets in cm.global_history.items():
-            lane = key.split(":")[0] if ":" in key else key
-            for b in buckets:
-                merge_bucket(lane, b)
-
-        # Process Current (Active) Buckets
-        for key, bucket in cm.global_buckets.items():
-            lane = key.split(":")[0] if ":" in key else key
-            merge_bucket(lane, bucket)
-
-        timeline_list = sorted(daily_map.values(), key=lambda x: x["date"])
-
-        return {"ok": True, "data": {"hourly": hourly_list, "timeline": timeline_list}}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
 
 
 @router.post("/dashboard/users/{user_id}/optimize")
@@ -986,7 +932,7 @@ async def optimize_user(user_id: str):
             try:
                 with open(queue_path, "r", encoding="utf-8") as f:
                     queue = json.load(f)
-            except:
+            except Exception:
                 queue = []
 
         # 2. Append new request

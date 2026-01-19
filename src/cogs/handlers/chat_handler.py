@@ -19,6 +19,7 @@ class ChatHandler:
     def __init__(self, cog):
         self.cog = cog
         self.bot = cog.bot
+        logger.info("ChatHandler v3.9.1 (HOTFIXED) Initialized")
 
     async def handle_prompt(
         self,
@@ -103,7 +104,7 @@ class ChatHandler:
         # 0.1 SUPER PRIORITY: System Override (Admin Chat Trigger)
         if "管理者権限でオーバーライド" in prompt:
             # Cinematic Override Sequence
-            from ..managers.status_manager import StatusManager
+            from src.utils.ui import StatusManager
 
             status_manager = StatusManager(message.channel)
             await status_manager.start("🔒 権限レベルを検証中...", mode="override")
@@ -158,9 +159,9 @@ class ChatHandler:
 
         # 0.1.5 System Override DISABLE
         if "オーバーライド解除" in prompt:
-            from ..managers.status_manager import StatusManager
+            from src.utils.ui import StatusManager
 
-            status_manager = StatusManager(message.channel)
+            status_manager = StatusManager(message.channel, existing_message=None)
             await status_manager.start("🔄 安全装置を再起動中...", mode="override")
             await asyncio.sleep(0.5)
 
@@ -186,7 +187,7 @@ class ChatHandler:
             return
 
         # Initialize StatusManager (Normal)
-        from ..managers.status_manager import StatusManager
+        from src.utils.ui import StatusManager
 
         # Reuse existing if provided (e.g. from command interaction?) - usually None for msg
         status_manager = StatusManager(message.channel, existing_message=existing_status_msg)
@@ -334,6 +335,7 @@ class ChatHandler:
                     can_stable_openai = self.cog.cost_manager.can_call("stable", "openai", message.author.id, est_usage)
 
                     if has_image:
+                        selected_route: Dict[str, Any] = {}
                         if can_burn_gemini.allowed and self.bot.google_client:
                             target_provider = "gemini_trial"
                             target_model = ROUTER_CONFIG.get("vision_model", "gemini-2.0-flash-exp")
@@ -446,7 +448,7 @@ class ChatHandler:
                                 call_id = tc.get("id")
                                 try:
                                     fargs = json.loads(fargs_str)
-                                except:
+                                except Exception:
                                     fargs = {}
 
                                 if fname in ["recall_memory", "search_knowledge_base"]:
@@ -495,11 +497,17 @@ class ChatHandler:
             # Final Processing
             await status_manager.finish()
 
-            # Send (Chunked)
+            # Send (Chunked Embed Cards)
+            from src.utils.ui import EmbedFactory
+            
+            if not content:
+                content = "応答を生成できませんでした。"
+
             while content:
-                curr = content[:2000]
-                content = content[2000:]
-                await message.reply(curr)
+                curr = content[:4000] # Embed description limit is 4096
+                content = content[4000:]
+                embed = EmbedFactory.create_chat_embed(curr)
+                await message.reply(embed=embed)
 
         except Exception as e:
             logger.error(f"Chat Error: {e}")
@@ -666,7 +674,7 @@ class ChatHandler:
             if not u:
                 try:
                     u = await self.bot.fetch_user(uid)
-                except:
+                except Exception:
                     pass
             return f"{u.name} (ID: {uid})" if u else f"Unknown (ID: {uid})"
 

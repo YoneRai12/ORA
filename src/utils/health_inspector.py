@@ -126,9 +126,9 @@ class HealthInspector:
                                 ts = dt.timestamp()
                                 if now - ts > threshold:
                                     stuck_users.append(f)
-                            except:
+                            except Exception:
                                 pass  # Date parse fail, ignore
-                except:
+                except Exception:
                     continue  # Read fail, ignore
 
             if stuck_users:

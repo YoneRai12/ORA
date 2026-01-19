@@ -35,7 +35,7 @@ class Sanitizer:
         ]
 
     def sanitize(self, text: str, has_image: bool = False, is_debug_context: bool = False) -> SanitizedPacket:
-        reasons = []
+        reasons: List[str] = []
         redaction_count = 0
 
         # 1. Image Check
@@ -88,7 +88,6 @@ class Sanitizer:
             # But converting raw log -> report is complex.
             # Simple rule: If it looks like a raw log, redact paths and key identifiers.
             pass
-
         sanitized_text = text
         for pattern, replacement in self.sensitive_patterns:
             matches = re.findall(pattern, sanitized_text)
@@ -97,16 +96,6 @@ class Sanitizer:
                 sanitized_text = re.sub(pattern, replacement, sanitized_text)
 
         # Return OK if not too redacted
-        return SanitizedPacket(ok=True, text=sanitized_text, reasons=reasons, redaction_count=redaction_count)
-
-        # 4. Keyword Check (Strict P0 indicators)
-        # If specific keywords appear that imply "Remember me" or specific local context that can't be sanitized easily.
-        if "覚えてる" in text or "思い出して" in text:
-            # Memory request -> Force Local (unless we extract persona, which is advanced P1)
-            # MVP: Local Only for memory
-            reasons.append("Memory request detected")
-            return SanitizedPacket(ok=False, text="", reasons=reasons, redaction_count=redaction_count)
-
         return SanitizedPacket(ok=True, text=sanitized_text, reasons=reasons, redaction_count=redaction_count)
 
     def extract_persona_card(self, history: List[Dict]) -> str:

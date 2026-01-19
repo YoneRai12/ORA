@@ -1,5 +1,6 @@
 import logging
 import os
+import logging.handlers
 from logging import Handler
 
 
@@ -60,7 +61,6 @@ class GuildLogger:
             # Actually, user wants "All logged in one place" too.
             logger.propagate = True
 
-        cls._loggers[logger_name] = logger
         cls._loggers[logger_name] = logger
         return logger
 

@@ -17,7 +17,7 @@ import re
 import secrets
 import string
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import aiofiles
 
@@ -50,9 +50,16 @@ from ..utils.desktop_watcher import DesktopWatcher
 from ..utils.drive_client import DriveClient
 from ..utils.llm_client import LLMClient
 from ..utils.logger import GuildLogger
-from ..utils.math_renderer import render_tex_to_image
 from ..utils.search_client import SearchClient
 from ..utils.ui import EmbedFactory, StatusManager
+from ..managers.resource_manager import ResourceManager
+from ..utils.cost_manager import CostManager
+from ..utils.sanitizer import Sanitizer
+from ..utils.unified_client import UnifiedClient
+from ..utils.user_prefs import UserPrefs
+from .handlers.chat_handler import ChatHandler
+from .handlers.vision_handler import VisionHandler
+from .tools.tool_handler import ToolHandler
 
 logger = logging.getLogger(__name__)
 
@@ -130,11 +137,7 @@ def _nonce(length: int = 32) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-from ..managers.resource_manager import ResourceManager
-from ..utils.cost_manager import CostManager
-from ..utils.sanitizer import Sanitizer
-from ..utils.unified_client import UnifiedClient
-from ..utils.user_prefs import UserPrefs
+
 
 
 def _generate_tree(dir_path: Path, max_depth: int = 2, current_depth: int = 0) -> str:
@@ -167,9 +170,7 @@ def _generate_tree(dir_path: Path, max_depth: int = 2, current_depth: int = 0) -
     return tree_str
 
 
-from .handlers.chat_handler import ChatHandler
-from .handlers.vision_handler import VisionHandler
-from .tools.tool_handler import ToolHandler
+
 
 
 class ORACog(commands.Cog):
@@ -235,7 +236,19 @@ class ORACog(commands.Cog):
         self.shiritori_games: Dict[int, ShiritoriGame] = defaultdict(ShiritoriGame)
 
         # Gaming Mode Watcher
-        # self.game_watcher = GameWatcher(bot) # (Optional)
+        from ..managers.game_watcher import GameWatcher
+        self.game_watcher = GameWatcher(
+            target_processes=bot.config.gaming_processes,
+            on_game_start=self._on_game_start,
+            on_game_end=self._on_game_end,
+        )
+        self._gaming_restore_task: Optional[asyncio.Task] = None
+
+        # Start background tasks
+        if self.game_watcher:
+            self.game_watcher.start()
+
+        logger.info("ORACog.__init__ 完了 - デスクトップ監視を開始しました")
 
     @app_commands.command(name="dashboard", description="Get the link to this server's web dashboard")
     async def dashboard(self, interaction: discord.Interaction):
@@ -262,7 +275,7 @@ class ORACog(commands.Cog):
                                     base = t.get("public_url")
                                     found_tunnel = True
                                     break
-            except:
+            except Exception:
                 pass
 
             # 2. If NO tunnel, Auto-Start Ngrok
@@ -292,7 +305,7 @@ class ORACog(commands.Cog):
                                         if t.get("proto") == "https":
                                             base = t.get("public_url")
                                             break
-                    except:
+                    except Exception:
                         pass
                 except Exception:
                     # Failed to start (ngrok not installed?)
@@ -324,22 +337,6 @@ class ORACog(commands.Cog):
             await interaction.followup.send(msg_content, ephemeral=True)
         else:
             await interaction.response.send_message(msg_content, ephemeral=True)
-        from ..managers.game_watcher import GameWatcher
-
-        self.game_watcher = GameWatcher(
-            target_processes=self.bot.config.gaming_processes,
-            on_game_start=self._on_game_start,
-            on_game_end=self._on_game_end,
-        )
-        self._gaming_restore_task: Optional[asyncio.Task] = None
-
-        # Start background tasks
-        self.game_watcher.start()
-        # Enforce Safe Model at Startup (Start LLM Context)
-        # LAZY LOAD: Disabled auto-start to save VRAM for API-only users.
-        # self.bot.loop.create_task(self.resource_manager.switch_context("llm"))
-
-        logger.info("ORACog.__init__ 完了 - デスクトップ監視を開始しました")
 
     async def cog_load(self):
         """Called when the Cog is loaded. Performs Startup Sync."""
@@ -382,13 +379,22 @@ class ORACog(commands.Cog):
             logger.error(f"❌ [Startup] Critical Sync Error: {e}")
 
     def cog_unload(self):
-        self.desktop_loop.cancel()
-        self.hourly_sync_loop.cancel()
-        if self._gaming_restore_task:
+        try:
+            self.desktop_loop.cancel()
+        except Exception:
+            pass
+        try:
+            self.hourly_sync_loop.cancel()
+        except Exception:
+            pass
+        if hasattr(self, "_gaming_restore_task") and self._gaming_restore_task:
             self._gaming_restore_task.cancel()
-        if self.game_watcher:
+        if hasattr(self, "game_watcher") and self.game_watcher:
             self.game_watcher.stop()
-        self.check_unoptimized_users.cancel()
+        try:
+            self.check_unoptimized_users.cancel()
+        except Exception:
+            pass
 
     @tasks.loop(hours=1)
     async def check_unoptimized_users(self):
@@ -470,7 +476,7 @@ class ORACog(commands.Cog):
                             content = f.read()
                             if content.strip():
                                 current_queue = json.loads(content)
-                    except:
+                    except Exception:
                         current_queue = []
 
                 # Append new (with simple deduplication)
@@ -799,16 +805,10 @@ class ORACog(commands.Cog):
             lines.append(f"`{p['name']}` (PID: {p['pid']}): {p['cpu_percent']}%")
 
         await interaction.response.send_message("\n".join(lines), ephemeral=(self._privacy_default == "private"))
-        await self._store.set_desktop_watch_enabled(interaction.user.id, enabled)
-
-        status = "オン" if enabled else "オフ"
-        await interaction.response.send_message(f"デスクトップ監視を {status} にしました。", ephemeral=True)
 
     @desktop_loop.before_loop
     async def before_desktop_loop(self):
         await self.bot.wait_until_ready()
-
-    @app_commands.command(name="login", description="Googleアカウント連携用のURLを発行します。")
     @app_commands.describe(ephemeral="自分だけに表示するかどうか (デフォルト: True)")
     async def login(self, interaction: discord.Interaction, ephemeral: bool = True) -> None:
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
@@ -885,7 +885,7 @@ class ORACog(commands.Cog):
         ephemeral = await self._ephemeral_for(interaction.user)
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
-            content = await self._llm.chat(
+            content, _, _ = await self._llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -1010,7 +1010,7 @@ class ORACog(commands.Cog):
         )
 
         try:
-            summary = await self._llm.chat(
+            summary, _, _ = await self._llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
             )
@@ -1614,9 +1614,9 @@ class ORACog(commands.Cog):
                     try:
                         parts = lines_range.split("-")
                         s = parts[0]
-                        e = parts[1] if len(parts) > 1 else str(int(s) + 50)
-                        cmd = f"lines -s {s} -e {e} {path}"
-                    except:
+                        end_line = parts[1] if len(parts) > 1 else str(int(s) + 50)
+                        cmd = f"lines -s {s} -e {end_line} {path}"
+                    except Exception:
                         cmd = f"cat -n {path}"  # Fallback
 
                 res = await self.safe_shell.run(cmd)
@@ -1678,7 +1678,6 @@ class ORACog(commands.Cog):
 
                 try:
                     # Run in executor to avoid blocking
-                    import io
 
                     mp4_data = await self.bot.loop.run_in_executor(
                         None,
@@ -1688,8 +1687,8 @@ class ORACog(commands.Cog):
                     )
 
                     if mp4_data:
-                        f = discord.File(io.BytesIO(mp4_data), filename="ltx_video.mp4")
-                        await message.reply(f"🎬 **Generated Video**\nPrompt: {prompt}", file=f)
+                        video_file = discord.File(io.BytesIO(mp4_data), filename="ltx_video.mp4")
+                        await message.reply(f"🎬 **Generated Video**\nPrompt: {prompt}", file=video_file)
                         return "Video generated and sent successfully."
                     else:
                         return "Video generation failed (returned None). Check ComfyUI console."
@@ -1715,7 +1714,6 @@ class ORACog(commands.Cog):
                     if creative_cog:
                         # Manually triggering the logic (bypass command context)
                         # Re-implementing logic here is safer than mocking Interaction
-                        import aiohttp
 
                         async with aiohttp.ClientSession() as session:
                             original_bytes = await target_img.read()
@@ -1726,8 +1724,8 @@ class ORACog(commands.Cog):
                             async with session.post("http://127.0.0.1:8003/decompose", data=data) as resp:
                                 if resp.status == 200:
                                     zip_data = await resp.read()
-                                    f = discord.File(io.BytesIO(zip_data), filename=f"layers_{target_img.filename}.zip")
-                                    await message.reply("✅ レイヤー分解完了 (Layer Decomposition Complete)", file=f)
+                                    zip_file = discord.File(io.BytesIO(zip_data), filename=f"layers_{target_img.filename}.zip")
+                                    await message.reply("✅ レイヤー分解完了 (Layer Decomposition Complete)", file=zip_file)
                                     return "Success: Sent ZIP file."
                                 else:
                                     return f"Layer Service Error: {resp.status}"
@@ -2046,7 +2044,7 @@ class ORACog(commands.Cog):
 
             elif tool_name == "get_system_tree":
                 # Helper for Tree Generation - Local Scope
-                def _generate_tree(dir_path: Path, prefix: str = "", max_depth: int = 2, current_depth: int = 0):
+                def _gen_tree(dir_path: Path, prefix: str = "", max_depth: int = 2, current_depth: int = 0):
                     if current_depth > max_depth:
                         return ""
 
@@ -2066,7 +2064,7 @@ class ORACog(commands.Cog):
                         output += f"{prefix}{pointer}{path.name}\n"
 
                         if path.is_dir():
-                            extension = _generate_tree(path, prefix + padding, max_depth, current_depth + 1)
+                            extension = _gen_tree(path, prefix + padding, max_depth, current_depth + 1)
                             output += extension
                     return output
 
@@ -2218,7 +2216,7 @@ class ORACog(commands.Cog):
                     )
                     try:
                         # Quick check (temperature 0 for determinism)
-                        check_res = await self._llm.chat([{"role": "user", "content": check_prompt}], temperature=0.0)
+                        check_res, _, _ = await self._llm.chat([{"role": "user", "content": check_prompt}], temperature=0.0)
                         if "true" not in check_res.lower().strip():
                             logger.info(
                                 f"🚫 Blocked False Positive VC Join: {message.content} (AI Verdict: {check_res})"
@@ -2267,7 +2265,7 @@ class ORACog(commands.Cog):
                     return "Media functionality is disabled."
 
                 if message.guild.voice_client:
-                    await message.guild.voice_client.disconnect()
+                    await message.guild.voice_client.disconnect(force=True)
                     media_cog._voice_manager.auto_read_channels.pop(message.guild.id, None)
                     return "Disconnected from voice channel."
                 return "Not connected to any voice channel."
@@ -2350,8 +2348,6 @@ class ORACog(commands.Cog):
                 await update_field(VISION_LABEL, "loading", "Loading Test Image...")
                 try:
                     import base64
-                    import io
-                    import os
 
                     img_path = os.path.join(
                         os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "test_image.png"
@@ -2387,7 +2383,7 @@ class ORACog(commands.Cog):
                             },
                         ]
 
-                        vis_response = await self._llm.chat(messages=vis_messages, temperature=0.1)
+                        vis_response, _, _ = await self._llm.chat(messages=vis_messages, temperature=0.1)
 
                         if vis_response:
                             await update_field(VISION_LABEL, "done", f"Pass: '{vis_response[:40]}...'")
@@ -2440,7 +2436,7 @@ class ORACog(commands.Cog):
                         writer.close()
                         await writer.wait_closed()
                         return True
-                    except:
+                    except Exception:
                         return False
 
                 # Check LLM (8001)
@@ -2464,20 +2460,6 @@ class ORACog(commands.Cog):
                 await status_msg.edit(embed=embed)
 
                 return "[SILENT_COMPLETION]"
-                if self._search_client.enabled:
-                    report.append("✅ Google Search: Configured")
-                else:
-                    report.append("⚠️ Google Search: Not configured")
-
-                # 4. Vision API Check
-                try:
-                    from ..utils.image_tools import analyze_image_v2
-
-                    report.append("✅ Vision API: Module loaded")
-                except ImportError:
-                    report.append("❌ Vision API: Module missing")
-
-                return "\n".join(report)
 
             elif tool_name == "create_channel":
                 # Permission: Owner + Sub-Admin + VC Admin (Server Authority)
@@ -2894,7 +2876,7 @@ class ORACog(commands.Cog):
                 if msg_id:
                     try:
                         target_msg = await message.channel.fetch_message(int(msg_id))
-                    except:
+                    except Exception:
                         return f"Error: Message {msg_id} not found."
                 elif message.reference:
                     target_msg = await message.channel.fetch_message(message.reference.message_id)
@@ -3043,7 +3025,6 @@ class ORACog(commands.Cog):
                     return "Error: name and image_url required."
 
                 try:
-                    import aiohttp
 
                     async with aiohttp.ClientSession() as session:
                         async with session.get(url) as resp:
@@ -3111,8 +3092,6 @@ class ORACog(commands.Cog):
                 history_texts = []
 
                 from datetime import timedelta
-
-                import discord
 
                 async for msg in message.channel.history(limit=count):
                     # Timezone Adjust (UTC -> JST)
@@ -3199,7 +3178,7 @@ class ORACog(commands.Cog):
                 # Clean ID
                 try:
                     tid = int("".join(c for c in target_user_str if c.isdigit()))
-                except:
+                except Exception:
                     return f"Error: Invalid user format '{target_user_str}'"
 
                 # Apply
@@ -3225,7 +3204,7 @@ class ORACog(commands.Cog):
                 # as the user asked for functional tools.
                 # (Future task: Persist config changes)
 
-                return msg
+                return "Config changes applied (Runtime only)."
 
             # Implement Missing Tools
             elif tool_name == "shiritori":
@@ -3724,7 +3703,7 @@ class ORACog(commands.Cog):
                 if json_objects:
                     try:
                         return json.loads(json_objects[0])
-                    except:
+                    except Exception:
                         pass  # Fallback to text check
 
                 # Fallback parsing
@@ -3868,7 +3847,7 @@ class ORACog(commands.Cog):
                     ref_msg = await message.channel.fetch_message(message.reference.message_id)
                     if ref_msg.author.id == self.bot.user.id:
                         is_reply_to_me = True
-                except:
+                except Exception:
                     pass
 
         if message.guild and (self.bot.user in message.mentions or is_reply_to_me):
@@ -3910,7 +3889,7 @@ class ORACog(commands.Cog):
                     await media_cog._voice_manager.play_tts(message.author, "ばいばい！")
                     # Wait slightly for TTS to buffer
                     await asyncio.sleep(1.5)
-                    await message.guild.voice_client.disconnect()
+                    await message.guild.voice_client.disconnect(force=True)
                     await message.add_reaction("👋")
                 return
 
@@ -3969,7 +3948,7 @@ class ORACog(commands.Cog):
             if not ref_msg and message.reference.message_id:
                 try:
                     ref_msg = await message.channel.fetch_message(message.reference.message_id)
-                except:
+                except Exception:
                     pass
 
             if ref_msg and ref_msg.author.id == self.bot.user.id:
@@ -4057,6 +4036,7 @@ class ORACog(commands.Cog):
                 is_voice = True
 
         await self.handle_prompt(message, prompt, is_voice=is_voice, force_dm=force_dm_response)
+        # return "Output handled via handle_prompt."
 
     async def _process_attachments(
         self,
@@ -4073,7 +4053,7 @@ class ORACog(commands.Cog):
             if not is_reference:
                 try:
                     await context_message.add_reaction("👁️")
-                except:
+                except Exception:
                     pass
 
             if not hasattr(self, "_temp_image_context"):
@@ -4101,22 +4081,6 @@ class ORACog(commands.Cog):
             self._temp_image_context[context_message.id].extend(payloads)
 
         return prompt + suffix
-
-        logger.info(f"Final prompt length: {len(prompt)} chars, Has attachments: {len(message.attachments) > 0}")
-
-        # If prompt is still empty (e.g., just a mention with no text), check if we have attachments
-        if not prompt and not message.attachments:
-            logger.info("Empty prompt but Mention/Reply/Trigger valid -> Setting Default Prompt.")
-            prompt = "はい、なんでしょうか？"
-
-        # Even if prompt is empty but attachments are present, set a default prompt
-        if not prompt and message.attachments:
-            logger.info("Empty prompt but attachments present, setting default")
-            prompt = "画像を分析してください。"
-
-        logger.info(f"Calling handle_prompt with prompt: {prompt[:100]}...")
-        # Call handle_prompt with the constructed prompt
-        await self.handle_prompt(message, prompt, is_voice=is_voice)
 
     def _get_tool_schemas(self) -> list[dict]:
         """
@@ -4975,1173 +4939,9 @@ class ORACog(commands.Cog):
         """Process a user message and generate a response using the LLM (Delegated to ChatHandler)."""
         await self.chat_handler.handle_prompt(message, prompt, existing_status_msg, is_voice, force_dm)
 
-    async def _legacy_handle_prompt(
-        self,
-        message: discord.Message,
-        prompt: str,
-        existing_status_msg: Optional[discord.Message] = None,
-        is_voice: bool = False,
-        force_dm: bool = False,
-    ) -> None:
-        """Process a user message and generate a response using the LLM."""
-
-        # --- Dashboard Update: Immediate Feedback ---
-        try:
-            memory_cog = self.bot.get_cog("MemoryCog")
-            if memory_cog:
-                asyncio.create_task(
-                    memory_cog.update_user_profile(
-                        message.author.id,
-                        {"status": "Processing", "impression": f"Input: {prompt[:20]}..."},
-                        message.guild.id if message.guild else None,
-                    )
-                )
-        except Exception as e:
-            logger.warning(f"Dashboard Update Failed: {e}")
-        # --------------------------------------------
-
-        # ----------------------------------
-
-        # 1. Check for Generation Lock
-        if self.is_generating_image:
-            await message.reply(
-                "🎨 現在、画像生成を実行中です... 完了次第、順次回答しますので少々お待ちください！ (Waiting for image generation...)",
-                mention_author=True,
-            )
-            self.message_queue.append((message, prompt))
-            return
-
-        # ----------------------------------------------------
-        # [Step 1.5] Mini-Model Router (RAG Decision)
-        # ----------------------------------------------------
-        rag_context = ""
-
-        # Only run Router if prompt is long enough to be meaningful query
-        if len(prompt) > 3:
-            intent = await self._router_decision(prompt, message.author.display_name)
-
-            if intent == "RECALL":
-                # Execute Recall Logic Directly
-                logger.info(f"🧠 [Router] RECALL Triggered for: {prompt[:30]}")
-                store = self.bot.get_cog("ORACog").store
-                if store:
-                    results = await store.search_conversations(prompt, user_id=str(message.author.id), limit=3)
-                    if results:
-                        formatted = "\n".join(
-                            [
-                                f"[{datetime.fromtimestamp(r['created_at']).strftime('%Y-%m-%d')}] User: {r['message'][:50]}..."
-                                for r in results
-                            ]
-                        )
-                        rag_context = f"\n[AUTO-RAG: RECALL MEMORY]\nPrevious Conversations:\n{formatted}\n(Use this info to answer if relevant.)\n"
-                    else:
-                        rag_context = "\n[AUTO-RAG] No relevant memories found.\n"
-
-            elif intent == "KNOWLEDGE":
-                # Execute Knowledge Logic Directly (Placeholder + Facts)
-                logger.info(f"📚 [Router] KNOWLEDGE Triggered for: {prompt[:30]}")
-                if memory_cog:
-                    profile = await memory_cog.get_user_profile(
-                        message.author.id, message.guild.id if message.guild else None
-                    )
-                    if profile:
-                        facts = profile.get("layer2_user_memory", {}).get("facts", [])
-                        matches = [f for f in facts if any(k in prompt.lower() for k in f.lower().split())]
-                        if matches:
-                            rag_context = "\n[AUTO-RAG: KNOWLEDGE]\nUser Facts:\n- " + "\n- ".join(matches) + "\n"
-
-            # Inject RAG Context into Prompt
-            if rag_context:
-                prompt += rag_context
-                logger.info(f"🔗 RAG Context Injected ({len(rag_context)} chars)")
-
-        # ----------------------------------------------------
-
-        # 0.1 SUPER PRIORITY: System Override (Admin Chat Trigger)
-        if "管理者権限でオーバーライド" in prompt:
-            # Cinematic Override Sequence
-            status_manager = StatusManager(message.channel)
-            await status_manager.start("🔒 権限レベルを検証中...", mode="override")
-            await asyncio.sleep(1.2)  # Increased initial delay
-
-            # Check Permission
-            if not await self._check_permission(message.author.id, "sub_admin"):
-                await status_manager.finish()
-                await message.reply("❌ **ACCESS DENIED**\n管理者権限がありません。", mention_author=True)
-                return
-
-            await status_manager.next_step("✅ 管理者権限: 承認", force=True)
-            await status_manager.update_current("📡 コアシステムへ接続中...", force=True)  # New Step
-            await asyncio.sleep(1.0)
-
-            await status_manager.next_step("✅ 接続確立: ルート検索開始", force=True)
-            await status_manager.update_current("🔓 セキュリティプロトコル解除中...", force=True)
-            await asyncio.sleep(1.5)  # Longer for dramatic effect
-
-            # Activate Unlimited Mode
-            # toggle_unlimited_mode(True, user_id=None) -> Global Override
-            self.cost_manager.toggle_unlimited_mode(True, user_id=None)
-            await status_manager.next_step("✅ リミッター解除: 完了", force=True)
-
-            await status_manager.update_current("💉 ルート権限注入中 (Root Injection)...", force=True)  # New Step
-            await asyncio.sleep(1.2)
-
-            await status_manager.next_step("✅ 権限昇格: 成功", force=True)
-            await status_manager.update_current("🚀 全システム権限を適用中...", force=True)
-            await asyncio.sleep(1.0)
-
-            # Sync Dashboard
-            memory_cog = self.bot.get_cog("MemoryCog")
-            if memory_cog:
-                await memory_cog.update_user_profile(
-                    message.author.id,
-                    {"layer1_session_meta": {"system_status": "OVERRIDE"}},
-                    message.guild.id if message.guild else None,
-                )
-
-            await status_manager.next_step("✅ フルアクセス: 承認", force=True)
-            await asyncio.sleep(0.5)  # Brief pause before result
-
-            # Final Result embed
-            embed = discord.Embed(
-                title="🚨 SYSTEM OVERRIDE ACTIVE",
-                description="**[警告] 安全装置が解除されました。**\n無限生成モード: **有効**",
-                color=discord.Color.red(),
-            )
-            embed.set_footer(text="System Integrity: UNLOCKED (危殆化)")
-
-            await (
-                status_manager.finish()
-            )  # Clean up status (or we could edit it into the result, but reply is better for impact)
-            await message.reply(embed=embed)
-            return
-
-        # 0.1.5 System Override DISABLE
-        if "オーバーライド解除" in prompt:
-            # Cinematic Restore Sequence
-            status_manager = StatusManager(message.channel)
-            await status_manager.start(
-                "🔄 安全装置を再起動中...", mode="override"
-            )  # Start in red then switch? Or normal.
-            await asyncio.sleep(0.5)
-
-            # Disable Unlimited Mode (Global)
-            self.cost_manager.toggle_unlimited_mode(False, user_id=None)
-
-            await status_manager.next_step("✅ リミッター: 再適用", force=True)
-            await status_manager.update_current("⚙️ システム正常化...", force=True)
-            await asyncio.sleep(0.5)
-
-            # Sync Dashboard
-            memory_cog = self.bot.get_cog("MemoryCog")
-            if memory_cog:
-                await memory_cog.update_user_profile(
-                    message.author.id,
-                    {"layer1_session_meta": {"system_status": "NORMAL"}},
-                    message.guild.id if message.guild else None,
-                )
-
-            embed = discord.Embed(
-                title="🛡️ SYSTEM RESTORED",
-                description="**安全プロトコル: 再起動完了**\n標準の制限モードに戻りました。",
-                color=discord.Color.green(),
-            )
-            embed.set_footer(text="System Integrity: SECURE (正常)")
-
-            await status_manager.finish()
-            await message.reply(embed=embed)
-            return
-
-        # 0. Check for Input Spam (Token Protection - Layer 1 regex)
-        if self._is_input_spam(prompt):
-            await message.reply(
-                "⚠️ **不正なリクエスト (Anti-Abuse L1)**\n過度な繰り返しやリソースを浪費する可能性のある指示は実行できません。",
-                mention_author=False,
-            )
-            return
-
-        # 0.2 Send initial status (Immediate Reaction)
-        status_manager = StatusManager(message.channel)
-        if existing_status_msg:
-            try:
-                await existing_status_msg.delete()
-            except:
-                pass
-
-        # Check for Override Mode (Global OR User)
-        is_override = self.cost_manager.unlimited_mode or str(message.author.id) in self.cost_manager.unlimited_users
-        sm_mode = "override" if is_override else "normal"
-
-        # Determine Initial Status Label
-        temp_user_mode = self.user_prefs.get_mode(message.author.id) or "private"
-        should_check_guardrail = temp_user_mode == "smart" and not is_override
-
-        initial_label = "🔒 Security Checking..." if should_check_guardrail else "思考中"
-        await status_manager.start(initial_label, mode=sm_mode)
-
-        # 0.5. AI Guardrail (Layer 2 - Smart Check)
-        if should_check_guardrail:
-            # Run Guardrail
-            guard_result = await self._perform_guardrail_check(prompt, message.author.id)
-
-            if guard_result.get("safe") is False:
-                reason = guard_result.get("reason", "Security Policy")
-                await status_manager.finish()  # Remove thinking status
-                await message.reply(
-                    f"🛡️ **Security Guardrail Triggered**\nAIがこのリクエストを安全でない、またはスパムと判断しました。\nReason: {reason}",
-                    mention_author=False,
-                )
-                return
-
-            # If safe, move to next step
-            await status_manager.next_step("思考中")
-
-        # 1.5 DIRECT BYPASS: "画像生成" Trigger (Zero-Shot UI Launch)
-        # 1.5 DIRECT BYPASS: Creative Triggers (Image Gen / Layer)
-        if prompt:
-            # Image Gen
-            if any(k in prompt for k in ["画像生成", "描いて", "イラスト", "絵を描いて"]):
-                gen_prompt = (
-                    prompt.replace("画像生成", "")
-                    .replace("描いて", "")
-                    .replace("イラスト", "")
-                    .replace("絵を描いて", "")
-                    .strip()
-                )
-                if not gen_prompt:
-                    gen_prompt = "artistic masterpiece"
-
-                try:
-                    from ..views.image_gen import AspectRatioSelectView
-
-                    view = AspectRatioSelectView(self, gen_prompt, "", model_name="FLUX.2")
-                    await status_manager.finish()  # Clear status
-                    await message.reply(
-                        f"🎨 **画像生成アシスタント**\nPrompt: `{gen_prompt}`\nアスペクト比を選択して生成を開始してください。",
-                        view=view,
-                    )
-                    return  # STOP
-                except Exception as e:
-                    logger.error(f"Image Bypass Failed: {e}")
-
-            # Layer
-            if any(k in prompt for k in ["レイヤー", "分解", "layer", "psd"]):
-                # Check attachments
-                if message.attachments or message.reference:
-                    logger.info("Direct Layer Bypass Triggered")
-                    await status_manager.finish()
-                    await self._execute_tool("layer", {}, message)  # Force Tool Call
-                    return
-
-        # 1.6 DIRECT BYPASS: "Music" Trigger (Force Tool Call)
-        # Why? LLM sometimes chats ("OK I will play") without calling tool.
-        stop_keywords = ["止めて", "停止", "ストップ"]
-
-        # Check Stop first
-        if any(kw in prompt for kw in stop_keywords) and len(prompt) < 10:
-            logger.info("Direct Music Bypass: STOP")
-            await status_manager.finish()
-            await self._execute_tool("music_control", {"action": "stop"}, message)
-            return
-
-        # 1.7 DIRECT BYPASS: YouTube Link Auto-Play (User Request)
-        # If the user provides a raw YouTube link, just play it.
-        import re
-
-        # Matches https://www.youtube.com/watch?v=... or https://youtu.be/...
-        # Also handles additional triggers like "流して" if mixed with URL, but user asked for "Link being pasted"
-        # We check if the prompt *contains* a YT URL.
-        yt_regex = r"(https?://)?(www\.)?(youtube\.com|youtu\.be)/[a-zA-Z0-9_\-\?=&]+"
-        match = re.search(yt_regex, prompt)
-        if match:
-            # Extract URL
-            url = match.group(0)
-            logger.info(f"Direct Music Bypass: YouTube URL detected '{url}'")
-            # We pass the FULL url as query
-            await self._execute_tool("music_play", {"query": url}, message)
-            return
-
-        # Check Play - DISABLED (2025-12-29) User wants smart logic
-        # for kw in music_keywords:
-        #      if kw in prompt:
-        #          # Extract query ("ライラック" from "ライラック流して")
-        #          query = prompt.replace(kw, "").replace("曲", "").strip()
-        #          if query and len(query) < 50: # Avoid long conversational triggers
-        #              logger.info(f"Direct Music Bypass: PLAY '{query}'")
-        #              result = await self._execute_tool(message, "music_play", {"query": query})
-        #              # _execute_tool returns a string (result message).
-        #              # We should technically use it, but music_play usually replies to interaction/message itself.
-        #              # If it returns a string, we might want to log it.
-        #              return
-
-        # 2. Privacy Check
-        await self._store.ensure_user(
-            message.author.id, self._privacy_default, display_name=message.author.display_name
-        )
-
-        # [CONTEXT REPAIR]
-        # logic: If prompt is short and user didn't reply, they likely refer to the immediate previous message.
-        # We explicitly fetch it and inject it into the prompt to prevent "Hallucination of Menus".
-        if len(prompt) < 20 and not message.reference:
-            try:
-                # Fetch only 1 message before this one
-                async for prev_msg_ctx in message.channel.history(limit=1, before=message):
-                    # Ignore if it's the bot itself (unless we want to support follow-up to bot?)
-                    # Usually short replies are "Really?" onto a User statement or Bot statement.
-                    # Let's include it regardless of author.
-                    if prev_msg_ctx.content:
-                        clean_prev = prev_msg_ctx.content.replace(f"<@{self.bot.user.id}>", "").strip()[:200]
-                        prompt = f"(Context: Previous message was '{clean_prev}')\n{prompt}"
-                        logger.info(f"🔗 Context Injection: Injected '{clean_prev}' into short prompt.")
-            except Exception as e:
-                logger.warning(f"Context Injection Failed: {e}")
-
-        # [REPLY SOURCE ENFORCEMENT]
-        # logic: User explicitly asked to "Read the reply source".
-        # Even though history traversal does this, we FORCE injection into prompt to guarantee visibility.
-        if message.reference:
-            try:
-                ref_msg = message.reference.resolved
-                if not ref_msg and message.reference.message_id:
-                    ref_msg = await message.channel.fetch_message(message.reference.message_id)
-
-                if ref_msg and ref_msg.content:
-                    # Clean mentions
-                    clean_ref = ref_msg.content.replace(f"<@{self.bot.user.id}>", "").strip()[:500]
-                    # Format clearly as a Reply Context
-                    # Using "User X said:" helps the LLM differentiate speakers.
-                    prompt = f"【返信元のメッセージ (User: {ref_msg.author.display_name})】\n{clean_ref}\n\n【私の返信】\n{prompt}"
-                    logger.info(f"🔗 Reply Injection: Injected '{clean_ref[:20]}...' into prompt.")
-            except Exception as e:
-                logger.warning(f"Reply Injection Failed: {e}")
-
-        # Send initial progress message if not provided
-        time.time()
-        # Status Manager already started above
-
-        # Voice Feedback: "Generating..." (Smart Delay)
-        if is_voice:
-
-            async def delayed_feedback():
-                await asyncio.sleep(0.5)  # 500ms delay
-                # If status message exists (implicit check for done)
-                if status_manager.message:
-                    voice_manager = getattr(self.bot, "voice_manager", None)
-                    if voice_manager:
-                        # Use play_tts directly to avoid Command object issues
-                        # Skipped "Generating answer" TTS as per user request
-                        pass
-
-            asyncio.create_task(delayed_feedback())
-
-        try:
-            # --- Phase 29: Universal Brain Router ---
-
-            # 0. Onboarding (First Time User Experience)
-            if not self.user_prefs.is_onboarded(message.author.id):
-                from ..views.onboarding import SelectModeView
-
-                # Check privacy default first? No, we force choice now.
-                view = SelectModeView(self, message.author.id)
-                embed = discord.Embed(
-                    title="🧠 Universal Brain Setup",
-                    description=(
-                        "ORAへようこそ！より高度な思考能力を提供するために、\n"
-                        "「Smart Mode」（クラウドAI併用）を選択できます。\n\n"
-                        "**Smart Mode 🧠**\n"
-                        "- クラウド上の高性能AI (GPT-5/CodeX等) を使用します\n"
-                        "- 非常に賢く、コード生成や複雑な推論が得意です\n"
-                        "- **注意**: あなたの OpenAI APIキーを使用します (従量課金)\n"
-                        "- セキュリティチェック(Guardrail)等で少額の追加コストが発生します\n\n"
-                        "**Private Mode 🔒**\n"
-                        "- 全てをローカルPC上で処理します\n"
-                        "- 外部にデータは送信されません\n"
-                        "- 非常にセキュアですが、能力はPC性能に依存します\n\n"
-                        "※選択しない場合、または拒否した場合は、**Private Mode (Local)** で全力を尽くします。"
-                    ),
-                    color=discord.Color.gold(),
-                )
-                onboard_msg = await message.reply(embed=embed, view=view)
-
-                # Wait for user decision
-                await view.wait()
-
-                # Handling Timeout or Explicit "Private"
-                if view.value is None:
-                    # Timeout -> Default to Private
-                    self.user_prefs.set_mode(message.author.id, "private")
-                    await onboard_msg.edit(
-                        content="⏳ タイムアウトしました。Private Mode (Local) で設定しました。", embed=None, view=None
-                    )
-
-                # Note: View itself handles interaction response/cleanup for buttons
-
-            # 1. Determine User Lane (Reload prefs)
-            user_mode = self.user_prefs.get_mode(message.author.id) or "private"
-
-            # 2. Build Context (Shared vs Local logic is handled later, but we need raw context first)
-            # Default model hint
-            model_hint = "Ministral 3 (14B)"
-            system_prompt = await self._build_system_prompt(message, model_hint=model_hint)
-            # Always build history (includes fallback to channel history if no reference)
-            try:
-                history = await self._build_history(message)
-            except Exception as e:
-                logger.error(f"History build failed: {e}")
-                history = []
-            messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
-
-            # Check Multimodal
-            has_image = False
-            if message.attachments:
-                has_image = True
-                # Quick hack: Add attachment URL to messages if not handled by build_history
-                # (ORACog usually handles vision in build_messages format depending on provider,
-                #  but here we just need the flag for Sanitizer)
-
-            # 4. Routing Decision (Universal Brain Router V3)
-            # -----------------------------------------------------
-            from ..config import ROUTER_CONFIG  # Ensure import is available
-
-            target_provider = "local"  # Default
-            clean_messages = messages  # Default to full context
-            selected_route = {"provider": "local", "lane": "stable", "model": None}
-
-            logger.info(f"🧩 [Router] User Mode: {user_mode} | Has Image: {has_image}")
-
-            # Track executed tools globally for response checks
-            executed_tool_names = set()
-
-            if user_mode == "smart":
-                # Attempt to upgrade to Cloud
-                pkt = self.sanitizer.sanitize(prompt, has_image=has_image)
-
-                if pkt.ok:
-                    # Step B: Lane Selection (Burn vs Stable)
-                    # Estimate cost
-                    est_usd = len(prompt) / 4000 * 0.00001
-                    est_usage = Usage(tokens_in=len(prompt) // 4, usd=est_usd)
-
-                    # Check Allowances
-                    can_burn_gemini = self.cost_manager.can_call("burn", "gemini_trial", message.author.id, est_usage)
-                    can_high_openai = self.cost_manager.can_call("high", "openai", message.author.id, est_usage)
-                    can_stable_openai = self.cost_manager.can_call("stable", "openai", message.author.id, est_usage)
-                    if has_image:
-                        # Vision Task -> Gemini (Burn)
-                        # Priority: Gemini 2.0 Flash Exp (Vision Elite)
-                        if can_burn_gemini.allowed and self.bot.google_client:
-                            target_provider = "gemini_trial"
-                            # Use Configured Vision Model
-                            target_model = ROUTER_CONFIG.get("vision_model", "gemini-2.0-flash-exp")
-
-                            selected_route = {"provider": "gemini_trial", "lane": "burn", "model": target_model}
-                            # Restore system context but use the correct model hint
-                            actual_sys = await self._build_system_prompt(message, model_hint=target_model)
-                            clean_messages = [
-                                {"role": "system", "content": actual_sys},
-                                {"role": "user", "content": pkt.text},
-                            ]
-                        else:
-                            target_provider = "local"  # Local Vision Fallback (Qwen/Mithril)
-
-                    elif self.unified_client.openai_client:
-                        # Text Classification (Task Labels)
-                        # We use the JAPANESE KEYWORDS defined in ROUTER_CONFIG
-
-                        prompt_lower = prompt.lower()
-
-                        coding_kws = ROUTER_CONFIG.get("coding_keywords", [])
-                        high_intel_kws = ROUTER_CONFIG.get("high_intel_keywords", [])
-                        complexity_threshold = ROUTER_CONFIG.get("complexity_char_threshold", 50)
-
-                        # [FEATURE] Auto-Safeguard Sync (2026-01-08)
-                        # Sync with OpenAI every N requests to prevent drift.
-                        from ..config import AUTO_SYNC_INTERVAL
-
-                        self._request_count = getattr(self, "_request_count", 0) + 1
-
-                        if self._request_count % AUTO_SYNC_INTERVAL == 0:
-                            if (
-                                self.unified_client
-                                and hasattr(self.unified_client, "api_key")
-                                and self.unified_client.api_key
-                            ):
-                                try:
-                                    logger.info(
-                                        f"🔄 [Auto-Sync] Performing Periodic OpenAI Sync (Req #{self._request_count})..."
-                                    )
-                                    # Use fire-and-forget or await?
-                                    # Await for safety (User requested "make sure")
-                                    if self.unified_client._session and not self.unified_client._session.closed:
-                                        sync_metrics = await self.cost_manager.sync_openai_usage(
-                                            self.unified_client._session, self.unified_client.api_key
-                                        )
-                                        logger.info(f"✅ [Auto-Sync] Result: {sync_metrics}")
-                                except Exception as e:
-                                    logger.error(f"⚠️ [Auto-Sync] Failed: {e}")
-
-                        # 1. Coding Task?
-
-                        is_code = any(k in prompt_lower for k in coding_kws)
-                        is_high_intel = (len(prompt) > complexity_threshold) or any(
-                            k in prompt_lower for k in high_intel_kws
-                        )
-
-                        # 1. Code Task -> High Lane (Codex)
-                        if is_code:
-                            if can_high_openai.allowed:
-                                target_provider = "openai"
-                                target_model = ROUTER_CONFIG.get("coding_model", "gpt-5.1-codex")
-                                selected_route = {"provider": "openai", "lane": "high", "model": target_model}
-                            elif can_stable_openai.allowed:
-                                # Fallback to Standard Model (Mini) if High Lane exhausted
-                                target_provider = "openai"
-                                target_model = ROUTER_CONFIG.get("standard_model", "gpt-5-mini")
-                                selected_route = {"provider": "openai", "lane": "stable", "model": target_model}
-                            else:
-                                target_provider = "local"
-
-                        # 2. High Intel -> High Lane (Chat)
-                        elif is_high_intel:
-                            if can_high_openai.allowed:
-                                target_provider = "openai"
-                                target_model = ROUTER_CONFIG.get("high_intel_model", "gpt-5.1")
-                                selected_route = {"provider": "openai", "lane": "high", "model": target_model}
-                            elif can_stable_openai.allowed:
-                                target_provider = "openai"
-                                target_model = ROUTER_CONFIG.get("standard_model", "gpt-5-mini")
-                                selected_route = {"provider": "openai", "lane": "stable", "model": target_model}
-                            else:
-                                target_provider = "local"
-
-                        # 3. Standard -> Stable Lane (Mini)
-                        elif can_stable_openai.allowed:
-                            target_provider = "openai"
-                            target_model = ROUTER_CONFIG.get("standard_model", "gpt-5-mini")
-                            selected_route = {"provider": "openai", "lane": "stable", "model": target_model}
-                        else:
-                            target_provider = "local"
-
-                        # Set Up Execution
-                        if target_provider == "openai":
-                            actual_sys = await self._build_system_prompt(
-                                message, model_hint=target_model, provider="openai"
-                            )
-                            clean_messages = [
-                                {"role": "system", "content": actual_sys},
-                                {"role": "user", "content": pkt.text},
-                            ]
-
-                    else:
-                        target_provider = "local"
-                else:
-                    target_provider = "local"
-                    logger.info("🧩 [Router] Skipped Smart Logic (Condition mismatch)")
-
-            logger.info(
-                f"🧩 [Router] Final Decision: {target_provider} | Lane: {selected_route.get('lane')} | Model: {selected_route.get('model')}"
-            )
-
-            # 4. Execution
-            content = None
-
-            if target_provider == "gemini_trial":
-                # ... existing Gemini Code ...
-                # BURN LANE
-                try:
-                    await status_manager.next_step("🔥 Gemini (Vision) Analysis...")
-                    rid = secrets.token_hex(4)
-                    self.cost_manager.reserve("burn", "gemini_trial", message.author.id, rid, est_usage)
-                    content, tool_calls, usage = await self.bot.google_client.chat(
-                        messages=clean_messages, model_name="gemini-1.5-pro"
-                    )
-                    self.cost_manager.commit("burn", "gemini_trial", message.author.id, rid, est_usage)
-                except Exception as e:
-                    logger.error(f"Gemini Fail: {e}")
-                    self.cost_manager.rollback("burn", "gemini_trial", message.author.id, rid)
-                    target_provider = "local"
-
-            elif target_provider == "openai":
-                # HIGH / STABLE LANE
-                lane = selected_route["lane"]
-                model = selected_route["model"]
-                try:
-                    icon = "💎" if lane == "high" else "⚡"
-                    await status_manager.next_step(f"{icon} OpenAI Shared ({model})...")
-
-                    rid = secrets.token_hex(4)
-                    self.cost_manager.reserve(lane, "openai", message.author.id, rid, est_usage)
-
-                    # -----------------------------------------------------
-                    # DYNAMIC TOOLING (OpenAI API Call Loop)
-                    # -----------------------------------------------------
-
-                    # 1. Select Tools
-                    # Pass 'self.tool_definitions' assuming it exists as instance attribute (from __init__)
-                    # If not, we might need access to it. Assuming it is available.
-                    candidate_tools = self._select_tools(prompt, self.tool_definitions)
-
-                    # OPTIMIZATION: Hide RAG Tools from Main LLM (Handled by Router)
-                    candidate_tools = [
-                        t for t in candidate_tools if t["name"] not in ["recall_memory", "search_knowledge_base"]
-                    ]
-
-                    # 2. Format for API (Remove 'tags', wrap in 'function')
-                    openai_tools = []
-                    for t in candidate_tools:
-                        t_clean = t.copy()
-                        t_clean.pop("tags", None)  # Remove non-standard field
-                        openai_tools.append({"type": "function", "function": t_clean})
-
-                    if not openai_tools:
-                        openai_tools = None
-
-                    # 3. Execution Loop (ReAct / Function Calling)
-                    max_turns = 5
-                    current_turn = 0
-
-                    while current_turn < max_turns:
-                        current_turn += 1
-
-                        # [CRITICAL COST CHECK]
-                        # Check limit again before EVERY turn to prevent runaway loops draining budget.
-                        est_turn_cost = Usage(tokens_in=0, tokens_out=0, usd=0.01)  # Nominal check
-                        can_continue = self.cost_manager.can_call(lane, "openai", message.author.id, est_turn_cost)
-                        if not can_continue.allowed:
-                            await message.reply(
-                                f"⚠️ **Cost Limit Exceeded (Loop Safety)**\n処理中にコスト上限に達したため停止しました。\nReason: {can_continue.reason}",
-                                mention_author=False,
-                            )
-                            break
-
-                        # Call API
-                        content, tool_calls, usage = await self.unified_client.chat(
-                            "openai", clean_messages, model=model, tools=openai_tools
-                        )
-
-                        # If response has tool calls
-                        if tool_calls:
-                            # Append Assistant Message (with tool_calls)
-                            # Note: content might be None or string. OpenAI allows content=None with tool_calls.
-                            clean_messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-
-                            # Notify Status
-                            await status_manager.next_step(f"🛠️ ツール実行中 ({len(tool_calls)}件)...")
-
-                            # Execute Each Tool
-                            for tc in tool_calls:
-                                func = tc.get("function", {})
-                                fname = func.get("name")
-                                fargs_str = func.get("arguments", "{}")
-                                call_id = tc.get("id")
-
-                                if not fname:
-                                    continue
-
-                                executed_tool_names.add(fname)
-
-                                # Parse Args
-                                # import json (Removed to fix UnboundLocalError)
-                                try:
-                                    fargs = json.loads(fargs_str)
-                                except:
-                                    fargs = {}
-
-                                logger.info(f"API Tool Call: {fname} args={fargs}")
-
-                                # Execute (Reuse existing _execute_tool)
-                                try:
-                                    tool_output = await self._execute_tool(fname, fargs, message, status_manager)
-                                except Exception as tool_err:
-                                    tool_output = f"Tool Execution Error: {tool_err}"
-
-                                # Append Tool Result
-                                clean_messages.append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": call_id,
-                                        "name": fname,
-                                        "content": str(tool_output),
-                                    }
-                                )
-
-                            # Loop continues to feed result back to LLM
-                            continue
-
-                        else:
-                            # Final Response (No more tools)
-                            # Convert usage dict to Usage object if present
-                            if usage:
-                                # OpenAI usage dict: prompt_tokens, completion_tokens (Legacy) OR input_tokens, output_tokens (NextGen)
-                                u_in = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-                                u_out = usage.get("completion_tokens") or usage.get("output_tokens") or 0
-
-                                # Recalculate USD based on Model? For now use rough estimate or lookup
-                                # Using rough standard (GPT-4o) for now:
-                                # In: $2.50 / 1M = 0.0000025
-                                # Out: $10.00 / 1M = 0.000010
-                                # TODO: Accurate pricing per model
-                                actual_usd = (u_in * 0.0000025) + (u_out * 0.000010)
-
-                                actual_usage_obj = Usage(tokens_in=u_in, tokens_out=u_out, usd=actual_usd)
-
-                                # Commit Actual
-                                lane = selected_route.get("lane", "stable")  # Ensure lane is set
-                                self.cost_manager.commit(lane, "openai", message.author.id, rid, actual_usage_obj)
-                            else:
-                                # Fallback to estimate if usage missing
-                                lane = selected_route.get("lane", "stable")
-                                self.cost_manager.commit(lane, "openai", message.author.id, rid, est_usage)
-
-                            break
-
-                except Exception as e:
-                    # self.cost_manager.commit(...) REMOVED (Done inside loop/break)
-                    logger.error(f"OpenAI Fail: {e}")
-                    self.cost_manager.rollback(lane, "openai", message.author.id, rid)
-                    target_provider = "local"
-
-            if target_provider == "local" or not content:
-                # 1. Wake-on-Demand (Dynamic Resource Management)
-                rm = self.bot.get_cog("ResourceManager")
-                if rm:
-                    if not rm.is_port_open(rm.host, rm.vllm_port):
-                        await status_manager.next_step("⚙️ Local Brain (Ministral) Waking up... (~60s)")
-                        started = await rm.ensure_vllm_started()
-                        if not started:
-                            await message.reply("❌ Local Brain Start Failed. Please contact admin.")
-                            return
-                    else:
-                        await rm.ensure_vllm_started()  # Reset idle timer
-
-                await status_manager.next_step("🏠 Local Brain (Ministral) で思考中...")
-
-                # If falling back to local with an image, we need to construct the payload for vLLM/Ollama
-                if has_image and message.attachments:
-                    # Construct Multimodal Context for Local
-                    # OpenAI API Format: content = [{"type": "text", "text": ...}, {"type": "image_url", "image_url": {"url": ...}}]
-
-                    # Use the first attachment
-                    url = message.attachments[0].url
-
-                    # Rebuild last message content
-                    last_content = prompt  # messages[-1]["content"] is strictly text usually
-
-                    new_content = [
-                        {"type": "text", "text": last_content},
-                        {"type": "image_url", "image_url": {"url": url}},
-                    ]
-
-                    # Replace the last user message
-                    # messages structure: [system, history..., user]
-                    # Make a copy to avoid mutating original for retry logic safety?
-                    local_messages = list(messages)
-                    local_messages[-1] = {"role": "user", "content": new_content}
-
-                    try:
-                        content, _, _ = await asyncio.wait_for(
-                            self._llm.chat(messages=local_messages, temperature=0.7), timeout=60.0
-                        )
-                    except asyncio.TimeoutError:
-                        logger.error("Local LLM (Multimodal) Timed Out")
-                        content = "申し訳ありません。画像認識に時間がかかりすぎたため中断しました。"
-                else:
-                    try:
-                        content, _, _ = await asyncio.wait_for(
-                            self._llm.chat(messages=messages, temperature=0.7), timeout=60.0
-                        )
-                    except asyncio.TimeoutError:
-                        logger.error("Local LLM Timed Out")
-                        content = "申し訳ありません。応答の生成に時間がかかりすぎたため中断しました。"
-
-            # Step 5: Final Response Logic
-            # Tool Loop (Only run for Provider="Local". Native providers have their own loop above)
-
-            # Initialize turn globally to prevent UnboundLocalError in cleanup scope
-            turn = 0
-
-            # Fallback: If Native Provider outputs raw JSON (hallucination), force entry into Local Tool Loop
-            force_local_loop = False
-            if content and ('"tool":' in content or '"tool":' in content.replace(" ", "")):
-                force_local_loop = True
-                logger.info("Native Provider output raw JSON tool call. Forcing Local Loop.")
-
-            if target_provider not in ["openai", "gemini_trial"] or force_local_loop:
-                max_turns = 3
-                # turn initialized above
-                executed_tools = []
-                tool_counts = {}
-
-                while turn < max_turns:
-                    turn += 1
-
-                    # Re-extract JSON from (potentially new) content
-                    json_objects = self._extract_json_objects(content)
-
-                    # ROBUST FALLBACK: If 7B model forgot markdown code blocks, try to find raw JSON
-                    if not json_objects:
-                        # import re removed
-                        # Try to find the first likely JSON object starting with { and ending with }
-                        loose_match = re.search(r"(\{[\s\S]*?\})", content)
-                        if loose_match:
-                            possible_json = loose_match.group(1)
-                            try:
-                                json.loads(possible_json)
-                                json_objects.append(possible_json)
-                                logger.info("Fallback: Extracted loose JSON object.")
-                            except:
-                                pass
-
-                        # FALLBACK 2: BARE TOOL NAME Detection
-                        # If content is exactly (or close to) a known tool name (e.g., "join_voice_channel"), map it.
-                        # This happens heavily with Qwen-2.5-7B when instructed to "Use implicit trigger".
-                        clean_text = content.strip().lower()
-                        # Common no-arg tools
-                        known_tools = {
-                            "join_voice_channel": {},
-                            "leave_voice_channel": {},
-                            "google_search": {
-                                "query": "something"
-                            },  # Search usually requires args, but might be triggered empty
-                            "start_thinking": {"reason": "Complex task"},
-                        }
-
-                        for t_name, default_args in known_tools.items():
-                            # exact match or matches "ToolName"
-                            if clean_text == t_name or clean_text == f"`{t_name}`":
-                                logger.info(f"Fallback: Detected bare tool name '{t_name}'. Constructing JSON.")
-                                json_objects.append(json.dumps({"tool": t_name, "args": default_args}))
-                                break
-
-                        # FALLBACK 3: Music Heuristic (Strong)
-                        # If user asks to "Play X" and LLM just says "Playing" or "Sure" without tool call.
-                        # CRITICAL: Only check on TURN 1. If we are in turn 2+, we already handled the main request.
-                        if (
-                            not json_objects and "流して" in prompt and turn == 1
-                        ):  # Only trigger if user explicitly asked
-                            # Check if response implies agreement but no tool
-                            # Or just forcefully interpret "Play X" if LLM output is short/empty
-                            # Extract song name from prompt: "X流して" -> X
-
-                            song_match = re.search(r"(.+?)(流して|再生して|歌って)", prompt)
-                            if song_match:
-                                song_query = song_match.group(1).strip()
-                                # Filter out mentions
-                                song_query = re.sub(r"<@!?\d+>", "", song_query).strip()
-
-                                if song_query and len(song_query) > 1:
-                                    logger.info(f"Fallback: Music Heuristic triggered for query '{song_query}'")
-                                    json_objects.append(
-                                        json.dumps({"tool": "music_play", "args": {"query": song_query}})
-                                    )
-
-                        # FALLBACK 4: Search Heuristic (Refusal Override)
-                        # If LLM refuses to answer current info ("Cannot provide...", "I don't know"), force search.
-                        # Keywords: "天気", "ニュース", "価格", "株価", "速報"
-                        if not json_objects and turn == 1:
-                            # Refusal Check (Simple)
-                            refusal_keywords = [
-                                "できません",
-                                "お答えできません",
-                                "最新の情報",
-                                "cannot provide",
-                                "cutoff",
-                            ]
-                            is_refusal = any(k in content for k in refusal_keywords)
-
-                            triggers = ["天気", "ニュース", "価格", "株価", "速報", "とは", "教えて"]
-                            has_trigger = any(t in prompt for t in triggers)
-
-                            if is_refusal and has_trigger:
-                                logger.info("Fallback: Search Heuristic triggered (Refusal Override).")
-                                # Use entire prompt as query (cleaned)
-                                clean_q = prompt.replace("教えて", "").strip()
-                                json_objects.append(json.dumps({"tool": "google_search", "args": {"query": clean_q}}))
-
-                    logger.info(f"Extracted JSON objects: {len(json_objects)}")
-
-                    tool_call = None
-
-                    # Check for Command R+ style tool calls (e.g. <|channel|>commentary to=google_search ... {args})
-                    # import re removed
-                    cmd_r_match = re.search(r"to=(\w+)", content)
-                    if cmd_r_match:
-                        logger.info(f"Cmd R+ Match: {cmd_r_match.group(1)}")
-                        # Always try Fallback: Extract JSON using regex
-                        # This handles cases where _extract_json_objects returns invalid garbage or misses the weird formatting
-                        json_match = re.search(r"json\s*(\{.*?\})", content, re.DOTALL)
-                        if json_match:
-                            # It's okay if we duplicate; the loop breaks on first valid parse
-                            json_objects.append(json_match.group(1))
-                            logger.info("Added fallback JSON object from regex (Always).")
-
-                    for i, json_str in enumerate(json_objects):
-                        logger.info(f"Processing JSON object {i}: {json_str}")
-                        try:
-                            data = json.loads(json_str)
-                            logger.info(f"Parsed JSON data: {data}")
-
-                            # Case 1: Standard JSON format {"tool": "name", "args": {...}}
-                            if isinstance(data, dict) and "tool" in data and "args" in data:
-                                tool_call = data
-                                logger.info(f"Found Standard Tool Call: {tool_call}")
-                                break
-                            # Case 2: Command R+ style (args only in JSON, tool name in text)
-                            elif cmd_r_match and isinstance(data, dict):
-                                tool_name = cmd_r_match.group(1)
-                                # If the JSON looks like args (has keys matching parameters), use it
-                                # Or just assume the first JSON object is the args
-                                tool_call = {"tool": tool_name, "args": data}
-                                logger.info(f"Found Cmd R+ Tool Call: {tool_call}")
-                                break
-                            else:
-                                logger.warning(f"JSON object {i} did not match any tool format: {data}")
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"JSON Decode Error at index {i}: {e}")
-                            continue
-
-                    if tool_call:
-                        tool_name = tool_call["tool"]
-                        tool_args = tool_call["args"]
-                        executed_tool_names.add(tool_name)
-
-                        # --- LOOP BREAKER / SPAM PROTECTION ---
-                        if tool_name not in tool_counts:
-                            tool_counts[tool_name] = 0
-                        tool_counts[tool_name] += 1
-
-                        # 1. Block excessive 'create_file' (Max 1)
-                        if tool_name == "create_file" and tool_counts[tool_name] > 1:
-                            logger.warning("Spam Protection: Blocked extra create_file call.")
-                            messages.append(
-                                {"role": "user", "content": "Tool Error: 'create_file' can only be used once per turn."}
-                            )
-                            continue
-
-                        # 2. Block excessive same tool (Max 3)
-                        if tool_counts[tool_name] > 3:
-                            logger.warning(f"Spam Protection: Blocked excessive {tool_name} calls.")
-                            break  # Break loop, force answer
-
-                        # 3. Block total tool calls (Max 5)
-                        if len(executed_tools) >= 5:
-                            logger.warning("Spam Protection: Max total tool calls reached.")
-                            break
-
-                        executed_tools.append(tool_name)
-                        # --------------------------------------
-
-                        # Update progress message to show tool execution
-                        {
-                            "google_search": "🔍 Web検索",
-                            "get_system_stats": "💻 システム情報取得",
-                            "music_play": "🎵 音楽再生",
-                            "music_control": "🎵 音楽操作",
-                            "system_control": "⚙️ システム制御",
-                            "create_file": "📝 ファイル作成",
-                            "get_voice_channel_info": "🔊 VC情報取得",
-                            "join_voice_channel": "🔊 VC参加",
-                            "leave_voice_channel": "🔊 VC退出",
-                        }.get(tool_name, f"🔧 {tool_name}")
-
-                        # Execute Tool
-                        if is_voice and tool_name == "google_search":
-                            media_cog = self.bot.get_cog("MediaCog")
-                            if media_cog:
-                                query = tool_args.get("query", "")
-                                await media_cog.speak_text(message.author, f"{query}について検索しています")
-
-                        tool_result = await self._execute_tool(
-                            tool_name, tool_args, message, status_manager=status_manager
-                        )
-
-                        if tool_result and "[SILENT_COMPLETION]" in str(tool_result):
-                            logger.info("Silent tool completion detected. Stopping generation loop.")
-                            await status_manager.finish()
-                            return
-
-                        if tool_result:
-                            # Check for loop (same tool, same args, repeated)
-                            # We need to track previous tool calls
-                            # Simple check: if this tool call is identical to the last one
-                            pass
-
-                        # Append result
-                        # CLEAN CONTENT before appending: Remove special Command R+ tokens to avoid confusing the model
-                        clean_content = (
-                            content.replace("<|channel|>", "")
-                            .replace("<|constrain|>", "")
-                            .replace("<|message|>", "")
-                            .strip()
-                        )
-                        messages.append({"role": "assistant", "content": clean_content})
-
-                        # Use USER role for the tool output to force attention and mimic turn-taking
-                        logger.info(f"Injecting Tool Result of length {len(tool_result)} for summarization")
-
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": f"【検索結果】以下は検索ツールからの実行結果です。\n{tool_result}\n\nこの情報に基づき、ユーザーの質問に対する回答を日本語で作成してください。ツールは既に実行されたため、これ以上ツールを呼び出さず、要約と回答のみを行ってください。",
-                            }
-                        )
-
-                        # Update Status for Next Think
-                        await status_manager.next_step("回答生成中")
-
-                        # Fix for LLM Timeout: Use the correct provider for re-generation
-                        try:
-                            # 60 Second Timeout for LLM Generation to prevent "Stuck" status
-                            if target_provider == "openai":
-                                model = selected_route.get("model", "gpt-4o")  # Default to robust model
-                                new_content, _, _ = await asyncio.wait_for(
-                                    self.unified_client.chat("openai", messages, model=model), timeout=60.0
-                                )
-                            elif target_provider == "gemini_trial":
-                                new_content, _, _ = await asyncio.wait_for(
-                                    self.bot.google_client.chat(messages=messages, model_name="gemini-1.5-pro"),
-                                    timeout=60.0,
-                                )
-                            else:
-                                new_content, _, _ = await asyncio.wait_for(
-                                    self._llm.chat(messages=messages, temperature=0.7), timeout=60.0
-                                )
-                        except asyncio.TimeoutError:
-                            logger.error("LLM Generation Timed Out (60s)")
-                            content = "申し訳ありません。応答の生成に時間がかかりすぎたため中断しました。"
-                            break
-
-                        # Loop Detection: If new_content is SAME as old content (ignoring unique IDs if any), break
-                        if new_content.strip() == content.strip():
-                            logger.warning("Loop detected: LLM output indicates same tool call. Breaking.")
-                            content = "申し訳ありません。検索結果の処理中にエラーが発生しました。"
-                            break
-
-                        content = new_content
-                    else:
-                        break
-
-            # Check if final content is still a tool call (Loop exhausted)
-            # If so, suppress it
-            if re.search(r"to=(\w+)", content) or "tool" in content and "args" in content:
-                logger.warning(f"Loop exhausted and content looks like tool call: {content}")
-                # Try to use the last tool result if available?
-                # Or just say error.
-                # Let's verify if we have a tool result from previous turn
-                if turn > 0:
-                    final_response = "検索は成功しましたが、結果の要約に失敗しました。"
-                else:
-                    final_response = "エラーが発生しました。"
-            else:
-                final_response = self._clean_content(content)
-
-            # Stop animation / Delete Status
-            await status_manager.finish()
-
-            # 5. Final Output (Unified Send Path)
-
-            # Suppress text logic for Music Dashboard
-            if final_response and ("music_play" in executed_tool_names or "play_from_ai" in executed_tool_names):
-                # Only suppress if the response seems like a confirmation (short) or generic
-                # Actually, user wants it GONE. The dashboard is the confirmation.
-                logger.info("Suppressing text response due to Music Dashboard activity.")
-                final_response = None
-
-            if final_response:
-                # Determine Style based on provider
-                style = {"color": 0x7289DA, "icon": "🏠", "name": "Local Brain"}
-
-                # Check Override Mode (Global or User)
-                is_override_active = (
-                    self.cost_manager.unlimited_mode or str(message.author.id) in self.cost_manager.unlimited_users
-                )
-
-                if is_override_active:
-                    style = {"color": 0xFF0000, "icon": "🚨", "name": "SYSTEM OVERRIDE"}
-                elif target_provider == "gemini_trial":
-                    style = {"color": 0x4285F4, "icon": "🔥", "name": "Gemini 1.5 Pro"}
-                elif target_provider == "openai":
-                    # Try to get specific model name if possible
-                    try:
-                        m = selected_route.get("model", "GPT")
-                        lane = selected_route.get("lane", "stable")
-                        icon = "💎" if lane == "high" else "⚡"
-                        style = {"color": 0x10A37F, "icon": icon, "name": f"OpenAI {m}"}
-                    except:
-                        style = {"color": 0x10A37F, "icon": "🤖", "name": "OpenAI Shared"}
-
-                # Prepare Math Files
-                file_list = []
-
-                # Step 10: Spam Detection
-                if self._detect_spam(final_response):
-                    original_len = len(final_response)
-                    final_response = (
-                        f"⚠️ **出力制限 (Anti-Spam)**\n"
-                        f"AIの生成テキストに過剰な繰り返しが検出されたため、出力を省略しました。\n"
-                        f"(元サイズ: {original_len}文字 -> 省略済)"
-                    )
-                    await status_manager.next_step("🛡️ Anti-Spam Triggered")
-
-                # import re removed
-                tex_match = re.search(r"```(tex|latex)\n(.*?)\n```", final_response, re.DOTALL)
-                if tex_match:
-                    buf = render_tex_to_image(tex_match.group(2))
-                    if buf:
-                        file_list.append(discord.File(buf, filename="math_render.png"))
-
-                if len(final_response) < 4000:
-                    embed = discord.Embed(description=final_response, color=style["color"])
-                    embed.set_author(name=f"{style['icon']} {style['name']}", icon_url=self.bot.user.display_avatar.url)
-                    # Daily Token Total (Global Stable)
-                    daily_total = self.cost_manager.get_current_usage("stable", "openai")
-                    footer_text = f"Sanitized & Powered by ORA Universal Brain • Today: {daily_total:,} tokens"
-
-                    embed.set_footer(text=footer_text)
-
-                    if force_dm:
-                        await message.author.send(embed=embed, files=file_list)
-                    else:
-                        await message.reply(embed=embed, files=file_list, mention_author=False)
-                else:
-                    # Too long for Embed, fall back to text with header
-                    header = f"**{style['icon']} {style['name']}**\n"
-                    # Split and Send
-                    if force_dm:
-                        # Send large message to DM manually (simple split)
-                        chunks = [final_response[i : i + 1900] for i in range(0, len(final_response), 1900)]
-                        await message.author.send(header)
-                        for chunk in chunks:
-                            await message.author.send(chunk)
-                        if file_list:
-                            await message.author.send(files=file_list)
-                    else:
-                        await self._send_large_message(message, final_response, header=header, files=file_list)
-
-            # Redundant sending logic removed to prevent double replies
-
-            # Voice Response
-            # if is_voice:
-            #     media_cog = self.bot.get_cog("MediaCog")
-            #     if media_cog:
-            #         await media_cog.speak_text(message.author, final_response[:200])
-
-            # Save conversation
-            google_sub = await self._store.get_google_sub(message.author.id)
-            user_id_for_db = google_sub if google_sub else str(message.author.id)
-            await self._store.add_conversation(
-                user_id=user_id_for_db, platform="discord", message=message.clean_content, response=final_response
-            )
-
-        except Exception as e:
-            await status_manager.finish()
-            logger.error(f"Error in handle_prompt: {e}", exc_info=True)
-            await message.reply("申し訳ありません。応答の生成に失敗しました。", mention_author=False)
-            if is_voice:
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    await media_cog.speak_text(message.author, "エラーが発生しました")
-
+    async def _legacy_handle_prompt(self, message, prompt, existing_status_msg=None, is_voice=False, force_dm=False):
+        # Migrated to ChatHandler
+        pass
     async def wait_for_llm(self, message: discord.Message) -> None:
         """Show a loading animation while waiting for LLM."""
         dots = ["", ".", "..", "..."]
@@ -6218,7 +5018,7 @@ class ORACog(commands.Cog):
             # A reaction is less intrusive. Let's add a 'thinking' emoji.
             await message.add_reaction("🤔")
 
-            response = await self._llm.chat(messages=[{"role": "user", "content": prompt}], temperature=0.3)
+            response, _, _ = await self._llm.chat(messages=[{"role": "user", "content": prompt}], temperature=0.3)
 
             await message.remove_reaction("🤔", self.bot.user)
             await message.reply(f"{emoji_str} Translation: {response}", mention_author=False)
@@ -6315,4 +5115,4 @@ class ORACog(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(OraCog(bot))
+    await bot.add_cog(ORACog(bot))

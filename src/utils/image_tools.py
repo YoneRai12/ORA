@@ -174,35 +174,6 @@ def ocr_image(data: bytes) -> str:
     return best_text
 
 
-def analyze_image_v2(data: bytes) -> str:
-    """Analyze image using Google Cloud Vision API (Labels, Faces, Text)."""
-    try:
-        from google.cloud import vision
-    except ImportError:
-        return "Error: google-cloud-vision not installed."
-
-    client = vision.ImageAnnotatorClient()
-    image = vision.Image(content=data)
-
-    # Perform detection
-    features = [
-        vision.Feature(type_=vision.Feature.Type.LABEL_DETECTION),
-        vision.Feature(type_=vision.Feature.Type.FACE_DETECTION),
-        vision.Feature(type_=vision.Feature.Type.TEXT_DETECTION),
-    ]
-    request = vision.AnnotateImageRequest(image=image, features=features)
-
-    try:
-        client.annotate_image(request)
-    except Exception as e:
-        logger.error(f"Vision API Error: {e}")
-        # Fallback to Tesseract
-        logger.info("Falling back to Tesseract OCR...")
-        try:
-            ocr_text = ocr_image(data)
-            return f"【画像分析結果 (Vision API失敗 -> Tesseract使用)】\n・検出された文字: {ocr_text}"
-        except Exception as tess_err:
-            return f"画像分析エラー (Vision API & Tesseract): {e} / {tess_err}"
 
 
 def _analyze_image_v2_raw(data: bytes) -> dict:

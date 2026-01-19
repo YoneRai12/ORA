@@ -166,7 +166,7 @@ class Store:
                 if os.path.exists(temp_path):
                     try:
                         os.replace(temp_path, corrupt_path)
-                    except:
+                    except Exception:
                         pass
                 return False
             finally:
@@ -465,7 +465,6 @@ class Store:
                 params = (limit,)
 
             async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
 

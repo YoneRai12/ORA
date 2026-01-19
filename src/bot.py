@@ -16,20 +16,20 @@ from typing import Optional
 # This is a known benign issue with the library's cleanup of subprocess streams.
 warnings.simplefilter("ignore", ResourceWarning)
 
-import aiohttp
+import aiohttp  # noqa: E402
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 # Load environment variables from .env file (Force override system vars, Explicit Path)
 load_dotenv(r"C:\Users\YoneRai12\Desktop\ORADiscordBOT-main3\.env", override=True)
 
-import discord
-from discord import app_commands
-from discord.ext import commands
+import discord  # noqa: E402
+from discord import app_commands  # noqa: E402
+from discord.ext import commands  # noqa: E402
 
-from .cogs.core import CoreCog
-from .cogs.ora import ORACog
-from .config import Config, ConfigError
+from .cogs.core import CoreCog  # noqa: E402
+from .cogs.ora import ORACog  # noqa: E402
+from .config import Config, ConfigError  # noqa: E402
 from .logging_conf import setup_logging
 from .storage import Store
 from .utils.healer import Healer
@@ -259,7 +259,7 @@ class ORABot(commands.Bot):
                                 if not channel:
                                     try:
                                         channel = await self.fetch_channel(tid)
-                                    except:
+                                    except Exception:
                                         channel = None
 
                                 if channel:

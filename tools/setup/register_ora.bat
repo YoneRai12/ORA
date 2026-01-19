@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 title Register ORA Bot to System
 echo [ORA] Adding 'ora' command to Windows Registry...
 
@@ -12,26 +13,34 @@ if %errorlevel% neq 0 (
 
 :: Get Current Directory
 set "CURRENT_DIR=%~dp0"
-:: Remove trailing backslash
 set "CURRENT_DIR=%CURRENT_DIR:~0,-1%"
 
 :: Clean up old keys (Aggressive Cleanup)
 echo [ORA] Cleaning up old inputs...
 reg delete "HKCR\Directory\Background\shell\ORA" /f >nul 2>&1
-reg delete "HKCR\Directory\Background\shell\ORABot" /f >nul 2>&1
-reg delete "HKCR\Directory\Background\shell\Start ORA Bot" /f >nul 2>&1
-reg delete "HKCU\Software\Classes\Directory\Background\shell\ORA" /f >nul 2>&1
-reg delete "HKCU\Software\Classes\Directory\Background\shell\ORABot" /f >nul 2>&1
-reg delete "HKCU\Software\Classes\Directory\Background\shell\ORAServices" /f >nul 2>&1
 
-:: Register Context Menu (Right Click on Desktop/Background)
-:: Using HKCR (System-wide)
-reg add "HKCR\Directory\Background\shell\ORA" /ve /d "Start ORA Bot" /f
-reg add "HKCR\Directory\Background\shell\ORA" /v "Icon" /d "%SystemRoot%\System32\cmd.exe" /f
-reg add "HKCR\Directory\Background\shell\ORA\command" /ve /d "\"%CURRENT_DIR%\run_l.bat\"" /f
+:: Define Paths
+set "LAUNCHER_PATH=%CURRENT_DIR%\..\..\scripts\run_l.bat"
+
+:: 1. Root Menu (The Heading)
+reg add "HKCR\Directory\Background\shell\ORA" /v "MUIVerb" /d "🚀 ORA : 次世代AIシステム" /f
+reg add "HKCR\Directory\Background\shell\ORA" /v "SubCommands" /d "" /f
+reg add "HKCR\Directory\Background\shell\ORA" /v "Icon" /d "%SystemRoot%\System32\shell32.dll,238" /f
+
+:: 2. Sub-Items
+reg add "HKCR\Directory\Background\shell\ORA\shell\01start" /v "MUIVerb" /d "🚀 ORAを起動する" /f
+reg add "HKCR\Directory\Background\shell\ORA\shell\01start" /v "Icon" /d "%SystemRoot%\System32\shell32.dll,190" /f
+reg add "HKCR\Directory\Background\shell\ORA\shell\01start\command" /ve /d "cmd /k \"\"%LAUNCHER_PATH%\"\"" /f
+
+reg add "HKCR\Directory\Background\shell\ORA\shell\02dash" /v "MUIVerb" /d "🌐 ダッシュボードを開く" /f
+reg add "HKCR\Directory\Background\shell\ORA\shell\02dash" /v "Icon" /d "%SystemRoot%\System32\shell32.dll,14" /f
+reg add "HKCR\Directory\Background\shell\ORA\shell\02dash\command" /ve /d "cmd /c start http://localhost:3333/dashboard" /f
+
+reg add "HKCR\Directory\Background\shell\ORA\shell\03stop" /v "MUIVerb" /d "⏹️ 全てのプロセスを停止" /f
+reg add "HKCR\Directory\Background\shell\ORA\shell\03stop" /v "Icon" /d "%SystemRoot%\System32\shell32.dll,131" /f
+reg add "HKCR\Directory\Background\shell\ORA\shell\03stop\command" /ve /d "cmd /c taskkill /F /IM python.exe /IM node.exe /T" /f
 
 echo.
-echo [SUCCESS] Cleaned up 'ORABot' and 'ORA' keys.
-echo Registered single 'Start ORA Bot' entry.
+echo [SUCCESS] Context menu registry updated with UTF-8 support.
 echo.
 pause

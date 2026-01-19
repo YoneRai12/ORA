@@ -313,7 +313,7 @@ class ReadOnlyShellExecutor:
                         size = f"{st.st_size / 1024:.1f}K" if human else str(st.st_size)
                         mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
                         lines.append(f"{kind} {size:>8} {mtime} {entry.name}")
-                    except:
+                    except Exception:
                         pass
                 else:
                     lines.append(entry.name)
@@ -352,7 +352,7 @@ class ReadOnlyShellExecutor:
                                     if regex.search(line):
                                         rel = path.relative_to(self.root)
                                         hits.append(f"{rel}:{i + 1}:{line.strip()}")
-                        except:
+                        except Exception:
                             pass
                     elif path.is_dir():
                         for child in path.iterdir():

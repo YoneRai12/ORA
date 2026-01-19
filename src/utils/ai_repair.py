@@ -6,6 +6,8 @@ Interacts with Local LLM (RTX5090) or Cloud APIs to fix code based on error logs
 
 import asyncio
 import logging
+import os
+import shutil
 from pathlib import Path
 
 import aiohttp

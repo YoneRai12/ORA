@@ -26,7 +26,7 @@ class ResourceManager(commands.Cog):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(0.5)
                 return s.connect_ex((host, port)) == 0
-        except:
+        except Exception:
             return False
 
     def update_activity(self):

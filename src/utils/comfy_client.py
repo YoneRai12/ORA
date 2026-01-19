@@ -1,3 +1,4 @@
+import aiohttp
 import json
 import logging
 import os
@@ -307,7 +308,7 @@ class ComfyWorkflow:
                                 data = msg["data"]
                                 if data["node"] is None and data["prompt_id"] == prompt_id:
                                     break
-                    except:
+                    except Exception:
                         ws_connected = False
 
                 if not ws_connected:
@@ -316,9 +317,9 @@ class ComfyWorkflow:
                         hist = self._get_history(prompt_id)
                         if prompt_id in hist:
                             break
-                    except:
+                    except Exception:
                         pass
-            except:
+            except Exception:
                 time.sleep(1)
 
         # Get Result
@@ -366,9 +367,6 @@ class ComfyWorkflow:
                         pass
 
             logger.warning("⚠️ Could not explicitly free ComfyUI VRAM (All endpoints failed).")
-
-        except Exception as e:
-            logger.warning(f"Failed to unload ComfyUI models: {e}")
 
         except Exception as e:
             logger.warning(f"Failed to unload ComfyUI models: {e}")

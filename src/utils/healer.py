@@ -1,3 +1,4 @@
+import aiofiles
 import asyncio
 import io
 import json
@@ -146,8 +147,8 @@ class Healer:
         """
         Analyzes the error and proposes a fix to the Debug Channel.
         """
-        # Target Channel (Configured or Default)
-        channel_id = getattr(self.bot.config, "log_channel_id", 0)
+        # Target Channel (Prioritize Feature Proposal Channel for Proposals)
+        channel_id = getattr(self.bot.config, "feature_proposal_channel_id", 0) or getattr(self.bot.config, "log_channel_id", 0)
 
         # Get traceback
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
@@ -193,12 +194,12 @@ class Healer:
 
             # Using 'gpt-5.1-codex' (Cloud) as requested by user ("Use this!")
             try:
-                analysis_json = await self.llm.chat(
+                analysis_json, _, _ = await self.llm.chat(
                     messages=[{"role": "user", "content": prompt}], temperature=0.0, model="gpt-5.1-codex"
                 )
             except Exception as e:
                 logger.warning(f"Primary Cloud LLM (gpt-5.1-codex) failed: {e}. Fallback to Standard (gpt-4o).")
-                analysis_json = await self.llm.chat(
+                analysis_json, _, _ = await self.llm.chat(
                     messages=[{"role": "user", "content": prompt}], temperature=0.0, model="gpt-4o"
                 )
 
@@ -262,7 +263,7 @@ class Healer:
                 channel = self.bot.get_channel(channel_id)
                 if channel:
                     await channel.send(f"⚠️ **Healer Critical Failure**: {e}\nOriginal Error: {error}")
-            except:
+            except Exception:
                 pass
 
     def _get_file_tree(self, root_dir: str = ".") -> str:
@@ -282,289 +283,6 @@ class Healer:
                     tree_lines.append(f"{subindent}{f}")
         return "\n".join(tree_lines)
 
-    async def _check_duplicates(self, feature_request: str) -> Optional[str]:
-        """Checks if a similar command already exists to prevent re-invention."""
-        try:
-            # 1. Gather all commands
-            commands = []
-            for cmd in self.bot.commands:
-                commands.append(f"Prefix Command: {cmd.name} - {cmd.help or 'No help'}")
-
-            # 2. Gather Slash Commands (Tree)
-            for cmd in self.bot.tree.walk_commands():
-                desc = cmd.description if hasattr(cmd, "description") else "No description"
-                commands.append(f"Slash Command: /{cmd.name} - {desc}")
-
-            cmd_list = "\n".join(commands[:100])  # Limit context window
-
-            # 3. Ask LLM
-            prompt = f"""
-            User Request: "{feature_request}"
-            Existing Commands:
-            {cmd_list}
-            
-            Does the request match an existing command?
-            If YES, output strictly the Command Name (e.g., "/voice_off").
-            If NO, output "NO".
-            """
-
-            resp = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
-            if "NO" in resp.upper():
-                return None
-            return resp.strip()
-
-        except Exception as e:
-            logger.error(f"Dedup check failed: {e}")
-            return None
-
-    async def execute_evolution(self, filepath: str, new_content: str, reason: str = "Autonomous Update") -> dict:
-        """
-        Executes an update programmatically (Auto-Pilot).
-        """
-        try:
-            # --- GUARDRAILS START ---
-            from .backup_manager import BackupManager
-            from .health_inspector import HealthInspector
-
-            backup_mgr = BackupManager(os.getcwd())
-            inspector = HealthInspector(self.bot)
-
-            # 0. Create Snapshot
-            snapshot_path = await self.bot.loop.run_in_executor(None, backup_mgr.create_snapshot, reason)
-
-            # 1. Ensure Directory Exists
-            if os.path.dirname(filepath):
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-            # 2. Apply Fix
-            async with aiofiles.open(filepath, "w", encoding="utf-8") as f:
-                await f.write(new_content)
-
-            # 3. Reload/Load Extension
-            reload_error = None
-            if "src/cogs/" in filepath.replace("\\", "/"):
-                os.path.basename(filepath)
-                rel_path = os.path.relpath(filepath, os.getcwd())
-                ext_name = rel_path.replace("\\", ".").replace("/", ".").replace(".py", "")
-
-                try:
-                    if ext_name in self.bot.extensions:
-                        await self.bot.reload_extension(ext_name)
-                    else:
-                        await self.bot.load_extension(ext_name)
-                except Exception as e:
-                    reload_error = str(e)
-
-            # 4. Health Check
-            diag = await inspector.run_diagnostics()
-
-            # 5. Decision & Rollback
-            if reload_error or not diag["ok"]:
-                # ROLLBACK
-                await self.bot.loop.run_in_executor(None, backup_mgr.restore_snapshot, snapshot_path)
-
-                fail_msg = f"⛔ **ロールバック実行**\n理由: {reload_error if reload_error else 'システム診断NG'}\n\n{diag['report']}"
-                return {"success": False, "message": fail_msg, "snapshot_path": snapshot_path}
-
-            # SUCCESS
-            msg = f"✅ **正常動作確認**\n\n{diag['report']}\nバックアップ: `{os.path.basename(snapshot_path)}`"
-            return {"success": True, "message": msg, "snapshot_path": snapshot_path}
-
-        except Exception as e:
-            logger.error(f"Execution Error: {e}")
-            return {"success": False, "message": f"実行エラー: {e}", "snapshot_path": None}
-
-    async def _gather_context(self, ctx) -> str:
-        """Gather recent messages from the context channel for Scope Analysis."""
-        if not hasattr(ctx, "channel") or not hasattr(ctx.channel, "history"):
-            return "No context available (Not a text channel)."
-
-        try:
-            messages = []
-            async for msg in ctx.channel.history(limit=15):
-                messages.append(f"[{msg.author.display_name}]: {msg.content}")
-
-            return "\n".join(reversed(messages))
-        except Exception as e:
-            return f"Context fetch failed: {e}"
-
-    async def _critique_code(self, code: str) -> bool:
-        """Use LLM to check if code is SAFE."""
-        prompt = (
-            "You are a Security Auditor. Review the following Python code.\n"
-            "Rules:\n"
-            "1. NO creating/deleting files outside of src/.\n"
-            "2. NO infinite loops.\n"
-            "3. NO exfiltration of tokens/secrets.\n"
-            "4. NO destructive system calls (rm, del).\n"
-            "\n"
-            "If SAFE, output 'SAFE'.\n"
-            "If UNSAFE, output 'UNSAFE' and reason.\n"
-            "\n"
-            f"Code:\n{code[:3000]}"
-        )
-
-        resp = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
-        return "SAFE" in resp.upper()
-
-    async def propose_feature(self, feature: str, context: str, requester: discord.User, ctx=None):
-        """
-        AI Self-Evolution with Risk & Scope Analysis (Decision Gate).
-        """
-        try:
-            # Step -1: Pre-Flight Deduplication
-            existing_cmd = await self._check_duplicates(feature)
-            if existing_cmd:
-                if ctx and hasattr(ctx, "send"):
-                    await ctx.send(f"💡 **既存の機能が見つかりました**: `{existing_cmd}` を使ってみてください。")
-                return
-
-            # Step 0: Gather Context
-            ambient_context = await self._gather_context(ctx) if ctx else "No Ambient Context"
-            file_tree = self._get_file_tree(os.getcwd())
-
-            # Server Context
-            guild_id = ctx.guild.id if ctx and ctx.guild else 0
-            guild_name = ctx.guild.name if ctx and ctx.guild else "Direct Message"
-            server_info = f"Guild ID: {guild_id}\nName: {guild_name}"
-
-            prompt = f"""
-            You are an expert Discord Bot Architect (ORA System).
-            
-            Request: "{feature}"
-            Requester: {requester} (ID: {requester.id})
-            Server Context:
-            {server_info}
-            
-            Chat History (Context for Rules/Scope):
-            {ambient_context}
-            
-            Project Structure:
-            {file_tree}
-            
-            --- PHASE 1: COMPLIANCE & RISK ANALYSIS ---
-            Evaluate based on the server context and Discord ToS.
-            1. **COMPLIANCE**: Does this violate server rules or ToS?
-            2. **RISK**: 
-               - SAFE: Simple text, generic commands, harmless.
-               - RISKY: Admin abuse, file deletion, auth changes, spam.
-               - AMBIGUOUS -> RISKY (Safety First).
-            
-            3. **SCOPE**:
-               - GLOBAL: Generic feature (e.g. calculator).
-               - LOCAL: Specific to THIS server (e.g. "Watch #announcements here").
-            
-            --- PHASE 2: IMPLEMENTATION ---
-            - Generate a complete Cog file.
-            - **CRITICAL RULE**: If SCOPE is LOCAL, you MUST insert this guard at the start of every command:
-              ```python
-              if ctx.guild.id != {guild_id}:
-                  return await ctx.send("⛔ This feature is limited to specific servers.")
-              ```
-            
-            Output STRICT JSON:
-            {{
-                "risk": "SAFE" or "RISKY",
-                "compliance": "COMPLIANT" or "VIOLATION",
-                "scope": "GLOBAL" or "LOCAL",
-                "reason": "Reason for decision (Japanese)",
-                "filename": "cogs/suggested_name.py",
-                "code": "COMPLETE_PYTHON_CODE"
-            }}
-            """
-
-            import json
-
-            # Use 'gpt-5.1-codex' (Cloud) as requested by user ("Use this!")
-            try:
-                analysis_json = await self.llm.chat(
-                    messages=[{"role": "user", "content": prompt}], temperature=0.1, model="gpt-5.1-codex"
-                )
-            except Exception as e:
-                logger.warning(f"Primary Cloud LLM (gpt-5.1-codex) failed: {e}. Fallback to Standard (gpt-4o).")
-                analysis_json = await self.llm.chat(
-                    messages=[{"role": "user", "content": prompt}], temperature=0.1, model="gpt-4o"
-                )
-
-            cleaned_json = analysis_json.strip()
-            if cleaned_json.startswith("```json"):
-                cleaned_json = cleaned_json.replace("```json", "").replace("```", "")
-            elif cleaned_json.startswith("```"):
-                cleaned_json = cleaned_json.replace("```", "")
-
-            data = json.loads(cleaned_json)
-
-            # [DECISION GATE]
-            risk = data.get("risk", "RISKY")
-            compliance = data.get("compliance", "VIOLATION")
-            scope = data.get("scope", "GLOBAL")
-            reason = data.get("reason", "No reason provided")
-            code = data.get("code", "")
-
-            status_text = "🔒 管理者承認待ち"
-            discord.Color.orange()
-
-            # Check Auto-Evolve Conditions
-            if (risk == "SAFE" or risk == "LOW") and compliance == "COMPLIANT":
-                # Check Admin or Trusted Scenarios here if needed
-                # For now, SAFE + COMPLIANT = GO
-                status_text = "⚡ 適用実行中..."
-                discord.Color.green()
-
-            # Enhanced Notification
-            await self.notify_feature_proposal(
-                title="🧬 Evolution Proposal 審査結果",
-                description=f"**提案**: {feature}\n"
-                f"**判定**: {risk} / {compliance}\n"
-                f"**範囲**: {scope} (ID: {guild_id if scope == 'LOCAL' else 'Global'})\n"
-                f"**理由**: {reason}\n"
-                f"**ステータス**: {status_text}",
-                user_id=requester.id,
-            )
-
-            if risk == "RISKY" or compliance == "VIOLATION":
-                if ctx and hasattr(ctx, "send"):
-                    await ctx.send(f"⚠️ **自動更新停止**: リスク判断により承認待ちとなりました。\n理由: {reason}")
-                return
-
-            if not code:
-                return
-
-            # AUTO-EVOLVE
-            target_path = os.path.join("src", data.get("filename", "cogs/feature.py"))
-
-            if ctx and hasattr(ctx, "send"):
-                await ctx.send(f"🧬 **自己進化を開始します**\n範囲: {scope}\n理由: {reason}")
-
-            # Execute
-            result = await self.execute_evolution(target_path, code, f"Auto-Evolve: {feature} ({scope})")
-
-            if result["success"]:
-                if ctx and hasattr(ctx, "send"):
-                    await ctx.send(f"✅ **進化完了**: {scope} 機能として実装されました！")
-            else:
-                if ctx and hasattr(ctx, "send"):
-                    await ctx.send(f"⚠️ **進化失敗**: ロールバックしました。\n{result['message']}")
-
-        except Exception as e:
-            logger.error(f"Self-Evolution failed: {e}")
-            if ctx and hasattr(ctx, "send"):
-                await ctx.send(f"❌ エラーが発生しました: {e}")
-        """Returns a string representation of the src directory tree."""
-        tree_lines = []
-        start_dir = os.path.join(root_dir, "src")
-        if not os.path.exists(start_dir):
-            return "src/ (Not Found)"
-
-        for root, _dirs, files in os.walk(start_dir):
-            level = root.replace(start_dir, "").count(os.sep)
-            indent = " " * 4 * (level)
-            tree_lines.append(f"{indent}{os.path.basename(root)}/")
-            subindent = " " * 4 * (level + 1)
-            for f in files:
-                if f.endswith(".py"):
-                    tree_lines.append(f"{subindent}{f}")
-        return "\n".join(tree_lines)
 
     async def notify_feature_proposal(self, title: str, description: str, user_id: int) -> bool:
         """Sends a formal feature proposal to the configured channel."""
@@ -576,7 +294,7 @@ class Healer:
         if not channel:
             try:
                 channel = await self.bot.fetch_channel(cid)
-            except:
+            except Exception:
                 return False
 
         user = self.bot.get_user(user_id)
@@ -622,7 +340,7 @@ class Healer:
             If NO, output "NO".
             """
 
-            resp = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
+            resp, _, _ = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
             if "NO" in resp.upper():
                 return None
             return resp.strip()
@@ -651,7 +369,7 @@ class Healer:
                         f.seek(0)
                         json.dump(hdata, f)
                         f.truncate()
-                except:
+                except Exception:
                     pass
 
             # Launch Watcher in New Window
@@ -667,7 +385,7 @@ class Healer:
                             if json.load(f).get("watcher_ready"):
                                 watcher_active = True
                                 break
-                except:
+                except Exception:
                     pass
 
             if not watcher_active:
@@ -728,7 +446,7 @@ class Healer:
                         f"Original Code:\n{current_content}\n\n"
                         f"Output ONLY the fixed complete code (no markdown)."
                     )
-                    fixed_code = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
+                    fixed_code, _, _ = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
 
                     # Clean output
                     if "```" in fixed_code:
@@ -779,7 +497,7 @@ class Healer:
             f"Code:\n{code[:3000]}"
         )
 
-        resp = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
+        resp, _, _ = await self.llm.chat([{"role": "user", "content": prompt}], temperature=0.0)
         return "SAFE" in resp.upper()
 
     async def propose_feature(self, feature: str, context: str, requester: discord.User, ctx=None):
@@ -837,7 +555,7 @@ class Healer:
 
             import json
 
-            analysis_json = await self.llm.chat(
+            analysis_json, _, _ = await self.llm.chat(
                 messages=[{"role": "user", "content": prompt}], temperature=0.2, model="gpt-5.1-codex"
             )
 

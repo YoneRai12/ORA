@@ -69,7 +69,7 @@ class HeartbeatCog(commands.Cog):
                 try:
                     with open(self.heartbeat_file, "r", encoding="utf-8") as f:
                         existing_data = json.load(f)
-                except:
+                except Exception:
                     pass
 
             # Update local state from file (if Watcher wrote to it)

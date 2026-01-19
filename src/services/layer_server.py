@@ -57,8 +57,6 @@ async def get_model():
 @app.on_event("startup")
 async def startup_event():
     logger.info("Service Started (Lazy Mode).")
-    import asyncio
-
     asyncio.create_task(garbage_collector())
 
 

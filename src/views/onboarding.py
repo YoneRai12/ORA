@@ -31,7 +31,7 @@ class SelectModeView(View):
         # Clean up the onboarding message
         try:
             await interaction.message.delete()
-        except:
+        except Exception:
             pass
 
     @discord.ui.button(
@@ -53,5 +53,5 @@ class SelectModeView(View):
         self.stop()
         try:
             await interaction.message.delete()
-        except:
+        except Exception:
             pass

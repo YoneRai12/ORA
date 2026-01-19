@@ -209,7 +209,7 @@ class ShadowWatcher(discord.Client):
                         def after_play(error):
                             try:
                                 os.remove(fname)
-                            except:
+                            except Exception:
                                 pass
 
                         vc.play(discord.FFmpegPCMAudio(fname), after=after_play)

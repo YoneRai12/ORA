@@ -8,12 +8,13 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from src.cogs.memory import MemoryCog  # noqa: E402
+
 # Imports from src
 from src.config import Config  # noqa: E402
 from src.utils.google_client import GoogleClient  # noqa: E402
 from src.utils.llm_client import LLMClient  # noqa: E402
 from src.utils.unified_client import UnifiedClient  # noqa: E402
-from src.cogs.memory import MemoryCog  # noqa: E402
 
 # Setup Logging
 log_dir = os.path.join(os.getcwd(), "logs")

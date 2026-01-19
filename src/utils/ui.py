@@ -12,9 +12,9 @@ class StatusManager:
     EMOJI_PROCESSING = "<a:rode:1449406298788597812>"
     EMOJI_DONE = "<a:conp:1449406158883389621>"
 
-    def __init__(self, channel: discord.abc.Messageable):
+    def __init__(self, channel: discord.abc.Messageable, existing_message: Optional[discord.Message] = None):
         self.channel = channel
-        self.message: Optional[discord.Message] = None
+        self.message: Optional[discord.Message] = existing_message
         self.steps: List[dict] = []  # List of {"label": str, "done": bool}
         self._lock = asyncio.Lock()
         self._last_update_time = 0.0

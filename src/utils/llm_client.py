@@ -144,7 +144,8 @@ class LLMClient:
         # If the model is clearly an OpenAI Cloud Model, route to OpenAI API directly.
         # This bypasses the Local LLM (vLLM) which might be down.
         # Known Cloud Models: gpt-4, gpt-3.5, o1-, o3-, chatgpt-4o, AND NOW gpt-5/codex based on user request
-        is_cloud_model = any(m in model_name for m in ["gpt-4", "gpt-3.5", "o1-", "o3-", "chatgpt", "gpt-5", "codex"])
+        # Known Cloud Models: gpt-4, gpt-3.5, o1-, o3-, chatgpt-4o
+        is_cloud_model = any(m in model_name for m in ["gpt-4", "gpt-3.5", "o1-", "o3-", "chatgpt"])
 
         # Current Base URL and Key (Default to Local)
         request_base_url = self._base_url
@@ -233,7 +234,7 @@ class LLMClient:
                 prompt_text += f"### {role}:\n{content}\n\n"
             prompt_text += "### ASSISTANT:\n"
 
-            payload: Dict[str, Any] = {
+            payload = {
                 "model": model_name,
                 "prompt": prompt_text,
                 "max_tokens": 4096,
@@ -498,7 +499,7 @@ class LLMClient:
                             # We only want the TEXT content from the Message object
                             try:
                                 logger.debug(f"DEBUG v1/responses OUTPUT LIST: {str(content)[:500]}")
-                            except:
+                            except Exception:
                                 pass
 
                             final_text = ""
@@ -577,11 +578,26 @@ class LLMClient:
                     raise e
 
     async def unload_model(self) -> None:
-        """Attempt to unload the model from VRAM (LM Studio / Ollama)."""
-        # Try LM Studio specific endpoint first
+        """Attempt to unload the model from VRAM (LM Studio / Ollama / vLLM)."""
+        logger.info(f"🛑 Unloading model/service for: {self._model}")
+
+        # 1. Try vLLM (WSL2) Unload
+        try:
+            # Kill python3 process running vllm
+            cmd = "wsl -d Ubuntu-22.04 pkill -f vllm"
+            proc = await asyncio.create_subprocess_shell(
+                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("✅ vLLM Stopped.")
+        except Exception as e:
+            logger.debug(f"vLLM stop skipped or failed: {e}")
+
+        # 2. Try LM Studio specific endpoint
         urls = [
             f"{self._base_url}/internal/model/unload",  # LM Studio
-            f"{self._base_url}/chat/completions",  # Ollama fallback (keep_alive=0)
+            f"{self._base_url}/chat/completions",      # Ollama fallback (keep_alive=0)
         ]
 
         headers = {
@@ -602,103 +618,44 @@ class LLMClient:
                 await session.__aenter__()
 
             try:
-                # 1. Try LM Studio Unload
+                # A. Try LM Studio Unload
                 try:
                     async with session.post(urls[0], headers=headers, json={}, timeout=2) as resp:
                         if resp.status == 200:
                             logger.info("✅ LM Studio Model Unloaded.")
-                            return
-                except:
+                except Exception:
                     pass
 
-                # 2. Try Ollama Unload
+                # B. Try Ollama Unload
                 try:
                     async with session.post(urls[1], headers=headers, json=ollama_payload, timeout=2) as resp:
                         if resp.status == 200:
                             logger.info("✅ Ollama Model Unloaded (keep_alive=0).")
-                            return
-                except:
+                except Exception:
                     pass
-
-                logger.warning("Could not unload model (API did not respond to known offload commands).")
 
             finally:
                 if not self._session:
                     await session.__aexit__(None, None, None)
 
-            # 3. Try 'lms' CLI (Definitive Fix for LM Studio 0.3+)
+            # C. Try 'lms' CLI (LM Studio 0.3+)
             try:
-                # Run 'lms unload --all' asynchronously
                 proc = await asyncio.create_subprocess_exec(
                     "lms", "unload", "--all", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await proc.communicate()
+                await proc.communicate()
+            except Exception:
+                pass
 
-                if proc.returncode == 0:
-                    logger.info("✅ 'lms unload --all' executed successfully.")
-                else:
-                    logger.warning(f"'lms' CLI failed with code {proc.returncode}: {stderr.decode()}")
-            except Exception as cli_e:
-                logger.warning(f"Failed to run 'lms' CLI: {cli_e}")
-
-            # 4. NUCLEAR OPTION: Taskkill
-            # User request: "VRAMからkillしてよ" (Kill from VRAM)
+            # D. NUCLEAR OPTION: Taskkill LM Studio
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "taskkill",
-                    "/F",
-                    "/IM",
-                    "LM Studio.exe",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    "taskkill", "/F", "/IM", "LM Studio.exe",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
                 await proc.communicate()
-                logger.info("☢️ Nuclear Option Executed: Killed 'LM Studio.exe'")
-            except Exception as tk_e:
-                logger.warning(f"Failed to taskkill: {tk_e}")
+            except Exception:
+                pass
 
         except Exception as e:
-            logger.warning(f"Failed to unload model: {e}")
-
-    async def start_service(self) -> None:
-        """Starts the LLM service (vLLM on WSL2)."""
-        try:
-            logger.info("🚀 Starting vLLM Service (WSL2)...")
-
-            # Use 'wsl' command to launch vLLM in background (nohup or detached)
-            # We use 'start' to detach from Python process
-            cmd = (
-                "wsl -d Ubuntu-22.04 nohup python3 -m vllm.entrypoints.openai.api_server "
-                "--model Qwen/Qwen2.5-VL-32B-Instruct-AWQ --quantization awq --dtype half --gpu-memory-utilization 0.90 "
-                "--max-model-len 2048 --enforce-eager --disable-custom-all-reduce --tensor-parallel-size 1 --port 8001 "
-                "--trust-remote-code > vllm.log 2>&1 &"
-            )
-
-            await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            # Wait for it to spin up? (It takes ~20s)
-            # We won't block here, the first request will just fail/retry.
-            # But we should give it a head start.
-            logger.info("⏳ Waiting 10s for vLLM to initialize...")
-            await asyncio.sleep(10)
-            logger.info("✅ vLLM Launch signal sent.")
-
-        except Exception as e:
-            logger.error(f"Failed to start LLM service: {e}")
-
-    async def unload_model(self):
-        """Stops the LLM service (vLLM) to free VRAM."""
-        try:
-            logger.info("🛑 Stopping vLLM Service (pkill)...")
-            # Kill python3 process running vllm
-            cmd = "wsl -d Ubuntu-22.04 pkill -f vllm"
-
-            proc = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-            logger.info("✅ vLLM Stopped.")
-
-        except Exception as e:
-            logger.warning(f"Failed to stop vLLM: {e}")
+            logger.warning(f"Failed to fully unload model: {e}")

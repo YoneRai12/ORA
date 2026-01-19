@@ -606,7 +606,7 @@ class MemoryCog(commands.Cog):
                             content = await f.read()
                             if content.strip():
                                 return json.loads(content)
-                    except:
+                    except Exception:
                         await asyncio.sleep(0.1)
         return None
 
@@ -789,7 +789,7 @@ class MemoryCog(commands.Cog):
             try:
                 # Try cleaning newlines/tabs
                 return json.loads(potential_json.replace("\n", "").replace("\t", ""), strict=False)
-            except:
+            except Exception:
                 pass
 
             logger.warning("Memory: JSONデコード失敗。修復を試みます...")
@@ -1039,7 +1039,7 @@ class MemoryCog(commands.Cog):
         try:
             if psutil.cpu_percent() > 85:
                 return
-        except:
+        except Exception:
             pass
 
         # 2. Process Buffered Messages
@@ -1303,7 +1303,7 @@ class MemoryCog(commands.Cog):
                     # Throttle between pages (User's "徐々に" strategy)
                     await asyncio.sleep(1.5)
 
-            except:
+            except Exception:
                 continue
             if len(collected) >= 50:
                 break
@@ -1356,7 +1356,7 @@ class MemoryCog(commands.Cog):
                             if (now - dt).days >= 7:
                                 is_target = True
                                 logger.debug(f"AutoScan: {member.display_name} is stale ({last_upd}). Re-queueing.")
-                        except:
+                        except Exception:
                             is_target = True  # Bad date, re-scan
 
                 if is_target:
@@ -1843,7 +1843,7 @@ class MemoryCog(commands.Cog):
                     state = json.loads(await f.read())
             else:
                 state = {}
-        except:
+        except Exception:
             state = {}
 
         for guild in self.bot.guilds:

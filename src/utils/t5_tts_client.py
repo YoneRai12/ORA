@@ -44,7 +44,7 @@ class T5TTSClient:
             # The local directory is missing tokenizer files. using base Gemma tokenizer.
             try:
                 self.tokenizer = AutoTokenizer.from_pretrained("google/gemma-2b", trust_remote_code=True)
-            except:
+            except Exception:
                 # Fallback to model_id if online or if users fixed it
                 self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=True)
 
@@ -56,7 +56,7 @@ class T5TTSClient:
                     # Try to extract from nested config dict
                     val = self.model.config.t5_config_dict["decoder"]["num_hidden_layers"]
                     self.model.config.num_hidden_layers = val
-                except:
+                except Exception:
                     self.model.config.num_hidden_layers = 26  # Hardcoded fallback from config.json inspection
             # ------------------------------------------
 

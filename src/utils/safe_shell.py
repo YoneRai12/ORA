@@ -216,7 +216,7 @@ class SafeShell:
                 raise ScanLimitExceeded("file_limit")
             try:
                 bytes_scanned += path.stat().st_size
-            except:
+            except Exception:
                 pass
             if bytes_scanned > MAX_TOTAL_BYTES_SCANNED:
                 raise ScanLimitExceeded("byte_limit")
@@ -243,7 +243,7 @@ class SafeShell:
             if base.is_dir():
                 try:
                     base_parts = len(base.resolve().parts)
-                except:
+                except Exception:
                     return []
 
                 for root_path, dirs, files in os.walk(base):
@@ -254,7 +254,7 @@ class SafeShell:
                         depth = len(resolved_root.parts) - base_parts
                         if depth >= MAX_DEPTH:
                             dirs[:] = []
-                    except:
+                    except Exception:
                         continue
 
                     # Strict Filter
@@ -361,7 +361,7 @@ class SafeShell:
                                     count += 1
                                     if count >= max_matches:
                                         break
-                    except:
+                    except Exception:
                         pass
                     if count >= max_matches:
                         break

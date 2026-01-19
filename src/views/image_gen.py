@@ -54,7 +54,7 @@ class StyleSelectView(View):
                     f"Translate the following image prompt to English for Stable Diffusion. "
                     f"Output ONLY the translated English text, no explanations.\n\nPrompt: {final_prompt}"
                 )
-                translated = await self.cog.llm.chat(
+                translated, _, _ = await self.cog.llm.chat(
                     messages=[{"role": "user", "content": translation_prompt}], temperature=0.1
                 )
                 final_prompt = translated.strip()
@@ -92,6 +92,9 @@ class StyleSelectView(View):
             workflow = ComfyWorkflow(
                 server_address=self.cog.bot.config.sd_api_url.replace("http://", "").replace("/", "")
             )
+
+            # Determine steps based on quality
+            steps = 35 if self.is_high_quality else 20
 
             # Execute Generation in Thread
             image_data = await asyncio.to_thread(

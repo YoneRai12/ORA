@@ -55,7 +55,7 @@ class LocalLogReader:
                         # Read everything. For large logs, we might want to tail it instead.
                         lines = f.readlines()
                         all_lines.extend(lines)
-                except:
+                except Exception:
                     pass
 
         messages = []

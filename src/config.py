@@ -171,7 +171,7 @@ class Config:
     model_modes: Dict[str, str]
     router_thresholds: Dict[str, float]
     log_channel_id: int
-    startup_notify_channel_id: int
+    startup_notify_channel_id: Optional[int] # Changed from int to Optional[int]
     feature_proposal_channel_id: Optional[int]
     sub_admin_ids: set[int]
     vc_admin_ids: set[int]
@@ -226,9 +226,10 @@ class Config:
 
         log_level_raw = os.getenv("LOG_LEVEL", "INFO").strip()
         if log_level_raw.isdigit():
-            level_name = logging.getLevelName(int(log_level_raw))
+            val = int(log_level_raw)
+            level_name = logging.getLevelName(val)
             if not isinstance(level_name, str) or level_name not in logging.getLevelNamesMapping():
-                raise ConfigError("LOG_LEVEL に不明な値が指定されています。")
+                raise ConfigError(f"LOG_LEVEL に不明な数値 {val} が指定されています。")
             log_level = level_name
         else:
             log_level = log_level_raw.upper()
@@ -289,7 +290,7 @@ class Config:
         if sub_admin_raw:
             try:
                 sub_admin_ids = {int(x.strip()) for x in sub_admin_raw.split(",") if x.strip()}
-            except:
+            except Exception:
                 pass
 
         vc_admin_ids = set()
@@ -297,7 +298,7 @@ class Config:
         if vc_admin_raw:
             try:
                 vc_admin_ids = {int(x.strip()) for x in vc_admin_raw.split(",") if x.strip()}
-            except:
+            except Exception:
                 pass
 
         # Debug Log Channel
@@ -344,6 +345,11 @@ class Config:
             "confidence_cutoff": 0.72,
             "sticky_duration": 180.0,  # seconds
         }
+
+        # Stable Diffusion & ComfyUI
+        sd_api_url = os.getenv("SD_API_URL", "http://127.0.0.1:7860")
+        comfy_dir = os.getenv("COMFY_DIR")
+        comfy_bat = os.getenv("COMFY_BAT")
 
         return cls(
             token=token,

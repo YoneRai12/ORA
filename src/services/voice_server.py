@@ -65,8 +65,6 @@ async def get_model():
 async def startup_event():
     logger.info("Service Started. Model will load on first request.")
     # Start background cleaner
-    import asyncio
-
     asyncio.create_task(vocab_garbage_collector())
 
 

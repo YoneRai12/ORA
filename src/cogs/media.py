@@ -21,8 +21,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from src.views.music_dashboard import MusicPlayerView, create_music_embed
-
 from ..storage import Store
 from ..utils import image_tools
 from ..utils.flag_utils import country_to_flag, flag_to_iso, get_country_name, iso_to_flag
@@ -678,7 +676,7 @@ class MediaCog(commands.Cog):
                     # Just update
                     try:
                         await self.update_music_dashboard(guild_id)
-                    except:
+                    except Exception:
                         # If update fails (e.g. deleted), recreate
                         pass
 
@@ -881,7 +879,7 @@ class MediaCog(commands.Cog):
         voice_client = interaction.guild.voice_client if interaction.guild else None
         if voice_client:
             try:
-                await voice_client.disconnect()
+                await voice_client.disconnect(force=True)
             except Exception:
                 logger.exception("ボイスチャンネルからの切断に失敗しました")
         await interaction.followup.send("自動読み上げを停止しました。", ephemeral=send_ephemeral)
@@ -1038,7 +1036,6 @@ class MediaCog(commands.Cog):
         if len(non_bot_members) == 0:
             logger.info(f"無人になったため {bot_channel.name} から自動切断します")
             await member.guild.voice_client.disconnect()
-            # Also clear auto-read for this guild
             self._voice_manager.auto_read_channels.pop(member.guild.id, None)
 
     @commands.Cog.listener()
@@ -1090,109 +1087,8 @@ class MediaCog(commands.Cog):
         except Exception as e:
             logger.error(f"翻訳失敗: {e}")
             await channel.send(f"{emoji} 翻訳に失敗しました。", delete_after=5)
-            await message.reply(f"{emoji} {translated_text}", mention_author=False)
-        except Exception as e:
-            logger.error(f"Translation failed: {e}")
-            await channel.send(f"{emoji} 翻訳に失敗しました。", delete_after=5)
+# Removed duplicate except block
 
-    # ------------------------------------------------------------------
-    # AI Control Methods (called from ORA Cog)
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # AI Control Methods (called from ORA Cog)
-    # ------------------------------------------------------------------
-    async def play_from_ai(self, ctx: commands.Context, query: str) -> None:
-        """Play music requested by AI."""
-        # Ensure voice client
-        if ctx.author.voice:
-            await self._voice_manager.ensure_voice_client(ctx.author)
-
-        # Use existing ytplay logic but simplified
-        # We assume 'stream' mode for speed
-        stream_url, title, _duration = await get_youtube_audio_stream_url(query)
-        if not title or not stream_url:
-            await ctx.send(f"動画が見つかりませんでした: {query}")
-            return
-
-        played = await self._voice_manager.play_music(ctx.author, stream_url, title, is_stream=True)
-        if played:
-            try:
-                # Dashboard Integration
-                guild_id = ctx.guild.id
-                state = self._voice_manager.get_music_state(guild_id)
-
-                # Create View and Embed
-                # Correct Usage: No await, correct args, only Embed return
-                track_info = {"title": title, "url": query if "http" in query else ""}
-                queue_preview = [{"title": t[1]} for t in state.queue]
-
-                embed = create_music_embed(
-                    track_info=track_info,
-                    status="Playing",  # Assumed valid since logic falls through here
-                    play_time_sec=0,
-                    total_duration_sec=_duration if _duration else 0,
-                    queue_preview=queue_preview,
-                    speed=state.speed,
-                    pitch=state.pitch,
-                )
-
-                view = MusicPlayerView(self, guild_id)
-
-                # Clean up old dashboard if exists
-                if not hasattr(self, "dashboard_messages"):
-                    self.dashboard_messages = {}
-
-                if guild_id in self.dashboard_messages:
-                    try:
-                        old_msg = self.dashboard_messages[guild_id]
-                        if old_msg:
-                            await old_msg.delete()
-                    except:
-                        pass
-
-                # Send New Dashboard
-                msg = await ctx.send(embed=embed, view=view)
-                self.dashboard_messages[guild_id] = msg
-
-            except Exception as e:
-                logger.error(f"Failed to show dashboard in play_from_ai: {e}")
-                await ctx.send(f"再生を開始します: {title}")
-
-            # Start auto-disconnect monitor
-            await self._start_auto_disconnect(ctx.guild.id, ctx.guild.voice_client)
-        else:
-            await ctx.send("再生できませんでした。")
-
-    async def control_from_ai(self, ctx: commands.Context, action: str) -> None:
-        """Control music playback requested by AI."""
-        guild_id = ctx.guild.id
-        if action == "skip":
-            self._voice_manager.skip_music(guild_id)
-            await ctx.send("スキップしました")
-        elif action == "stop":
-            self._voice_manager.stop_music(guild_id)
-            await ctx.send("再生を停止しました")
-        elif action == "loop_on":
-            self._voice_manager.set_loop(guild_id, True)
-            await ctx.send("ループ再生をONにしました")
-        elif action == "loop_off":
-            self._voice_manager.set_loop(guild_id, False)
-            await ctx.send("ループ再生をOFFにしました")
-        elif action == "queue_show":
-            state = self._voice_manager.get_queue_info(guild_id)
-            if not state["current"] and not state["queue"]:
-                await ctx.send("現在再生中の曲はありません")
-                return
-            msg = f"**現在再生中:** {state['current']}\n"
-            if state["queue"]:
-                msg += "**キュー:**\n" + "\n".join([f"{i + 1}. {t}" for i, t in enumerate(state["queue"], 1)])
-            await ctx.send(msg)
-        elif action == "replay_last":
-            success = self._voice_manager.replay_previous(guild_id)
-            if success:
-                await ctx.send("前の曲を再生します ⏮️")
-            else:
-                await ctx.send("履歴がありません")
 
     # ------------------------------------------------------------------
     # Safe Auto-Disconnect Logic
@@ -1228,7 +1124,7 @@ class MediaCog(commands.Cog):
                         empty_timer += 1
                         if empty_timer >= 10:  # 10 seconds grace period
                             logger.info(f"Auto-disconnecting from guild {guild_id} - Channel empty (Poller protection)")
-                            await vc.disconnect()
+                            await vc.disconnect(force=True)
                             self._voice_manager.auto_read_channels.pop(guild_id, None)
                             return
                     else:

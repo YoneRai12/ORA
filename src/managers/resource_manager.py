@@ -35,8 +35,8 @@ class ResourceManager:
             # I'll default to looking for run_nvidia_gpu.bat in Comfy folder later.
         }
         
-        self.comfy_dir = config.comfy_dir
-        self.comfy_bat = config.comfy_bat
+        self.comfy_dir = os.getenv("COMFY_DIR")
+        self.comfy_bat = os.getenv("COMFY_BAT")
 
         # Fallback if config failed or is empty
         if not self.comfy_bat:
