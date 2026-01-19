@@ -93,7 +93,7 @@ ORA uses **Qwen 2.5-VL (Visual Language Model)** to "see" images.
 
 ### 3. Generation (The Hands) 🎨
 ORA creates content locally.
-*   **Image Generation**: Uses **FLUX.1 [schnell]** or **Stable Diffusion XL** to generate images. *Resolution and speed depend on your GPU and Configuration.*
+*   **Image Generation**: Uses **FLUX.2 [schnell]** or **Stable Diffusion XL** to generate images. *Resolution and speed depend on your GPU and Configuration.*
 *   **Voice Cloning**: Uses **T5Gemma-TTS** (or VoiceVox) for high-quality speech synthesis directly from your GPU.
 
 ---
@@ -122,7 +122,7 @@ Here is how ORA helps you in real usage scenarios.
 ### 🌃 Late Night: The Creative Partner
 **You**: "I need a background for my new game. A magical forest, moonlight, anime style."
 **ORA**: "Generating..." (GPU Fans spin up)
-**ORA**: (Sends Image) "Here is the result from FLUX.1. How is it?"
+**ORA**: (Sends Image) "Here is the result from FLUX.2. How is it?"
 **You**: "Perfect."
 
 ---

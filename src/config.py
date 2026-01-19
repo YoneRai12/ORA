@@ -240,7 +240,7 @@ class Config:
 
         llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:8001/v1").rstrip("/")
         llm_api_key = os.getenv("LLM_API_KEY", "EMPTY")
-        llm_model = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-VL-32B-Instruct-AWQ")
+        llm_model = os.getenv("LLM_MODEL", "GLM-4.7-Flash")
 
         privacy_default = os.getenv("PRIVACY_DEFAULT", "private").lower()
         if privacy_default not in {"private", "public"}:
