@@ -272,6 +272,7 @@ Wake up the bot using the command for your OS:
 | **Windows** | `start_windows.bat` | Double-click or run in CMD. |
 | **Mac (Silicon)** | `./start.sh` | Supports Apple M1/M2/M3 Neural Engine. |
 | **Linux** | `./start.sh` | Supports NVIDIA CUDA / Headless Mode. |
+| **Docker** | `docker-compose up -d` | **Recommended for Servers**. Includes Web Dashboard. |
 
 *   Wait for **"ORA is Online"**.
 *   Say "Hello" in Discord!
