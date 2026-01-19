@@ -20,11 +20,11 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import aiofiles
+import aiofiles  # type: ignore
 import aiohttp
 import discord
 import psutil
-import pytz
+import pytz  # type: ignore
 from discord import app_commands
 from discord.ext import commands, tasks
 

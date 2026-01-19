@@ -3409,6 +3409,7 @@ class ORACog(commands.Cog):
                     return f"⚠️ **Tool '{tool_name}' not found.**\n Initiating **Auto-Evolution** protocol to implement this feature.\n Please wait for the proposal in the Debug Channel."
 
                 return f"Error: Unknown tool '{tool_name}'"
+            return "Tool logic finished."
 
         except Exception as e:
             guild_id = message.guild.id if message.guild else None

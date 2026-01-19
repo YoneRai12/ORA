@@ -496,7 +496,7 @@ async def get_dashboard_users(response: Response):
     import json
     from pathlib import Path
 
-    import aiofiles
+    import aiofiles  # type: ignore
 
     from src.config import MEMORY_DIR, STATE_DIR
     Path(MEMORY_DIR) / "users"
