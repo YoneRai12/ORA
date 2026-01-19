@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import discord
 from unittest.mock import MagicMock, AsyncMock, patch
 from src.bot import ORABot
 from src.config import Config
@@ -32,8 +33,8 @@ async def test_bot_setup_hook():
     mock_llm_client = MagicMock()
     mock_session = MagicMock()
     
-    # Mock Intents
-    mock_intents = MagicMock()
+    # Real Intents (Type check fix)
+    mock_intents = discord.Intents.default()
     
     # Initialize Bot
     bot = ORABot(
