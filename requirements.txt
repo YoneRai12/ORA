@@ -45,7 +45,7 @@ google-auth
 psutil
 pycaw
 comtypes
-pycountry>=22.3,<24.0
+pycountry>=22.3,<25.0
 websocket-client
 pytz
 
