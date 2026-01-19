@@ -1,12 +1,12 @@
-# ruff: noqa: E402, B008
-import os
-import sys
 import io
 import logging
 import time
 
+# ruff: noqa: E402, B008, I001, F401
+
 import torch
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.responses import Response
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
 

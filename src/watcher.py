@@ -31,6 +31,7 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 HEARTBEAT_FILE = os.path.join("data", "heartbeat.json")
 BACKUP_DIR = "backups"
 
+# ruff: noqa: E402
 import discord
 
 

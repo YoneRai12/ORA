@@ -17,6 +17,7 @@ except ImportError:
     WHISPER_AVAILABLE = False
     logger.warning("faster-whisper がインストールされていません。音声認識機能は無効化されます。")
 
+# ruff: noqa: E402
 from collections import defaultdict
 
 

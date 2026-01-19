@@ -25,10 +25,11 @@ from ..utils import flag_utils
 from ..utils.games import ShiritoriGame
 
 # Transformers for SAM 2 / T5Gemma
+# ruff: noqa: F401
 try:
     from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, Sam2Model, pipeline
 except ImportError:
-    pass  # Handled in tool execution
+    pass
 import io as sys_io
 import shlex
 import zlib
@@ -2102,8 +2103,6 @@ class ORACog(commands.Cog):
                 except Exception as e:
                     return f"Tree Error: {e}"
 
-                except Exception as e:
-                    return f"Error generating tree: {e}"
 
             elif tool_name == "request_feature":
                 feature_desc = args.get("feature_description")

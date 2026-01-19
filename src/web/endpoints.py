@@ -945,7 +945,7 @@ async def optimize_user(user_id: str):
         return {"status": "queued", "message": "Optimization requested via Queue"}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to queue optimization: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue optimization: {e}") from e
 
 
 @router.post("/system/restart")

@@ -4,7 +4,7 @@ import re
 
 def fix_bare_excepts(directory):
     pattern = re.compile(r'^(\s*)except\s*:\s*$', re.MULTILINE)
-    for root, dirs, files in os.walk(directory):
+    for root, _dirs, files in os.walk(directory):
         for file in files:
             if file.endswith('.py'):
                 path = os.path.join(root, file)

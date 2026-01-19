@@ -541,7 +541,7 @@ class VoiceManager:
                     break
                 else:
                     logger.error(f"Voice ClientException: {e}")
-                    raise VoiceConnectionError(f"接続エラー (ClientException): {e}")
+                    raise VoiceConnectionError(f"接続エラー (ClientException): {e}") from e
             except Exception as e:
                 logger.exception(f"Unexpected voice error attempt {attempt}: {e}")
                 last_error = e

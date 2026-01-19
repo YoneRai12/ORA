@@ -233,7 +233,7 @@ def _analyze_image_v2_raw(data: bytes) -> dict:
 
     # Labels
     if response.label_annotations:
-        result["labels"] = [l.description for l in response.label_annotations]
+        result["labels"] = [label.description for label in response.label_annotations]
 
     # Faces
     if response.face_annotations:

@@ -314,7 +314,7 @@ class SafeShell:
                 output = ""
                 if name == "cat":
                     if "-n" in flags:
-                        output = "".join(f"{i + 1:4} | {l}" for i, l in enumerate(lines))
+                        output = "".join(f"{i + 1:4} | {line}" for i, line in enumerate(lines))
                     else:
                         output = content
 

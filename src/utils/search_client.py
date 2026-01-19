@@ -34,7 +34,7 @@ class SearchClient:
             return True
         # Check DuckDuckGo
         try:
-            from duckduckgo_search import DDGS
+            from duckduckgo_search import DDGS  # noqa: F401
 
             return True
         except ImportError:
@@ -64,7 +64,7 @@ class SearchClient:
                             "hl": hl,
                         }
 
-                        def _request() -> List[dict]:
+                        def _request(params=params) -> List[dict]:
                             search = GoogleSearch(params)
                             response = search.get_dict()
                             results: List[dict] = []
@@ -147,7 +147,7 @@ class SearchClient:
             except ImportError:
                 logger.error("duckduckgo-search not installed.")
                 if not self.enabled:
-                    raise RuntimeError("検索APIが設定されておらず、DuckDuckGoもインストールされていません。")
+                    raise RuntimeError("検索APIが設定されておらず、DuckDuckGoもインストールされていません。") from None
                 return []
             except asyncio.TimeoutError:
                 logger.error("DuckDuckGo search timed out.")
