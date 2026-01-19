@@ -47,6 +47,7 @@ pycaw
 comtypes
 pycountry>=22.3,<24.0
 websocket-client
+pytz
 
 # Web API (Dashboard/IPC)
 fastapi
