@@ -1,4 +1,3 @@
-import aiofiles
 import asyncio
 import io
 import json
@@ -11,6 +10,7 @@ import time
 import traceback
 from typing import Optional
 
+import aiofiles
 import discord
 
 from .llm_client import LLMClient

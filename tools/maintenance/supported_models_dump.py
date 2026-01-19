@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import comfy.text_encoders.ace
 import comfy.text_encoders.aura_t5
 import comfy.text_encoders.cosmos

@@ -5,7 +5,7 @@ import logging
 import re
 import secrets
 from datetime import datetime as dt_class  # Avoid conflict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import discord
 

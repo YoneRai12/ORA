@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 
 # Target File: L:\ComfyUI\comfy\ldm\flux\model.py

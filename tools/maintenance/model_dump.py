@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 # Original code can be found on: https://github.com/black-forest-labs/flux
 
 from dataclasses import dataclass

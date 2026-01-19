@@ -1,4 +1,3 @@
-import aiohttp
 import json
 import logging
 import os
@@ -9,6 +8,7 @@ import urllib.request
 import uuid
 from typing import Any, Dict, Optional
 
+import aiohttp
 import websocket
 
 logger = logging.getLogger(__name__)

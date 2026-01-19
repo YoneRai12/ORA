@@ -1,4 +1,5 @@
 """Entry point for the ORA Discord bot."""
+# ruff: noqa: E402
 
 from __future__ import annotations
 

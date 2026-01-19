@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 
 from huggingface_hub import snapshot_download

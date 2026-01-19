@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import socket
 
 # Simple health check for core ORA services.

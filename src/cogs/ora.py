@@ -29,6 +29,7 @@ try:
     from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, Sam2Model, pipeline
 except ImportError:
     pass  # Handled in tool execution
+import io as sys_io
 import shlex
 import zlib
 from collections import defaultdict
@@ -43,18 +44,17 @@ from duckduckgo_search import DDGS
 
 from src.utils.safe_shell import SafeShell
 
+from ..managers.resource_manager import ResourceManager
 from ..storage import Store
 from ..utils.ascii_art import AsciiGenerator
-from ..utils.cost_manager import Usage
+from ..utils.cost_manager import CostManager, Usage
 from ..utils.desktop_watcher import DesktopWatcher
 from ..utils.drive_client import DriveClient
 from ..utils.llm_client import LLMClient
 from ..utils.logger import GuildLogger
+from ..utils.sanitizer import Sanitizer
 from ..utils.search_client import SearchClient
 from ..utils.ui import EmbedFactory, StatusManager
-from ..managers.resource_manager import ResourceManager
-from ..utils.cost_manager import CostManager
-from ..utils.sanitizer import Sanitizer
 from ..utils.unified_client import UnifiedClient
 from ..utils.user_prefs import UserPrefs
 from .handlers.chat_handler import ChatHandler
@@ -1687,7 +1687,7 @@ class ORACog(commands.Cog):
                     )
 
                     if mp4_data:
-                        video_file = discord.File(io.BytesIO(mp4_data), filename="ltx_video.mp4")
+                        video_file = discord.File(sys_io.BytesIO(mp4_data), filename="ltx_video.mp4")
                         await message.reply(f"🎬 **Generated Video**\nPrompt: {prompt}", file=video_file)
                         return "Video generated and sent successfully."
                     else:
@@ -1724,7 +1724,7 @@ class ORACog(commands.Cog):
                             async with session.post("http://127.0.0.1:8003/decompose", data=data) as resp:
                                 if resp.status == 200:
                                     zip_data = await resp.read()
-                                    zip_file = discord.File(io.BytesIO(zip_data), filename=f"layers_{target_img.filename}.zip")
+                                    zip_file = discord.File(sys_io.BytesIO(zip_data), filename=f"layers_{target_img.filename}.zip")
                                     await message.reply("✅ レイヤー分解完了 (Layer Decomposition Complete)", file=zip_file)
                                     return "Success: Sent ZIP file."
                                 else:

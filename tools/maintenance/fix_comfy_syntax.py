@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 
 target_file = r"L:\ComfyUI\comfy\supported_models.py"

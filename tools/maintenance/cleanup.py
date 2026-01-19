@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 lines_to_delete_start = 703
 lines_to_delete_end = 915
 file_path = r"c:\Users\YoneRai12\Desktop\ORADiscordBOT-main3\src\cogs\memory.py"

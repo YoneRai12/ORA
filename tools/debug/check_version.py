@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import transformers
 
 print(f"Transformers Version: {transformers.__version__}")

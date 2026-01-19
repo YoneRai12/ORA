@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import asyncio
 
 from src.utils.gtts_client import GTTSClient

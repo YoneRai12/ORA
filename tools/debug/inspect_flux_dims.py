@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 # Target 1: model_base.py (Checks how it initializes Flux)
 target_file = r"L:\ComfyUI\comfy\model_base.py"
 with open(target_file, "r", encoding="utf-8") as f:

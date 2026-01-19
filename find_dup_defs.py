@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 
+
 def find_duplicates(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()

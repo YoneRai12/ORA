@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 
 PATHS = [r"L:\AI_Models\T5Gemma\VisualCortex_4B", r"L:\AI_Models\T5Gemma\VoiceEngine_2B"]

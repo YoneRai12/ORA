@@ -1,6 +1,7 @@
 import os
 import re
 
+
 def fix_bare_excepts(directory):
     pattern = re.compile(r'^(\s*)except\s*:\s*$', re.MULTILINE)
     for root, dirs, files in os.walk(directory):

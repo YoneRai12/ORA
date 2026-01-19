@@ -913,7 +913,7 @@ class MemoryCog(commands.Cog):
                         logger.info(f"Memory: 📥 LLM Response received in {time.time() - start_t:.2f}s")
                     except asyncio.TimeoutError:
                         logger.error(f"Memory: LLM Analysis TIMED OUT for {user_id}")
-                        raise Exception("Analysis Request Timed Out (3min)")
+                        raise Exception("Analysis Request Timed Out (3min)") from None
 
                     if usage_dict:
                         u_in = usage_dict.get("prompt_tokens") or usage_dict.get("input_tokens", 0)
@@ -946,7 +946,7 @@ class MemoryCog(commands.Cog):
                 logger.warning(f"Memory: Failed to extract JSON: {e}")
                 # Log raw response for debugging
                 logger.debug(f"Raw Response: {response_text[:200]}...")
-                raise Exception("JSON Extraction Failed")
+                raise Exception("JSON Extraction Failed") from None
 
             # 5. UPDATE PROFILE (Success)
             if data:
