@@ -71,7 +71,7 @@ async def robust_json_request(
                             if retry_after > 0:
                                 # Check if we can afford to wait
                                 current_remaining = deadline - _time_func()
-                                def write(self, user: Optional[discord.User | discord.Member], data: voice_recv.VoiceData):
+                                if current_remaining < 0:
                                     logger.warning(
                                         f"Retry-After ({retry_after}s) > Remaining ({current_remaining:.2f}s). Aborting."
                                     )
