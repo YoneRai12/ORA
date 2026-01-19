@@ -28,15 +28,15 @@ new_content = content.replace("vec_in_dim,", "vec_in_dim=768,")
 
 if content == new_content:
     print("Patch not applied (String not found or already patched). Attempting regex/alternate match...")
-    # Try end of arguments? 
+    # Try end of arguments?
     # Let's try patching the __init__ call in standard location?
     # No, the error is in definition.
     # Let's just print the signature to debug via output if it fails.
-    
+
     # Debug mode: Read the file and print the relevant lines
-    lines = content.split('\n')
+    lines = content.split("\n")
     for i, line in enumerate(lines):
-        if "def __init__" in line and "FluxParams" in lines[i-1] or "class FluxParams" in lines[i-2]:
+        if "def __init__" in line and "FluxParams" in lines[i - 1] or "class FluxParams" in lines[i - 2]:
             print(f"Found signature close to line {i}: {line}")
 else:
     with open(target_file, "w", encoding="utf-8") as f:

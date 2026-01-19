@@ -1,4 +1,3 @@
-
 import json
 import re
 
@@ -8,29 +7,30 @@ def _extract_json_objects(text: str) -> list[str]:
     objects = []
     stack = 0
     start_index = -1
-    
+
     for i, char in enumerate(text):
-        if char == '{':
+        if char == "{":
             if stack == 0:
                 start_index = i
             stack += 1
-        elif char == '}':
+        elif char == "}":
             if stack > 0:
                 stack -= 1
                 if stack == 0:
-                    objects.append(text[start_index:i+1])
+                    objects.append(text[start_index : i + 1])
     return objects
+
 
 def test_parsing(content):
     print(f"Testing content: {content}")
     json_objects = _extract_json_objects(content)
     print(f"Extracted JSON objects: {json_objects}")
-    
+
     tool_call = None
     cmd_r_match = re.search(r"to=(\w+)", content)
     if cmd_r_match:
         print(f"Command R+ match: {cmd_r_match.group(1)}")
-    
+
     for json_str in json_objects:
         try:
             data = json.loads(json_str)
@@ -49,12 +49,15 @@ def test_parsing(content):
         except json.JSONDecodeError:
             print("JSON Decode Error")
             continue
-            
+
     if tool_call:
         print(f"SUCCESS: Tool call found: {tool_call}")
     else:
         print("FAILURE: No tool call found.")
 
+
 # User's error string
-user_content = '<|channel|>commentary to=google_search <|constrain|>json<|message|>{"query":"Python ゲーム シミュレータ 無謀 か"}'
+user_content = (
+    '<|channel|>commentary to=google_search <|constrain|>json<|message|>{"query":"Python ゲーム シミュレータ 無謀 か"}'
+)
 test_parsing(user_content)

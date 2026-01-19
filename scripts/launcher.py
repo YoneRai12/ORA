@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Launcher")
 
-ROOT_DIR = Path(__file__).parent.absolute()
+ROOT_DIR = Path(__file__).parent.parent.absolute()
 BACKUP_DIR = ROOT_DIR / "backups"
 SANDBOX_DIR = ROOT_DIR / "_sandbox"
 PYTHON_EXE = sys.executable

@@ -83,3 +83,6 @@ RTX5090-DebugSystem-main/
 ORAA/
 ORAA_extracted/
 temp_oraa_analysis/
+
+test.bat
+run_tests_local.py

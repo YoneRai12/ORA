@@ -41,7 +41,7 @@ flux_schnell_part = parts[1]
 if '"guidance_embed": False' in flux_schnell_part:
     new_flux_schnell_part = flux_schnell_part.replace('"guidance_embed": False', '"guidance_embed": True', 1)
     new_content = pre_flux + "class FluxSchnell(Flux):" + new_flux_schnell_part
-    
+
     with open(target_file, "w", encoding="utf-8") as f:
         f.write(new_content)
     print("Success: Forced FluxSchnell to use 'guidance_embed': True (Dev Mode).")

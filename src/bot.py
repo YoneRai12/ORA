@@ -424,10 +424,10 @@ async def run_bot() -> None:
                 await bot.close()
 
             if bot_task in done:
-                exc: Optional[BaseException] = bot_task.exception()
-                if exc:
+                task_exc: Optional[BaseException] = bot_task.exception()
+                if task_exc:
                     logger.exception("Botがエラーにより停止しました。")
-                    raise exc
+                    raise task_exc
             else:
                 await bot.close()
                 await bot_task

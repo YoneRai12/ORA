@@ -25,11 +25,11 @@ with open(target_file, "r", encoding="utf-8") as f:
 broken_pattern = "Flux, # Replaced FluxSchnell"
 
 if broken_pattern in content:
-    # Replace with empty string? 
+    # Replace with empty string?
     # Current: "Flux, Flux, # Replaced FluxSchnell GenmoMochi"
     # If I sub broken_pattern with EMPTY:
     # Result: "Flux,  GenmoMochi" (Space is likely there)
-    # 
+    #
     # Wait, need to check if GenmoMochi has a preceding comma.
     # In original: "Flux, FluxSchnell, GenmoMochi"
     # My patch replaced "FluxSchnell," with "Flux, # Replaced FluxSchnell"
@@ -37,7 +37,7 @@ if broken_pattern in content:
     # If I remove the inserted string, I might lose the comma for GenmoMochi?
     # No, I replaced "FluxSchnell," (INCLUDING COMMA).
     # So " GenmoMochi" (no comma before it) follows.
-    
+
     # So I need to put back a comma!
     # Replacement: "" -> ", "
     # But wait, "Flux" (the real one) is before it. "Flux, "
@@ -45,18 +45,18 @@ if broken_pattern in content:
     # "Flux, [removed] GenmoMochi" -> "Flux, GenmoMochi"
     # This implies GenmoMochi didn't have a comma before it because I consumed it.
     # So yes, "Flux, GenmoMochi" is exactly what I want.
-    
+
     # So, searching for "Flux, # Replaced FluxSchnell" and replacing with "" (empty).
-    # Let's check spaces. 
+    # Let's check spaces.
     # "Flux, Flux, # Replaced FluxSchnell GenmoMochi"
     # Removal -> "Flux,  GenmoMochi"
     # Looks syntactically valid.
-    
+
     new_content = content.replace(broken_pattern, "")
-    
+
     # Double check for "Flux,  GenmoMochi" (ensure comma exists from previous item)
     # Previous item is "Flux,". So yes.
-    
+
     with open(target_file, "w", encoding="utf-8") as f:
         f.write(new_content)
     print("Success: Fixed syntax error by cleanly removing the bad comment block.")
@@ -65,6 +65,7 @@ else:
     print("Error: Broken pattern not found. Trying flexible search...")
     # Maybe newlines involved?
     import re
+
     # Escape special chars just in case
     pattern = re.compile(r"Flux,\s*# Replaced FluxSchnell")
     if pattern.search(content):

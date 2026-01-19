@@ -1,4 +1,3 @@
-
 target_file = r"L:\ComfyUI\comfy\ldm\flux\model.py"
 print(f"Target: {target_file}")
 
@@ -6,7 +5,7 @@ with open(target_file, "r", encoding="utf-8") as f:
     content = f.read()
 
 # The target line to hook into
-target_line = '        params = FluxParams(**kwargs)'
+target_line = "        params = FluxParams(**kwargs)"
 
 # The patch block to insert
 patch_block = """        print(f"DEBUG: Flux init kwargs: hidden_size={kwargs.get('hidden_size')}, vec_in_dim={kwargs.get('vec_in_dim')}")
@@ -30,14 +29,14 @@ patch_block = """        print(f"DEBUG: Flux init kwargs: hidden_size={kwargs.ge
 if "params = FluxParams(**kwargs)" not in content:
     print("Error: Could not find anchor 'params = FluxParams(**kwargs)'")
     exit(1)
-    
+
 if "self.params = params" not in content:
     print("Error: Could not find anchor 'self.params = params'")
     exit(1)
 
 # Robust Wipe-and-Replace Logic
 anchor_top = '        if "vec_in_dim" not in kwargs: kwargs["vec_in_dim"] = 768'
-anchor_bottom = '        self.params = params'
+anchor_bottom = "        self.params = params"
 
 patch_block = """        print(f"DEBUG: Flux init kwargs: hidden_size={kwargs.get('hidden_size')}, vec_in_dim={kwargs.get('vec_in_dim')}")
         
@@ -67,7 +66,7 @@ if anchor_top not in content:
 if anchor_bottom not in content:
     print("Error: Anchor BOTTOM not found.")
     exit(1)
-    
+
 parts_top = content.split(anchor_top)
 pre_chunk = parts_top[0]
 remainder = parts_top[1]

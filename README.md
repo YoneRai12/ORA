@@ -252,24 +252,6 @@ We have automated the environment setup for Windows, Mac, and Linux.
 
 1.  **Clone the Repository**:
     ```bash
-    git clone https://github.com/YoneRai12/ORA.git
-    cd ORA
-    ```
-
-2.  **Run the Setup Wizard**:
-    *   **Windows**:
-        ```powershell
-        python setup_wizard.py
-        ```
-    *   **Mac / Linux**:
-        ```bash
-        python3 setup_wizard.py
-        ```
-
-This script will automatically detect your OS and GPU, create a `venv`, and install the correct version of PyTorch (CUDA for PC, MPS for Mac).
-
-### 4. IGNITION
-Wake up the bot using the command for your OS:
 
 | OS | Command | Notes |
 | :--- | :--- | :--- |

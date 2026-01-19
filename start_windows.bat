@@ -6,7 +6,7 @@ echo Installing/Updating dependencies...
 call .venv\Scripts\activate && pip install -r requirements.txt
 
 :: Start Bot in a new window (with venv activation)
-start "ORA Discord Bot (Launcher)" cmd /k "call .venv\Scripts\activate && python launcher.py"
+start "ORA Discord Bot (Launcher)" cmd /k "call .venv\Scripts\activate && python scripts/launcher.py"
 
 :: Start Web API in a new window (with venv activation)
 start "ORA Web API" cmd /k "call .venv\Scripts\activate && uvicorn src.web.app:app --reload --host 0.0.0.0 --port 8000"

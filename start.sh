@@ -10,7 +10,7 @@ echo -e "${CYAN}Starting ORA Universal Bot...${NC}"
 # Check if venv exists
 if [ ! -d "venv" ]; then
     echo "Virtual environment not found. Running Setup Wizard..."
-    python3 setup_wizard.py
+    python3 scripts/setup_wizard.py
     exit 0
 fi
 
@@ -20,7 +20,7 @@ source venv/bin/activate
 # Check for .env
 if [ ! -f ".env" ]; then
     echo "Configuration file .env not found!"
-    echo "Please run 'python3 setup_wizard.py' to generate it."
+    echo "Please run 'python3 scripts/setup_wizard.py' to generate it."
     exit 1
 fi
 

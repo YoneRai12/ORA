@@ -5,7 +5,7 @@ import aiohttp
 
 async def check_voicevox():
     base_url = "http://127.0.0.1:50021"
-    
+
     async with aiohttp.ClientSession() as session:
         # 1. Check Version
         try:
@@ -25,7 +25,7 @@ async def check_voicevox():
                 if resp.status == 200:
                     speakers = await resp.json()
                     print(f"Fetched {len(speakers)} speakers.")
-                    
+
                     # Check for Speaker ID 1 (Zundamon)
                     found = False
                     for speaker in speakers:
@@ -34,8 +34,9 @@ async def check_voicevox():
                                 print(f"Found Speaker ID 1: {speaker.get('name')} - {style.get('name')}")
                                 found = True
                                 break
-                        if found: break
-                    
+                        if found:
+                            break
+
                     if not found:
                         print("WARNING: Speaker ID 1 NOT found in available speakers!")
                         # Print first available speaker
@@ -46,6 +47,7 @@ async def check_voicevox():
                     print(f"Failed to get speakers: {resp.status}")
         except Exception as e:
             print(f"Failed to fetch speakers: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(check_voicevox())

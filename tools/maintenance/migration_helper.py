@@ -6,17 +6,21 @@ import zipfile
 
 # --- CONFIGURATION ---
 EXCLUDE_DIRS = {
-    'node_modules', '.git', '__pycache__', '.venv', 'venv', 
-    'ora-ui/.next', 'ora-ui/node_modules', 'dist', 'build',
-    '.gemini', '.agent'
+    "node_modules",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "ora-ui/.next",
+    "ora-ui/node_modules",
+    "dist",
+    "build",
+    ".gemini",
+    ".agent",
 }
-EXCLUDE_FILES = {
-    'ora_migration.zip', '.DS_Store'
-}
-REQUIRED_FILES = [
-    'src', 'ora-ui', 'package.json', 'requirements.txt', 
-    'ora_bot.db', '.env', 'migration_helper.py'
-]
+EXCLUDE_FILES = {"ora_migration.zip", ".DS_Store"}
+REQUIRED_FILES = ["src", "ora-ui", "package.json", "requirements.txt", "ora_bot.db", ".env", "migration_helper.py"]
+
 
 def generate_launcher():
     """Generate a Mac launcher (.command) for extreme simplicity."""
@@ -125,63 +129,65 @@ while true; do
 done
 """
     launcher_name = "Double_Click_To_Start.command"
-    with open(launcher_name, "w", newline='\n', encoding='utf-8') as f:
+    with open(launcher_name, "w", newline="\n", encoding="utf-8") as f:
         f.write(launcher_content)
     # No chmod here as it's Windows, but it will be preserved in Zip properties usually or handled on Mac
     return launcher_name
+
 
 def pack():
     """Pack project for migration."""
     print("📦 ORA Bot Migration Wrapper: Packing...")
     zip_filename = "ora_migration.zip"
-    
+
     # Generate Launcher first
     launcher = generate_launcher()
     print(f"  Generated Launcher: {launcher}")
 
     if os.path.exists(zip_filename):
         os.remove(zip_filename)
-        
-    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk('.'):
+
+    with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk("."):
             # Check exclusions
-            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith('.')]
-            
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
+
             for file in files:
-                if file in EXCLUDE_FILES or (file.startswith('.') and file != '.env'):
+                if file in EXCLUDE_FILES or (file.startswith(".") and file != ".env"):
                     continue
-                        
+
                 abs_path = os.path.join(root, file)
-                rel_path = os.path.relpath(abs_path, '.')
+                rel_path = os.path.relpath(abs_path, ".")
                 print(f"  Adding: {rel_path}")
                 zipf.write(abs_path, rel_path)
-    
+
     # Cleanup local launcher after packing (optional, keeps workspace clean)
     if os.path.exists(launcher):
         os.remove(launcher)
-                
+
     print(f"\n✅ Done! Pack created: {os.path.abspath(zip_filename)}")
     print("Transfer this ZIP file to your M4 Mac and double-click 'Double_Click_To_Start.command'.")
+
 
 def setup():
     """Setup environment on M4 Mac."""
     print("🚀 ORA Bot Migration Wrapper: Setup (Mac/Linux)...")
-    
+
     if platform.system() == "Windows":
         print("⚠️ Warning: Setup is intended for the target machine (Mac/Linux).")
-    
+
     # 1. Create venv
     if not os.path.exists(".venv"):
         print("Creating virtual environment...")
         subprocess.run([sys.executable, "-m", "venv", ".venv"])
-    
+
     # 2. Install dependencies
     pip_path = os.path.join(".venv", "bin", "pip") if os.name != "nt" else os.path.join(".venv", "Scripts", "pip")
-    
+
     if os.path.exists("requirements.txt"):
         print("Installing Python dependencies...")
         subprocess.run([pip_path, "install", "-r", "requirements.txt"])
-    
+
     # 3. Check for .env
     if not os.path.exists(".env"):
         print("⚠️ .env file missing. Creating template...")
@@ -191,7 +197,7 @@ def setup():
             f.write("PC_IP_ADDRESS=192.168.x.x\n")
             f.write("PC_MAC_ADDRESS=xx:xx:xx:xx:xx:xx\n")
             f.write("PC_SSH_USER=administrator\n")
-            f.write("VOICEVOX_API_URL=http://localhost:50021\n") 
+            f.write("VOICEVOX_API_URL=http://localhost:50021\n")
         print("Please edit the .env file with your Discord Token and PC information.")
 
     # 4. Install VOICEVOX Engine (Mac ARM64)
@@ -200,6 +206,7 @@ def setup():
     print("\n✅ Setup Complete!")
     print("1. Edit .env if you haven't yet.")
     print("2. Run the bot: .venv/bin/python main.py")
+
 
 def install_voicevox_engine():
     """Download and install VOICEVOX Engine for Mac (ARM64)."""
@@ -215,35 +222,37 @@ def install_voicevox_engine():
     print("⬇️ Downloading VOICEVOX Engine (Mac ARM64) from GitHub (v0.22.0)...")
     url = "https://github.com/VOICEVOX/voicevox_engine/releases/download/0.22.0/voicevox_engine-macos-aarch64-cpu-0.22.0.zip"
     zip_name = "voicevox_engine.zip"
-    
+
     import urllib.request
+
     try:
         urllib.request.urlretrieve(url, zip_name)
         print("📦 Extracting VOICEVOX Engine...")
-        with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_name, "r") as zip_ref:
             zip_ref.extractall(".")
-        
+
         # Rename extracted folder to fixed name 'voicevox_engine'
         # The zip usually contains a folder like 'voicevox_engine-macos-aarch64-cpu-0.22.0'
         for item in os.listdir("."):
             if item.startswith("voicevox_engine-") and os.path.isdir(item):
                 os.rename(item, target_dir)
                 break
-        
+
         # Cleanup
         if os.path.exists(zip_name):
             os.remove(zip_name)
-            
+
         # Permission fix
         run_path = os.path.join(target_dir, "run")
         if os.path.exists(run_path):
-             os.chmod(run_path, 0o755)
-             
+            os.chmod(run_path, 0o755)
+
         print("✅ VOICEVOX Engine installed successfully.")
-        
+
     except Exception as e:
         print(f"❌ Failed to download/install VOICEVOX: {e}")
         print("   You may need to download 'Mac ARM64' version manually from voicevox.hiroshiba.jp")
+
 
 def main():
     if len(sys.argv) < 2:
@@ -259,6 +268,7 @@ def main():
         setup()
     else:
         print(f"Unknown command: {command}")
+
 
 if __name__ == "__main__":
     main()

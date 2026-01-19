@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 import sys
@@ -17,13 +16,14 @@ async def test_gtts():
         text = "This is a test."
         audio = await client.synthesize(text)
         print(f"GTTS Success: Generated {len(audio)} bytes.")
-        
+
         with open("test_gtts.mp3", "wb") as f:
             f.write(audio)
         print("Saved to test_gtts.mp3")
-        
+
     except Exception as e:
         print(f"GTTS Failed: {e}")
+
 
 if __name__ == "__main__":
     # asyncio.run(test_edge_tts())

@@ -1,4 +1,3 @@
-
 import json
 import re
 
@@ -13,16 +12,17 @@ def extract_json_objects(text):
     # Let's verify what the fallback regex does.
     return []
 
+
 def test_parsing(content):
     print(f"Testing content: '{content}'")
-    
+
     json_objects = extract_json_objects(content)
     tool_call = None
-    
+
     cmd_r_match = re.search(r"to=(\w+)", content)
     if cmd_r_match:
         print(f"Cmd R+ Match: {cmd_r_match.group(1)}")
-        
+
         # This is the logic I added last time
         if not json_objects:
             # Look for json{...} or json {...}
@@ -55,6 +55,7 @@ def test_parsing(content):
         print(f"SUCCESS: Tool call parsed: {tool_call}")
     else:
         print("FAILURE: No tool call parsed.")
+
 
 # The problematic string from user
 test_content = 'commentary to=google_search json{"query":"PC プログラミング 上手になる 方法"}'
