@@ -49,8 +49,13 @@ async def test_bot_setup_hook():
     # Mock internal methods/attributes used in setup_hook
     bot.add_cog = AsyncMock()
     bot.load_extension = AsyncMock()
-    bot.tree = MagicMock()
-    bot.tree.sync = AsyncMock()
+    
+    # Mock bot.tree methods (CommandTree is a property, usually accessed via bot.tree)
+    # Since bot is a real object inheriting from commands.Bot, bot.tree exists.
+    # We mock the Sync methods on the existing object.
+    bot.tree.sync = AsyncMock(return_value=[])
+    bot.tree.copy_global_to = MagicMock()
+    bot.tree.on_error = MagicMock()
     
     # Mock external classes used in setup_hook
     with patch("src.bot.SearchClient"), \
