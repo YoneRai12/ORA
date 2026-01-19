@@ -4,6 +4,8 @@ import os
 import subprocess
 import time
 
+from src.config import Config
+
 # Configure Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ResourceGuard")
@@ -34,16 +36,12 @@ class ResourceManager:
             # User has 'update_comfy.bat' running in logs, but likely uses 'run_nvidia_gpu.bat' for launch.
             # I'll default to looking for run_nvidia_gpu.bat in Comfy folder later.
         }
-        # Hardcoded paths for now - should be config driven ideally
-        self.comfy_dir = r"L:\\ComfyUI_windows_portable\\ComfyUI"  # Inferred from previous logs? Or desktop?
-        # Re-inferring from User logs: "C:\Users\YoneRai12\Desktop\ORADiscordBOT-main3" is bot dir.
-        # "L:\ComfyUI\custom_nodes\..." seen in logs.
-        # User migrated to L drive.
-        self.comfy_bat = r"L:\ComfyUI\run_nvidia_gpu.bat"
+        
+        self.comfy_dir = config.comfy_dir
+        self.comfy_bat = config.comfy_bat
 
-        # Override with exact paths found in system if possible, but for now hardcode common setup
-        if not os.path.exists(self.comfy_bat):
-            # Fallback to local desktop if L drive path fails (safety)
+        # Fallback if config failed or is empty
+        if not self.comfy_bat:
             self.comfy_bat = os.path.join(os.getcwd(), "run_comfy.bat")
 
         # STARTUP ADOPTION LOGIC

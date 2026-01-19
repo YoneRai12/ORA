@@ -213,7 +213,8 @@ async def get_dashboard_usage():
     import json
     from pathlib import Path
 
-    state_path = Path("L:/ORA_State/cost_state.json")
+    from src.config import STATE_DIR
+    state_path = Path(STATE_DIR) / "cost_state.json"
 
     # Calculate Today in JST
     # Calculate Today (Match CostManager Timezone)
@@ -352,7 +353,8 @@ async def get_dashboard_history():
     import json
     from pathlib import Path
 
-    state_path = Path("L:/ORA_State/cost_state.json")
+    from src.config import STATE_DIR
+    state_path = Path(STATE_DIR) / "cost_state.json"
     if not state_path.exists():
         return {"ok": False, "error": "No cost state found"}
 
@@ -494,11 +496,12 @@ async def get_dashboard_users(response: Response):
 
     import aiofiles
 
-    MEMORY_DIR = Path("L:/ORA_Memory/users")
+    from src.config import MEMORY_DIR, STATE_DIR
+    users_dir = Path(MEMORY_DIR) / "users"
     users = []
 
     # 1. Load Discord State (Presence/Names/Guilds) FIRST
-    discord_state_path = Path("L:/ORA_State/discord_state.json")
+    discord_state_path = Path(STATE_DIR) / "discord_state.json"
     discord_state = {"users": {}, "guilds": {}}
     if discord_state_path.exists():
         try:
@@ -580,7 +583,8 @@ async def get_dashboard_users(response: Response):
                     print(f"Error reading user file {method_file}: {e}")
 
         # 2. Merge with Cost Data & Find Ghost Users
-        state_path = Path("L:/ORA_State/cost_state.json")
+        from src.config import STATE_DIR
+        state_path = Path(STATE_DIR) / "cost_state.json"
         cost_data = {}
         if state_path.exists():
             with open(state_path, "r", encoding="utf-8") as f:

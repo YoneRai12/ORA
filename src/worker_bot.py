@@ -9,10 +9,15 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 # Setup Logging
+log_dir = os.path.join(os.getcwd(), "logs")
+os.makedirs(log_dir, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    handlers=[logging.FileHandler("L:\\ORA_Logs\\worker_bot.log", encoding="utf-8"), logging.StreamHandler(sys.stdout)],
+    handlers=[
+        logging.FileHandler(os.path.join(log_dir, "worker_bot.log"), encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
+    ],
 )
 logging.getLogger("discord.http").setLevel(logging.WARNING)
 logging.getLogger("discord.gateway").setLevel(logging.WARNING)
@@ -20,8 +25,7 @@ logging.getLogger("discord.gateway").setLevel(logging.WARNING)
 logger = logging.getLogger("WorkerBot")
 
 # Load Env
-# Load environment variables from .env file (Force override system vars, Explicit Path)
-load_dotenv(r"C:\Users\YoneRai12\Desktop\ORADiscordBOT-main3\.env", override=True)
+load_dotenv(override=True)
 TOKEN = os.getenv("DISCORD_TOKEN_2")
 if not TOKEN:
     logger.critical("DISCORD_TOKEN_2 not found in .env! Exiting.")

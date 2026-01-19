@@ -9,11 +9,16 @@ from typing import Dict, List, Optional
 
 # --- Cost Management Constants ---
 COST_TZ = "UTC"
+# --- Storage & state directory ---
 if os.name == "nt":
-    STATE_DIR = r"L:\ORA_State"
+    DEFAULT_STATE_DIR = r"L:\ORA_State"
+    DEFAULT_MEMORY_DIR = r"L:\ORA_Memory"
 else:
-    # Mac/Linux path
-    STATE_DIR = os.path.expanduser("~/ORA_State")
+    DEFAULT_STATE_DIR = os.path.expanduser("~/ORA_State")
+    DEFAULT_MEMORY_DIR = os.path.expanduser("~/ORA_Memory")
+
+STATE_DIR = os.getenv("ORA_STATE_DIR", DEFAULT_STATE_DIR)
+MEMORY_DIR = os.getenv("ORA_MEMORY_DIR", DEFAULT_MEMORY_DIR)
 
 # Buffer & Sync Constants
 SAFETY_BUFFER_RATIO = 0.95
@@ -161,23 +166,24 @@ class Config:
     admin_user_id: Optional[int]
     # Stable Diffusion Configuration
     sd_api_url: str
-
     # Gaming Mode
     gaming_processes: List[str]
     model_modes: Dict[str, str]
     router_thresholds: Dict[str, float]
-
-    # External API Keys (Phase 29)
-    openai_api_key: Optional[str]
-    gemini_api_key: Optional[str]  # Already loaded as GOOGLE_API_KEY in env, but good to have here?
-    # actually GOOGLE_API_KEY is used by google_client directly from os.environ usually.
-    # Let's standardize on Config.
     log_channel_id: int
-    startup_notify_channel_id: Optional[int]
+    startup_notify_channel_id: int
+    feature_proposal_channel_id: Optional[int]
     sub_admin_ids: set[int]
     vc_admin_ids: set[int]
-    feature_proposal_channel_id: Optional[int]
     vision_provider: str
+    
+    # ComfyUI (Optional)
+    comfy_dir: Optional[str] = None
+    comfy_bat: Optional[str] = None
+
+    # External API Keys (Phase 29)
+    openai_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
     @classmethod
     def load(cls) -> "Config":
@@ -319,8 +325,7 @@ class Config:
             except ValueError:
                 pass
 
-        # Stable Diffusion API
-        sd_api_url = "http://127.0.0.1:8188"  # Force ComfyUI Port
+        # Memory & State Dirs are handled globally at top
 
         # Gaming Processes
         gaming_processes_str = os.getenv("GAMING_PROCESSES", "valorant.exe,javaw.exe,ffxiv_dx11.exe,osu!.exe")
@@ -359,7 +364,9 @@ class Config:
             stt_model=stt_model,
             speak_search_progress_default=speak_search_progress_default,
             admin_user_id=admin_user_id,
-            sd_api_url=os.getenv("SD_API_URL", "http://127.0.0.1:7860"),
+            sd_api_url=sd_api_url,
+            comfy_dir=comfy_dir,
+            comfy_bat=comfy_bat,
             gaming_processes=gaming_processes,
             model_modes=model_modes,
             router_thresholds=router_thresholds,

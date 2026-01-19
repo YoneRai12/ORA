@@ -8,6 +8,8 @@ import aiosqlite
 import discord
 from discord.ext import commands
 
+from src.config import MEMORY_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,9 +89,9 @@ class HealthInspector:
         Checks for stuck 'Processing' states and directory access.
         """
         # A. Directory Check
-        memory_dir = r"L:\ORA_Memory\users"
+        memory_dir = os.path.join(MEMORY_DIR, "users")
         if not os.path.exists(memory_dir):
-            return False, "❌ メモリ診断: ディレクトリが見つかりません (L:\\ORA_Memory\\users)"
+            return False, f"❌ メモリ診断: ディレクトリが見つかりません ({memory_dir})"
 
         # B. Stuck State Check
         stuck_users = []

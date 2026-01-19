@@ -28,10 +28,13 @@ import pytz
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from src.config import MEMORY_DIR
+from src.utils.cloud_sync import cloud_sync
+
 logger = logging.getLogger(__name__)
 
-MEMORY_DIR = r"L:\ORA_Memory\users"
-CHANNEL_MEMORY_DIR = r"L:\ORA_Memory\channels"
+CHANNEL_MEMORY_DIR = os.path.join(MEMORY_DIR, "channels")
+USER_MEMORY_DIR = os.path.join(MEMORY_DIR, "users")
 
 
 class SimpleFileLock:
@@ -159,6 +162,7 @@ class MemoryCog(commands.Cog):
         self.name_sweeper.cancel()
         self.scan_history_task.cancel()
         self.idle_log_archiver.cancel()
+        self.surplus_token_burner.cancel()
 
     async def cleanup_stuck_profiles(self):
         """Reset 'Processing' users to 'Error' on startup to fix stuck yellow status."""
@@ -186,7 +190,7 @@ class MemoryCog(commands.Cog):
                     # Atomic Write with Lock
                     await self._save_user_profile_atomic(path, data)
                     count += 1
-            except:
+            except Exception:
                 continue
 
         if count > 0:
@@ -319,12 +323,6 @@ class MemoryCog(commands.Cog):
             if burned > 0:
                 logger.info(f"🔥 [Surplus Burner] Triggered optimization for {burned} users.")
 
-    def cog_unload(self):
-        self.status_loop.cancel()
-        self.memory_worker.cancel()
-        self.name_sweeper.cancel()
-        self.scan_history_task.cancel()
-        self.surplus_token_burner.cancel()
 
     async def _process_media_attachments(self, message: discord.Message):
         """Analyzes attachments (Image/Video) and appends context to buffer."""
@@ -602,7 +600,7 @@ class MemoryCog(commands.Cog):
             return None
         async with SimpleFileLock(path):
             async with self._io_lock:
-                for attempt in range(3):
+                for _ in range(3):
                     try:
                         async with aiofiles.open(path, "r", encoding="utf-8") as f:
                             content = await f.read()
@@ -612,26 +610,35 @@ class MemoryCog(commands.Cog):
                         await asyncio.sleep(0.1)
         return None
 
-    async def _save_user_profile_atomic(self, path: str, data: dict):
+    async def _save_user_profile_atomic(self, path: str, data: dict) -> None:
         """Atomic write via temp file to prevent corruption, with Process Lock."""
-        temp_path = f"{path}.tmp"
-
-        # Cross-Process Lock
         async with SimpleFileLock(path):
-            async with self._io_lock:  # Thread Lock
-                try:
-                    async with aiofiles.open(temp_path, "w", encoding="utf-8") as f:
-                        await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            temp_path = path + ".tmp"
+            try:
+                # 1. Local Save
+                async with aiofiles.open(temp_path, "w", encoding="utf-8") as f:
+                    await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+                os.replace(temp_path, path)
+                
+                # 2. Cloud Sync (Async Trigger)
+                # Parse user_id from path if needed, but easier to pass data directly.
+                # The filename/path usually contains the user_id.
+                filename = os.path.basename(path)
+                if filename.endswith(".json"):
+                    # Extract user_id from filename (e.g., "12345_guildid_public.json" or "12345.json")
+                    user_id_str = filename.split(".")[0].split("_")[0] 
+                    try:
+                        user_id = int(user_id_str)
+                        # Run sync in background task
+                        asyncio.create_task(cloud_sync.sync_user_data(user_id, data))
+                    except ValueError:
+                        logger.warning(f"Could not parse user_id from filename for cloud sync: {filename}")
 
-                    # Atomic replacement
-                    os.replace(temp_path, path)
-                except Exception as e:
-                    logger.error(f"Memory: Save failed for {path}: {e}")
-                    if os.path.exists(temp_path):
-                        try:
-                            os.remove(temp_path)
-                        except:
-                            pass
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                logger.error(f"Atomic save failed for {path}: {e}")
+                raise
 
     def _get_channel_memory_path(self, channel_id: int) -> str:
         """Get path to channel memory file."""
@@ -1995,7 +2002,7 @@ class MemoryCog(commands.Cog):
                             content = await f.read()
                             if content:
                                 current = json.loads(content)
-                        except:
+                        except Exception:
                             pass
 
             # Merge Logic
