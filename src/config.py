@@ -96,10 +96,10 @@ COST_LIMITS = {
 
 # --- Router Configuration ---
 ROUTER_CONFIG = {
-    "coding_model": "gpt-5.1-codex",  # Free Tier Flagship
-    "high_intel_model": "gpt-5.1",  # Free Tier Flagship
-    "standard_model": "gpt-5-mini",  # Free Tier Excellent Mini
-    "vision_model": "gpt-5-mini",  # Free Tier Multimodal
+    "coding_model": "gpt-5.1-codex",  # Flagship Coding
+    "high_intel_model": "gpt-5.1",  # Flagship Reasoning
+    "standard_model": "gpt-5-mini",  # High-End Mini
+    "vision_model": "gpt-5-mini",  # Multimodal Mini
     "coding_keywords": [
         "コード",
         "実装",
