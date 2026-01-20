@@ -61,24 +61,21 @@ ORAは「キーワード」「文脈長」「画像有無」を判断し、**ロ
 graph TD
     UserInput["ユーザープロンプト"] --> RouteCheck{ローカル or API?}
 
-    %% Top Level Branch
-    RouteCheck -- "ローカルのみ" --> LocalPath["🏠 Local VLLM (Localhost)"]
+    %% Left Branch: Cloud (API)
     RouteCheck -- "API許可 (Cloud)" --> OmniRouter{解析ロジック}
-
-    %% Omni-Router Dispatch
+    
     OmniRouter -- "画像あり" --> VisionModel["Vision Model: gpt-5-mini"]
     OmniRouter -- "キーワード: Code/Fix" --> CodingModel["Model: gpt-5.1-codex"]
     OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel["Model: gpt-5.1 / o3"]
     OmniRouter -- "標準会話" --> StdModel["Model: gpt-5-mini"]
     
-    %% Cost Check
-    VisionModel --> QuotaCheck{クォータ OK?}
-    CodingModel --> QuotaCheck
-    HighModel --> QuotaCheck
-    StdModel --> QuotaCheck
-    
-    QuotaCheck -- "Yes" --> CloudAPI["☁️ OpenAI API (Cloud)"]
-    QuotaCheck -- "No" --> LocalPath
+    VisionModel --> CloudAPI["☁️ OpenAI API (Cloud)"]
+    CodingModel --> CloudAPI
+    HighModel --> CloudAPI
+    StdModel --> CloudAPI
+
+    %% Right Branch: Local
+    RouteCheck -- "ローカルのみ" --> LocalPath["🏠 Local VLLM (Localhost)"]
 
     %% Final Output
     CloudAPI --> Response["最終回答"]
