@@ -6,8 +6,8 @@
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
 
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/YoneRai12)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python)](https://www.python.org/)
-[![Model](https://img.shields.io/badge/Brain-Qwen2.5--VL-blue?style=for-the-badge)](src/config.py)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python)](https://www.python.org/)
+[![Model](https://img.shields.io/badge/Brain-GPT--5.1%20%2B%20Qwen2.5--VL-blue?style=for-the-badge)](src/config.py)
 [![System](https://img.shields.io/badge/System-Self--Healing-green?style=for-the-badge)](src/utils/healer.py)
 [![GPU](https://img.shields.io/badge/GPU-RTX%205090%20Optimized-76B900?style=for-the-badge&logo=nvidia)](https://www.nvidia.com/)
 
@@ -22,7 +22,7 @@
 
 ---
 
-## 🤯 The Singularity Architecture (v4.2)
+## 🤯 The Singularity Architecture (v5.0-Singularity)
 
 ORAはもはや単なる「Bot」ではありません。あなたのPCに宿る **生きているAIオペレーティングシステム** です。
 エラーが起きれば自らコードを書き換えて修復し、あなたが寝ている間はサブPCからメインPCを監視します。
@@ -49,7 +49,65 @@ ORAはもはや単なる「Bot」ではありません。あなたのPCに宿る
 
 ---
 
-## 🆕 最新アップデート: v4.3 (2026/01/11) - The Shadow Update
+## 🆕 最新アップデート: v5.0 (2026/01/20) - The Omni-Router
+
+### 🧠 Omni-Router (Hybrid Intelligence)
+**「RTX 5090があるのに、なぜOpenAIに課金するのですか？」**
+
+ORAは「キーワード」「文脈長」「画像有無」を判断し、**ローカル(無料)** と **クラウド(GPT-5.1)** を使い分けます。
+4oは使いません。常に最高の **GPT-5.1-Codex / GPT-5.1 / GPT-5-mini** を使用します。
+
+```mermaid
+graph TD
+    UserInput["ユーザープロンプト"] --> ModeCheck{ユーザーモード?}
+
+    %% Mode Selection
+    ModeCheck -- "Private Mode" --> LocalPath
+    ModeCheck -- "Smart Mode" --> ImageCheck{画像あり?}
+
+    %% Image Branch
+    ImageCheck -- "Yes" --> VisionRouter{Vision Router}
+    VisionRouter -- "Use Burn Lane" --> Gemini[Gemini 2.0 Flash]
+    VisionRouter -- "Fallback" --> LocalVision[Local VLLM Vision]
+
+    %% Text Branch (Omni-Router)
+    ImageCheck -- "No" --> OmniRouter{解析ロジック}
+    
+    OmniRouter -- "キーワード: Code/Fix" --> CodingModel[Model: gpt-5.1-codex]
+    OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel[Model: gpt-5.1 / o3]
+    OmniRouter -- "標準会話" --> StdModel[Model: gpt-5-mini]
+    
+    %% Cost & Limit Check
+    CodingModel --> LimitCheck{クォータ OK?}
+    HighModel --> LimitCheck
+    StdModel --> LimitCheck
+    
+    LimitCheck -- "Yes" --> CloudDispatch
+    LimitCheck -- "No (超過)" --> LocalPath
+
+    %% Connection Layer (LLM Client)
+    subgraph "🔌 接続ルーター"
+        CloudDispatch --> IsCloud{"名前に 'gpt-' か 'codex' を含む?"}
+        LocalPath --> IsCloud
+        
+        IsCloud -- "Yes" --> OpenAI["☁️ OpenAI API (Cloud)"]
+        IsCloud -- "No" --> LocalAPI["🏠 Local VLLM (Localhost)"]
+    end
+
+    %% Final Output
+    OpenAI --> Response[最終回答]
+    LocalAPI --> Response
+    Gemini --> Response
+```
+
+### 👥 Shadow Clone: Zombie Killer
+Watcherプロセスが強化されました。
+*   **事故復帰**: トークン設定ミスなどでBotが起動できない場合、Watcherはゾンビ化を防ぐため **自己を強制終了(TaskKill)** します。
+*   ウィンドウが大量に残る問題を完全に解決しました。
+
+---
+
+## 📜 過去のアップデート: v4.3 (2026/01/11) - The Shadow Update
 
 ### 👥 Shadow Clone System (Watcher 2.0)
 ダウンタイムは過去のものです。
