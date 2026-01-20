@@ -62,7 +62,7 @@ graph TD
     UserInput["User Prompt"] --> RouteCheck{Local or Cloud?}
 
     %% Right Branch: Local
-    RouteCheck -- "Local Only" --> LocalPath["🏠 Local VLLM (Localhost)"]
+    RouteCheck -- "Local Only" --> LocalPath
 
     %% Left Branch: Cloud (API)
     RouteCheck -- "Allow Cloud" --> OmniRouter{Analysis Logic}
@@ -70,22 +70,24 @@ graph TD
     %% Cloud Subgraph
     subgraph Cloud ["☁️ OpenAI API (Cloud)"]
         direction TB
-        VisionModel["👁️ Vision: gpt-5-mini"]
         CodingModel["💻 Coding: gpt-5.1-codex"]
         HighModel["🧠 Deep: gpt-5.1 / o3"]
-        StdModel["💬 Chat: gpt-5-mini"]
+        MiniModel["👁️🗨️ Chat & Vision: gpt-5-mini"]
+    end
+    
+    %% Local Subgraph
+    subgraph Local ["🏠 Local PC (Localhost)"]
+        LocalPath["Local VLLM"]
     end
 
-    OmniRouter -- "Has Image" --> VisionModel
     OmniRouter -- "Keyword: Code/Fix" --> CodingModel
     OmniRouter -- "Length > 50 chars" --> HighModel
-    OmniRouter -- "Standard Chat" --> StdModel
+    OmniRouter -- "Standard / Image" --> MiniModel
 
     %% Final Output
-    VisionModel --> Response["Final Reply"]
-    CodingModel --> Response
+    CodingModel --> Response["Final Reply"]
     HighModel --> Response
-    StdModel --> Response
+    MiniModel --> Response
     LocalPath --> Response
 ```
 

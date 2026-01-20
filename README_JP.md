@@ -62,7 +62,7 @@ graph TD
     UserInput["ユーザープロンプト"] --> RouteCheck{ローカル or API?}
 
     %% Right Branch: Local
-    RouteCheck -- "ローカルのみ" --> LocalPath["🏠 Local VLLM (Localhost)"]
+    RouteCheck -- "ローカルのみ" --> LocalPath
 
     %% Left Branch: Cloud (API)
     RouteCheck -- "API許可 (Cloud)" --> OmniRouter{解析ロジック}
@@ -70,22 +70,24 @@ graph TD
     %% Cloud Subgraph
     subgraph Cloud ["☁️ OpenAI API (Cloud)"]
         direction TB
-        VisionModel["👁️ Vision: gpt-5-mini"]
         CodingModel["💻 Coding: gpt-5.1-codex"]
         HighModel["🧠 Deep: gpt-5.1 / o3"]
-        StdModel["💬 Chat: gpt-5-mini"]
+        MiniModel["👁️🗨️ Chat & Vision: gpt-5-mini"]
     end
 
-    OmniRouter -- "画像あり" --> VisionModel
+    %% Local Subgraph
+    subgraph Local ["🏠 Local PC (Localhost)"]
+        LocalPath["Local VLLM"]
+    end
+
     OmniRouter -- "キーワード: Code/Fix" --> CodingModel
     OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel
-    OmniRouter -- "標準会話" --> StdModel
+    OmniRouter -- "標準会話 / 画像" --> MiniModel
 
     %% Final Output
-    VisionModel --> Response["最終回答"]
-    CodingModel --> Response
+    CodingModel --> Response["最終回答"]
     HighModel --> Response
-    StdModel --> Response
+    MiniModel --> Response
     LocalPath --> Response
 ```
 
