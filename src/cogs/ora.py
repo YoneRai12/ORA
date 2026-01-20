@@ -415,7 +415,7 @@ class ORACog(commands.Cog):
         try:
             # 1. Collect candidates
             candidates = []
-            for f_path in memory_dir.glob("*.json"):
+            for f_path in memory_dir.glob("*_public.json"):
                 try:
                     async with aiofiles.open(f_path, "r", encoding="utf-8") as f:
                         data = json.loads(await f.read())
@@ -425,8 +425,12 @@ class ORACog(commands.Cog):
 
                     # Fix "Unknown" names immediately if a real name is available in bot cache/fetch
                     # Even if prioritized as "Optimized" in the scan candidates
+                    # FIX: Skip "Error" status to prevent infinite optimization loops on startup
                     if display_name == "Unknown" or (
-                        status != "Optimized" and status != "Processing" and data.get("impression") != "Processing..."
+                        status != "Optimized"
+                        and status != "Processing"
+                        and status != "Error"
+                        and data.get("impression") != "Processing..."
                     ):
                         # Candidates or Needs Name Resolution!
                         user_id_str = f_path.stem.split("_")[0]
@@ -458,7 +462,7 @@ class ORACog(commands.Cog):
                             async with aiofiles.open(f_path, "w", encoding="utf-8") as f_out:
                                 await f_out.write(json.dumps(data, indent=2, ensure_ascii=False))
 
-                        if guild_id and status != "Optimized":
+                        if guild_id and status != "Optimized" and status != "Error" and status != "Processing":
                             candidates.append((user_id, int(guild_id)))
                 except Exception:
                     continue
@@ -3780,6 +3784,30 @@ class ORACog(commands.Cog):
         if message.author.bot:
             return
 
+        # [Admin Only] System Scan Triggers (Migrated from duplicate listener)
+        if message.author.id == self.bot.config.admin_user_id:
+            content_lower = message.content.lower().strip()
+            
+            # 1. Full Scan Triggers
+            full_triggers = ["フルスキャン", "全機能チェック", "full scan", "full_scan", "system full"]
+            if any(t in content_lower for t in full_triggers):
+                sys_cog = self.bot.get_cog("SystemCog")
+                if sys_cog and hasattr(sys_cog, "run_full_scan"):
+                    ctx = await self.bot.get_context(message)
+                    mock_int = self._create_mock_interaction(ctx)
+                    await sys_cog.run_full_scan(mock_int, run_heavy=True)
+                    return
+
+            # 2. Simple Scan Triggers
+            simple_triggers = ["スキャン", "診断", "scan", "check system", "health"]
+            if any(t in content_lower for t in simple_triggers):
+                sys_cog = self.bot.get_cog("SystemCog")
+                if sys_cog and hasattr(sys_cog, "run_simple_scan"):
+                    ctx = await self.bot.get_context(message)
+                    mock_int = self._create_mock_interaction(ctx)
+                    await sys_cog.run_simple_scan(mock_int)
+                    return
+
         # Default Force DM flag
         force_dm_response = False
 
@@ -4038,7 +4066,12 @@ class ORACog(commands.Cog):
                 # User Policy: "Read it out is OK, just don't move." (VoiceManager is now Sticky)
                 is_voice = True
 
-        await self.handle_prompt(message, prompt, is_voice=is_voice, force_dm=force_dm_response)
+        try:
+            logger.info(f"Passing prompt to ChatHandler... Prompt length: {len(prompt)}")
+            await self.chat_handler.handle_prompt(message, prompt, is_voice=is_voice, force_dm=force_dm_response)
+        except Exception as e:
+            logger.error(f"Failed to handle prompt in ChatHandler: {e}", exc_info=True)
+            await message.add_reaction("⚠️")
         # return "Output handled via handle_prompt."
 
     async def _process_attachments(
@@ -4941,6 +4974,30 @@ class ORACog(commands.Cog):
                 break
             except Exception:
                 break
+
+    def _create_mock_interaction(self, ctx):
+        """Helper to create a mock interaction from context."""
+        class MockInteraction:
+            def __init__(self, ctx):
+                self.user = ctx.author
+                self.response = self.Response(ctx)
+                self.followup = self.Followup(ctx)
+                self.channel = ctx.channel
+                self.guild = ctx.guild
+            
+            class Response:
+                def __init__(self, ctx): self.ctx = ctx
+                def is_done(self): return False
+                async def send_message(self, embed=None, ephemeral=False):
+                    self.msg = await self.ctx.reply(embed=embed)
+                async def defer(self): pass
+
+            class Followup:
+                def __init__(self, ctx): self.ctx = ctx
+                async def send(self, embed=None, ephemeral=False):
+                    return await self.ctx.reply(embed=embed)
+
+        return MockInteraction(ctx)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):

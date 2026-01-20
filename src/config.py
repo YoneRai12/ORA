@@ -40,9 +40,12 @@ AUTO_SYNC_INTERVAL = 20  # Increased from 5 to reduce blocking latency
 COST_LIMITS = {
     "high": {
         "openai": {
-            "daily_tokens": 250_000,
+            "daily_tokens": 1_000_000,  # Free Tier Limit: 1M TPD
+            "tpm": 800_000,
+            "rpm": 5_000,
             "hard_stop": True,
             "models": {
+                # Specified Free Tier Models (High)
                 "gpt-5.1",
                 "gpt-5.1-codex",
                 "gpt-5",
@@ -57,9 +60,12 @@ COST_LIMITS = {
     },
     "stable": {
         "openai": {
-            "daily_tokens": 2_500_000,
+            "daily_tokens": 10_000_000,  # Free Tier Limit: 10M TPD
+            "tpm": 4_000_000,
+            "rpm": 5_000,
             "hard_stop": True,
             "models": {
+                # Specified Free Tier Models (Mini)
                 "gpt-5.1-codex-mini",
                 "gpt-5-mini",
                 "gpt-5-nano",
@@ -70,6 +76,10 @@ COST_LIMITS = {
                 "o3-mini",
                 "o4-mini",
                 "codex-mini-latest",
+                # Extras (Assumed Safe or Low Cost)
+                "text-embedding-3-large",
+                "text-embedding-3-small",
+                "omni-moderation-latest",
             },
         },
         "gemini_dev": {"daily_tokens": 200_000, "monthly_tokens": 2_000_000, "hard_stop": True},
@@ -86,10 +96,10 @@ COST_LIMITS = {
 
 # --- Router Configuration ---
 ROUTER_CONFIG = {
-    "coding_model": "gpt-5.1-codex",  # Reverted to codex with /responses endpoint fix
-    "high_intel_model": "gpt-5.1",
-    "standard_model": "gpt-5-mini",
-    "vision_model": "gemini-2.0-flash-exp",
+    "coding_model": "gpt-5.1-codex",  # Free Tier Flagship
+    "high_intel_model": "gpt-5.1",  # Free Tier Flagship
+    "standard_model": "gpt-5-mini",  # Free Tier Excellent Mini
+    "vision_model": "gpt-5-mini",  # Free Tier Multimodal
     "coding_keywords": [
         "コード",
         "実装",

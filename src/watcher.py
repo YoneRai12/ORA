@@ -20,10 +20,13 @@ load_dotenv()
 # Main Token (for Alerting - wait, Watcher usually used Main Token for alerts, but now it uses Shadow Token for Presence?)
 # Actually, if we use Shadow Token, we can't send alerts to the proposal channel if the Shadow Bot isn't in that server?
 # Assuming Shadow Bot is also in the server.
-TOKEN = os.getenv("DISCORD_TOKEN_2")  # Shadow Token
-if not TOKEN:
-    logger.warning("DISCORD_TOKEN_2 not found! Falling back to DISCORD_BOT_TOKEN (Risk of conflict)")
-    TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN_2")
+if not TOKEN or not str(TOKEN).strip():
+    logger.error("DISCORD_TOKEN_2 not found! Exiting ShadowWatcher process.")
+    print("❌ Critical Error: DISCORD_TOKEN_2 is missing. Closing window forcefully...")
+    time.sleep(1)
+    os.system(f"taskkill /F /PID {os.getpid()}")
+    sys.exit(0)
 
 PROPOSAL_CHANNEL_ID = os.getenv("FEATURE_PROPOSAL_CHANNEL_ID")
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")

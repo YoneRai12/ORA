@@ -144,9 +144,9 @@ class LLMClient:
         # --- CLOUD ROUTING LOGIC ---
         # If the model is clearly an OpenAI Cloud Model, route to OpenAI API directly.
         # This bypasses the Local LLM (vLLM) which might be down.
-        # Known Cloud Models: gpt-4, gpt-3.5, o1-, o3-, chatgpt-4o, AND NOW gpt-5/codex based on user request
-        # Known Cloud Models: gpt-4, gpt-3.5, o1-, o3-, chatgpt-4o
-        is_cloud_model = any(m in model_name for m in ["gpt-4", "gpt-3.5", "o1-", "o3-", "chatgpt"])
+        # Known Cloud Models: gpt-*, o1/3/4, codex, chatgpt, etc.
+        # [Use Request] Treated as OpenAI Cloud Models (Not Local)
+        is_cloud_model = any(m in model_name for m in ["gpt-", "o1-", "o3-", "o4-", "codex", "chatgpt"])
 
         # Current Base URL and Key (Default to Local)
         request_base_url = self._base_url
