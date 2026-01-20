@@ -69,13 +69,11 @@ graph TD
 
     UserInput["User Prompt"]:::user --> RouteCheck{Local or Cloud?}:::router
 
-    %% Right Branch: Local
+    %% Main Routing
     RouteCheck -- "Local Only" --> LocalRouter{Local Router}:::local
-
-    %% Left Branch: Cloud (API)
     RouteCheck -- "Allow Cloud" --> OmniRouter{Analysis Logic}:::router
 
-    %% Cloud Subgraph
+    %% Cloud & Local Container (Parallel Concept)
     subgraph Cloud ["☁️ OpenAI API (Cloud)"]
         direction TB
         CodingModel["💻 Coding: gpt-5.1-codex"]:::cloud
@@ -83,40 +81,36 @@ graph TD
         MiniModel["👁️🗨️ Chat & Vision: gpt-5-mini"]:::cloud
     end
     
-    %% Local Subgraph
     subgraph Local ["🏠 Local PC (Localhost)"]
         direction TB
-        L_Coder["💻 Coder (DeepSeek)"]:::local
-        L_Mistral["🌪️ Mistral (Mithril)"]:::local
-        L_Qwen["🦉 Qwen (Quarter)"]:::local
+        L_Coder["💻 Coder: DeepSeek"]:::local
+        L_Mistral["🌪️ Mistral: Mithril"]:::local
+        L_Qwen["🦉 Qwen: Quarter"]:::local
         L_GLM["⚡ GLM-4.7-Flash"]:::local
     end
 
-    %% Tools Layer
+    %% Tools Layer (Compact Mode)
     subgraph Tools ["🛠️ Advanced Tools"]
-        direction TB
-        ToolHub{Tool Choice}:::router
-        T_Img["🎨 Image Gen"]:::tool
-        T_Vid["🎥 Video Gen"]:::tool
-        T_Search["🔍 Web Search"]:::tool
-        T_Voice["🎤 Voice Synth"]:::tool
+        direction LR
+        T_Img["🎨 Image\n(DALL-E 3 / FLUX.2)"]:::tool
+        T_Vid["🎥 Video\n(Sora)"]:::tool
+        T_Search["🔍 Search\n(Google / Perplexity)"]:::tool
+        T_Voice["🎤 Voice\n(OpenAI TTS / VoiceVox)"]:::tool
     end
 
     %% Routing to Models
     LocalRouter --> L_Coder & L_Mistral & L_Qwen & L_GLM
-    OmniRouter -- "Code/Fix" --> CodingModel
-    OmniRouter -- "Deep Think" --> HighModel
-    OmniRouter -- "Chat/Image" --> MiniModel
+    OmniRouter --> CodingModel & HighModel & MiniModel
 
-    %% Models to Tool Hub (Bundling)
-    CodingModel & HighModel & MiniModel --> ToolHub
-    L_Coder & L_Mistral & L_Qwen & L_GLM --> ToolHub
+    %% Models to Tools (Direct & Compact)
+    MiniModel & L_Mistral --> T_Img & T_Voice
+    HighModel & L_Qwen --> T_Vid & T_Search
+    CodingModel & L_Coder --> T_Search
+    L_GLM --> T_Voice
 
-    %% Tool Hub to Specific Tools
-    ToolHub --> T_Img & T_Vid & T_Search & T_Voice
-    
-    %% Direct Path (No Tool)
-    ToolHub -- "Text Only" --> Response["Final Reply"]:::final
+    %% Direct to Response (Text)
+    CodingModel & HighModel & MiniModel --> Response["Final Reply"]:::final
+    L_Coder & L_Mistral & L_Qwen & L_GLM --> Response
 
     %% Tools to Response
     T_Img & T_Vid & T_Search & T_Voice --> Response
