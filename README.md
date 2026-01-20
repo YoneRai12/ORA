@@ -67,15 +67,15 @@ graph TD
 
     %% Image Branch
     ImageCheck -- "Yes" --> VisionCheck{Quota OK?}
-    VisionCheck -- "Yes" --> VisionModel[Vision Model: gpt-5-mini]
-    VisionCheck -- "No" --> LocalVision[Local VLLM (Visual)]
+    VisionCheck -- "Yes" --> VisionModel["Vision Model: gpt-5-mini"]
+    VisionCheck -- "No" --> LocalVision["Local VLLM (Visual)"]
 
     %% Text Branch (Omni-Router)
     ImageCheck -- "No" --> OmniRouter{Analysis Logic}
     
-    OmniRouter -- "Keyword: Code/Fix" --> CodingModel[Model: gpt-5.1-codex]
-    OmniRouter -- "Length > 50 chars" --> HighModel[Model: gpt-5.1 / o3]
-    OmniRouter -- "Standard Chat" --> StdModel[Model: gpt-5-mini]
+    OmniRouter -- "Keyword: Code/Fix" --> CodingModel["Model: gpt-5.1-codex"]
+    OmniRouter -- "Length > 50 chars" --> HighModel["Model: gpt-5.1 / o3"]
+    OmniRouter -- "Standard Chat" --> StdModel["Model: gpt-5-mini"]
     
     %% Cost Check
     CodingModel --> QuotaCheck{Quota OK?}
@@ -88,7 +88,7 @@ graph TD
     VisionModel --> CloudAPI
 
     %% Final Output
-    CloudAPI --> Response[Final Reply]
+    CloudAPI --> Response["Final Reply"]
     LocalPath --> Response
     LocalVision --> Response
 ```

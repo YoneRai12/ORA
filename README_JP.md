@@ -67,15 +67,15 @@ graph TD
 
     %% Image Branch
     ImageCheck -- "Yes" --> VisionCheck{クォータ OK?}
-    VisionCheck -- "Yes" --> VisionModel[Vision Model: gpt-5-mini]
-    VisionCheck -- "No" --> LocalVision[Local VLLM (Visual)]
+    VisionCheck -- "Yes" --> VisionModel["Vision Model: gpt-5-mini"]
+    VisionCheck -- "No" --> LocalVision["Local VLLM (Visual)"]
 
     %% Text Branch (Omni-Router)
     ImageCheck -- "No" --> OmniRouter{解析ロジック}
     
-    OmniRouter -- "キーワード: Code/Fix" --> CodingModel[Model: gpt-5.1-codex]
-    OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel[Model: gpt-5.1 / o3]
-    OmniRouter -- "標準会話" --> StdModel[Model: gpt-5-mini]
+    OmniRouter -- "キーワード: Code/Fix" --> CodingModel["Model: gpt-5.1-codex"]
+    OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel["Model: gpt-5.1 / o3"]
+    OmniRouter -- "標準会話" --> StdModel["Model: gpt-5-mini"]
     
     %% Cost Check
     CodingModel --> QuotaCheck{クォータ OK?}
