@@ -63,30 +63,22 @@ graph TD
 
     %% Top Level Branch
     RouteCheck -- "Local Only" --> LocalPath["🏠 Local VLLM (Localhost)"]
-    RouteCheck -- "Allow Cloud" --> ImageCheck{Has Image?}
+    RouteCheck -- "Allow Cloud" --> OmniRouter{Analysis Logic}
 
-    %% Cloud Route (Omni-Router)
-    %% 1. Vision
-    ImageCheck -- "Yes" --> VisionCheck{Quota OK?}
-    VisionCheck -- "Yes" --> VisionModel["Vision Model: gpt-5-mini"]
-    VisionCheck -- "No" --> LocalPath
-
-    %% 2. Text Logic
-    ImageCheck -- "No" --> OmniRouter{Analysis Logic}
-    
+    %% Omni-Router Dispatch
+    OmniRouter -- "Has Image" --> VisionModel["Vision Model: gpt-5-mini"]
     OmniRouter -- "Keyword: Code/Fix" --> CodingModel["Model: gpt-5.1-codex"]
     OmniRouter -- "Length > 50 chars" --> HighModel["Model: gpt-5.1 / o3"]
     OmniRouter -- "Standard Chat" --> StdModel["Model: gpt-5-mini"]
     
-    %% 3. Cost Check
-    CodingModel --> QuotaCheck{Quota OK?}
+    %% Cost Check
+    VisionModel --> QuotaCheck{Quota OK?}
+    CodingModel --> QuotaCheck
     HighModel --> QuotaCheck
     StdModel --> QuotaCheck
     
     QuotaCheck -- "Yes" --> CloudAPI["☁️ OpenAI API (Cloud)"]
     QuotaCheck -- "No" --> LocalPath
-
-    VisionModel --> CloudAPI
 
     %% Final Output
     CloudAPI --> Response["Final Reply"]

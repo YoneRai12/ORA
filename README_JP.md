@@ -63,30 +63,22 @@ graph TD
 
     %% Top Level Branch
     RouteCheck -- "ローカルのみ" --> LocalPath["🏠 Local VLLM (Localhost)"]
-    RouteCheck -- "API許可 (Cloud)" --> ImageCheck{画像あり?}
+    RouteCheck -- "API許可 (Cloud)" --> OmniRouter{解析ロジック}
 
-    %% Cloud Route (Omni-Router)
-    %% 1. Vision
-    ImageCheck -- "Yes" --> VisionCheck{クォータ OK?}
-    VisionCheck -- "Yes" --> VisionModel["Vision Model: gpt-5-mini"]
-    VisionCheck -- "No" --> LocalPath
-
-    %% 2. Text Logic
-    ImageCheck -- "No" --> OmniRouter{解析ロジック}
-    
+    %% Omni-Router Dispatch
+    OmniRouter -- "画像あり" --> VisionModel["Vision Model: gpt-5-mini"]
     OmniRouter -- "キーワード: Code/Fix" --> CodingModel["Model: gpt-5.1-codex"]
     OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel["Model: gpt-5.1 / o3"]
     OmniRouter -- "標準会話" --> StdModel["Model: gpt-5-mini"]
     
-    %% 3. Cost Check
-    CodingModel --> QuotaCheck{クォータ OK?}
+    %% Cost Check
+    VisionModel --> QuotaCheck{クォータ OK?}
+    CodingModel --> QuotaCheck
     HighModel --> QuotaCheck
     StdModel --> QuotaCheck
     
     QuotaCheck -- "Yes" --> CloudAPI["☁️ OpenAI API (Cloud)"]
     QuotaCheck -- "No" --> LocalPath
-
-    VisionModel --> CloudAPI
 
     %% Final Output
     CloudAPI --> Response["最終回答"]
