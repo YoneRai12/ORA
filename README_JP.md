@@ -66,9 +66,9 @@ graph TD
     ModeCheck -- "Smart Mode" --> ImageCheck{画像あり?}
 
     %% Image Branch
-    ImageCheck -- "Yes" --> VisionRouter{Vision Router}
-    VisionRouter -- "Use Burn Lane" --> Gemini[Gemini 2.0 Flash]
-    VisionRouter -- "Fallback" --> LocalVision[Local VLLM Vision]
+    ImageCheck -- "Yes" --> VisionCheck{クォータ OK?}
+    VisionCheck -- "Yes" --> VisionModel[Vision Model: gpt-5-mini]
+    VisionCheck -- "No" --> LocalVision[Local VLLM (Visual)]
 
     %% Text Branch (Omni-Router)
     ImageCheck -- "No" --> OmniRouter{解析ロジック}
@@ -77,27 +77,20 @@ graph TD
     OmniRouter -- "50文字以上 OR 解説/Deep" --> HighModel[Model: gpt-5.1 / o3]
     OmniRouter -- "標準会話" --> StdModel[Model: gpt-5-mini]
     
-    %% Cost & Limit Check
-    CodingModel --> LimitCheck{クォータ OK?}
-    HighModel --> LimitCheck
-    StdModel --> LimitCheck
+    %% Cost Check
+    CodingModel --> QuotaCheck{クォータ OK?}
+    HighModel --> QuotaCheck
+    StdModel --> QuotaCheck
     
-    LimitCheck -- "Yes" --> CloudDispatch
-    LimitCheck -- "No (超過)" --> LocalPath
+    QuotaCheck -- "Yes" --> CloudAPI["☁️ OpenAI API (Cloud)"]
+    QuotaCheck -- "No (超過)" --> LocalPath["🏠 Local VLLM (Localhost)"]
 
-    %% Connection Layer (LLM Client)
-    subgraph "🔌 接続ルーター"
-        CloudDispatch --> IsCloud{"名前に 'gpt-' か 'codex' を含む?"}
-        LocalPath --> IsCloud
-        
-        IsCloud -- "Yes" --> OpenAI["☁️ OpenAI API (Cloud)"]
-        IsCloud -- "No" --> LocalAPI["🏠 Local VLLM (Localhost)"]
-    end
+    VisionModel --> CloudAPI
 
     %% Final Output
-    OpenAI --> Response[最終回答]
-    LocalAPI --> Response
-    Gemini --> Response
+    CloudAPI --> Response[最終回答]
+    LocalPath --> Response
+    LocalVision --> Response
 ```
 
 ### 👥 Shadow Clone: Zombie Killer

@@ -66,9 +66,9 @@ graph TD
     ModeCheck -- "Smart Mode" --> ImageCheck{Has Image?}
 
     %% Image Branch
-    ImageCheck -- "Yes" --> VisionRouter{Vision Router}
-    VisionRouter -- "Use Burn Lane" --> Gemini[Gemini 2.0 Flash]
-    VisionRouter -- "Fallback" --> LocalVision[Local VLLM Vision]
+    ImageCheck -- "Yes" --> VisionCheck{Quota OK?}
+    VisionCheck -- "Yes" --> VisionModel[Vision Model: gpt-5-mini]
+    VisionCheck -- "No" --> LocalVision[Local VLLM (Visual)]
 
     %% Text Branch (Omni-Router)
     ImageCheck -- "No" --> OmniRouter{Analysis Logic}
@@ -77,27 +77,20 @@ graph TD
     OmniRouter -- "Length > 50 chars" --> HighModel[Model: gpt-5.1 / o3]
     OmniRouter -- "Standard Chat" --> StdModel[Model: gpt-5-mini]
     
-    %% Cost & Limit Check
-    CodingModel --> LimitCheck{Quota OK?}
-    HighModel --> LimitCheck
-    StdModel --> LimitCheck
+    %% Cost Check
+    CodingModel --> QuotaCheck{Quota OK?}
+    HighModel --> QuotaCheck
+    StdModel --> QuotaCheck
     
-    LimitCheck -- "Yes" --> CloudDispatch
-    LimitCheck -- "No" --> LocalPath
+    QuotaCheck -- "Yes" --> CloudAPI["☁️ OpenAI API (Cloud)"]
+    QuotaCheck -- "No (Exceeded)" --> LocalPath["🏠 Local VLLM (Localhost)"]
 
-    %% Connection Layer (LLM Client)
-    subgraph "🔌 Connection Router"
-        CloudDispatch --> IsCloud{"Name has 'gpt-' or 'codex'?"}
-        LocalPath --> IsCloud
-        
-        IsCloud -- "Yes" --> OpenAI["☁️ Cloud API"]
-        IsCloud -- "No" --> LocalAPI["🏠 Local VLLM"]
-    end
+    VisionModel --> CloudAPI
 
     %% Final Output
-    OpenAI --> Response[Final Reply]
-    LocalAPI --> Response
-    Gemini --> Response
+    CloudAPI --> Response[Final Reply]
+    LocalPath --> Response
+    LocalVision --> Response
 ```
 
 *   **Smart Routing**: She analyzes prompt length and keywords (e.g., "fix code" -> Codex).
