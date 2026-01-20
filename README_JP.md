@@ -67,66 +67,60 @@ graph TD
     classDef tool fill:#fff3e0,stroke:#fb8c00,stroke-width:2px,color:#000
     classDef final fill:#fce4ec,stroke:#f06292,stroke-width:2px,color:#000
 
-    %% 1. User Input Layer
+    %% 1. User Input
     UserInput["ユーザープロンプト"]:::user --> RouteCheck{ローカル or API?}:::router
 
-    %% 2. Models Layer (Cloud & Local)
-    subgraph ModelsWrapper [ ]
-        style ModelsWrapper fill:none,stroke:none
-        
-        %% Right Side: Local
-        subgraph Local ["🏠 Local PC (Private)"]
-            direction TB
-            L_Coder["💻 Coder: DeepSeek"]:::local
-            L_Mistral["🌪️ Mistral: Mithril"]:::local
-            L_Qwen["🦉 Qwen: Quarter"]:::local
-            L_GLM["⚡ GLM-4.7-Flash"]:::local
-        end
-
-        %% Left Side: Cloud
-        subgraph Cloud ["☁️ OpenAI API (Cloud)"]
-            direction TB
-            CodingModel["💻 Coding: gpt-5.1-codex"]:::cloud
-            HighModel["🧠 Deep: gpt-5.1 / o3"]:::cloud
-            MiniModel["👁️🗨️ Vision: gpt-5-mini"]:::cloud
-        end
+    %% 2. Models Layer
+    %% Left: Cloud
+    subgraph Cloud ["☁️ OpenAI API (Cloud)"]
+        direction TB
+        CodingModel["💻 Coding: gpt-5.1-codex"]:::cloud
+        HighModel["🧠 Deep: gpt-5.1 / o3"]:::cloud
+        MiniModel["👁️🗨️ Vision: gpt-5-mini"]:::cloud
+    end
+    
+    %% Right: Local
+    subgraph Local ["🏠 Local PC (Private)"]
+        direction TB
+        L_Coder["💻 Coder: DeepSeek"]:::local
+        L_Qwen["🦉 Deep: Qwen-2.5"]:::local
+        L_Mistral["🌪️ Chat: Mistral"]:::local
+        L_GLM["⚡ Fast: GLM-4.7"]:::local
     end
 
-    %% Routing Logic
-    RouteCheck -- "ローカルのみ" --> LocalRouter{Local Router}:::local
+    %% Routing
     RouteCheck -- "API許可 (Cloud)" --> OmniRouter{解析ロジック}:::router
+    RouteCheck -- "ローカルのみ" --> LocalRouter{Local Router}:::local
 
-    LocalRouter --> L_Coder & L_Mistral & L_Qwen & L_GLM
     OmniRouter --> CodingModel & HighModel & MiniModel
+    LocalRouter --> L_Coder & L_Qwen & L_Mistral & L_GLM
 
-    %% 3. Tools Layer
+    %% 3. Tools Layer (Aligned with Models)
     subgraph Tools ["🛠️ Advanced Tools"]
         direction LR
+        %% Order: Code/Deep -> Search/Vid | Mini/Chat -> Img/Voice
         T_Search["🔍 検索\n(Google)"]:::tool
         T_Vid["🎥 動画\n(Sora)"]:::tool
         T_Img["🎨 画像\n(DALL-E 3)"]:::tool
         T_Voice["🎤 音声\n(TTS)"]:::tool
     end
 
-    %% 4. Specific Connections (No Crossing)
-    %% Search Users
-    CodingModel & L_Coder & HighModel & L_Qwen --> T_Search
-    
-    %% Video Users
+    %% 4. Strict Capability Routing (No Crossing)
+    %% Coding/Logic -> Search (Debugging/Research)
+    CodingModel & L_Coder --> T_Search
+    HighModel & L_Qwen --> T_Search
+
+    %% Deep Logic -> Video (Complex Prompting)
     HighModel & L_Qwen --> T_Vid
-    
-    %% Image Users
+
+    %% Chat/Vision -> Image & Voice (Creative/Interaction)
     MiniModel & L_Mistral --> T_Img
-    
-    %% Voice Users
     MiniModel & L_Mistral & L_GLM --> T_Voice
 
-    %% 5. Final Output
+    %% 5. Output
     T_Search & T_Vid & T_Img & T_Voice --> Response["最終回答"]:::final
-    
-    %% Direct Text fallback
     CodingModel & HighModel & MiniModel -.-> Response
-    L_Coder & L_Mistral & L_Qwen & L_GLM -.-> Response
+    L_Coder & L_Qwen & L_Mistral & L_GLM -.-> Response
 ```
 
 ### 👥 Shadow Clone: Zombie Killer
