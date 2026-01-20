@@ -74,8 +74,8 @@ graph TD
     ImageCheck -- "No" --> OmniRouter{Analysis Logic}
     
     OmniRouter -- "Keyword: Code/Fix" --> CodingModel[Model: gpt-5.1-codex]
-    OmniRouter -- "Length > 50 chars" --> HighModel[Model: gpt-4o / gpt-5.1]
-    OmniRouter -- "Standard Chat" --> StdModel[Model: gpt-4o-mini]
+    OmniRouter -- "Length > 50 chars" --> HighModel[Model: gpt-5.1 / o3]
+    OmniRouter -- "Standard Chat" --> StdModel[Model: gpt-5-mini]
     
     %% Cost & Limit Check
     CodingModel --> LimitCheck{Quota OK?}
