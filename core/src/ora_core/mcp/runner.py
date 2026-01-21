@@ -144,6 +144,14 @@ class ToolRunner:
                 # Truncate summary for event
                 summary = str(result["content"])[:100] + "..." if len(str(result["content"])) > 100 else str(result["content"])
 
+            # Check for Client Action (Hub & Spoke Protocol)
+            if isinstance(result, dict) and "client_action" in result:
+                await event_manager.emit(run_id, "dispatch", {
+                    "tool": tool_name,
+                    "action": result["client_action"],
+                    "tool_call_id": tool_call_id
+                })
+
             await event_manager.emit(run_id, "tool_result", {
                 "tool": tool_name,
                 "tool_call_id": tool_call_id,

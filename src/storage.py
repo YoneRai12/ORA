@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-  discord_user_id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY,
   google_sub TEXT,
   privacy TEXT NOT NULL DEFAULT 'private',
   speak_search_progress INTEGER NOT NULL DEFAULT 0,
@@ -215,16 +215,16 @@ class Store:
             if display_name:
                 await db.execute(
                     (
-                        "INSERT INTO users(discord_user_id, privacy, speak_search_progress, created_at, display_name) "
-                        "VALUES(?, ?, ?, ?, ?) ON CONFLICT(discord_user_id) DO UPDATE SET display_name=excluded.display_name"
+                        "INSERT INTO users(id, privacy, speak_search_progress, created_at, display_name) "
+                        "VALUES(?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name"
                     ),
                     (str(discord_user_id), privacy_default, sp_default, now, display_name),
                 )
             else:
                 await db.execute(
                     (
-                        "INSERT INTO users(discord_user_id, privacy, speak_search_progress, created_at) "
-                        "VALUES(?, ?, ?, ?) ON CONFLICT(discord_user_id) DO NOTHING"
+                        "INSERT INTO users(id, privacy, speak_search_progress, created_at) "
+                        "VALUES(?, ?, ?, ?) ON CONFLICT(id) DO NOTHING"
                     ),
                     (str(discord_user_id), privacy_default, sp_default, now),
                 )
@@ -233,7 +233,7 @@ class Store:
     async def set_privacy(self, discord_user_id: int, mode: str) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "UPDATE users SET privacy=? WHERE discord_user_id=?",
+                "UPDATE users SET privacy=? WHERE id=?",
                 (mode, str(discord_user_id)),
             )
             await db.commit()
@@ -241,7 +241,7 @@ class Store:
     async def get_privacy(self, discord_user_id: int) -> str:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT privacy FROM users WHERE discord_user_id=?",
+                "SELECT privacy FROM users WHERE id=?",
                 (str(discord_user_id),),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -256,7 +256,7 @@ class Store:
                 pass
 
             await db.execute(
-                "UPDATE users SET system_privacy=? WHERE discord_user_id=?",
+                "UPDATE users SET system_privacy=? WHERE id=?",
                 (mode, str(discord_user_id)),
             )
             await db.commit()
@@ -265,7 +265,7 @@ class Store:
         async with aiosqlite.connect(self._db_path) as db:
             try:
                 async with db.execute(
-                    "SELECT system_privacy FROM users WHERE discord_user_id=?",
+                    "SELECT system_privacy FROM users WHERE id=?",
                     (str(discord_user_id),),
                 ) as cursor:
                     row = await cursor.fetchone()
@@ -280,7 +280,7 @@ class Store:
         """Return the search progress speech setting (0 or 1) for a user."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT speak_search_progress FROM users WHERE discord_user_id=?",
+                "SELECT speak_search_progress FROM users WHERE id=?",
                 (str(discord_user_id),),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -296,7 +296,7 @@ class Store:
         val = 1 if value else 0
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "UPDATE users SET speak_search_progress=? WHERE discord_user_id=?",
+                "UPDATE users SET speak_search_progress=? WHERE id=?",
                 (val, str(discord_user_id)),
             )
             await db.commit()
@@ -311,7 +311,7 @@ class Store:
             # Let's just try to select it. If it fails, return True (default).
             try:
                 async with db.execute(
-                    "SELECT desktop_watch_enabled FROM users WHERE discord_user_id=?",
+                    "SELECT desktop_watch_enabled FROM users WHERE id=?",
                     (str(discord_user_id),),
                 ) as cursor:
                     row = await cursor.fetchone()
@@ -332,7 +332,7 @@ class Store:
                 pass  # Column likely exists
 
             await db.execute(
-                "UPDATE users SET desktop_watch_enabled=? WHERE discord_user_id=?",
+                "UPDATE users SET desktop_watch_enabled=? WHERE id=?",
                 (val, str(discord_user_id)),
             )
             await db.commit()
@@ -344,18 +344,18 @@ class Store:
             if refresh_token:
                 await db.execute(
                     (
-                        "INSERT INTO users(discord_user_id, google_sub, refresh_token, privacy, created_at) "
+                        "INSERT INTO users(id, google_sub, refresh_token, privacy, created_at) "
                         "VALUES(?, ?, ?, 'private', ?) "
-                        "ON CONFLICT(discord_user_id) DO UPDATE SET google_sub=excluded.google_sub, refresh_token=excluded.refresh_token"
+                        "ON CONFLICT(id) DO UPDATE SET google_sub=excluded.google_sub, refresh_token=excluded.refresh_token"
                     ),
                     (str(discord_user_id), google_sub, refresh_token, int(time.time())),
                 )
             else:
                 await db.execute(
                     (
-                        "INSERT INTO users(discord_user_id, google_sub, privacy, created_at) "
+                        "INSERT INTO users(id, google_sub, privacy, created_at) "
                         "VALUES(?, ?, 'private', ?) "
-                        "ON CONFLICT(discord_user_id) DO UPDATE SET google_sub=excluded.google_sub"
+                        "ON CONFLICT(id) DO UPDATE SET google_sub=excluded.google_sub"
                     ),
                     (str(discord_user_id), google_sub, int(time.time())),
                 )
@@ -365,7 +365,7 @@ class Store:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT google_sub, refresh_token FROM users WHERE discord_user_id=?",
+                "SELECT google_sub, refresh_token FROM users WHERE id=?",
                 (str(discord_user_id),),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -383,7 +383,7 @@ class Store:
     async def get_google_sub(self, discord_user_id: int) -> Optional[str]:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT google_sub FROM users WHERE discord_user_id=?",
+                "SELECT google_sub FROM users WHERE id=?",
                 (str(discord_user_id),),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -543,18 +543,18 @@ class Store:
         """Link a Discord user to a Google Subject ID."""
         async with aiosqlite.connect(self._db_path) as db:
             # Check if user exists
-            async with db.execute("SELECT 1 FROM users WHERE discord_user_id=?", (str(discord_user_id),)) as cursor:
+            async with db.execute("SELECT 1 FROM users WHERE id=?", (str(discord_user_id),)) as cursor:
                 exists = await cursor.fetchone()
 
             if exists:
                 await db.execute(
-                    "UPDATE users SET google_sub=? WHERE discord_user_id=?",
+                    "UPDATE users SET google_sub=? WHERE id=?",
                     (google_sub, str(discord_user_id)),
                 )
             else:
                 # Create new user
                 await db.execute(
-                    "INSERT INTO users(discord_user_id, google_sub, created_at) VALUES(?, ?, ?)",
+                    "INSERT INTO users(id, google_sub, created_at) VALUES(?, ?, ?)",
                     (str(discord_user_id), google_sub, int(time.time())),
                 )
             await db.commit()
@@ -564,7 +564,7 @@ class Store:
     async def get_points(self, discord_user_id: int) -> int:
         """Get the current point balance for a user."""
         async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute("SELECT points FROM users WHERE discord_user_id=?", (str(discord_user_id),))
+            cursor = await db.execute("SELECT points FROM users WHERE id=?", (str(discord_user_id),))
             row = await cursor.fetchone()
             if row:
                 return row[0] if row[0] is not None else 0
@@ -575,19 +575,19 @@ class Store:
         async with aiosqlite.connect(self._db_path) as db:
             # Upsert User if not exists
             await db.execute(
-                "INSERT INTO users(discord_user_id, created_at, points) VALUES(?, ?, 0) ON CONFLICT(discord_user_id) DO NOTHING",
+                "INSERT INTO users(id, created_at, points) VALUES(?, ?, 0) ON CONFLICT(id) DO NOTHING",
                 (str(discord_user_id), int(time.time())),
             )
 
             # Atomic Add
             await db.execute(
-                "UPDATE users SET points = points + ? WHERE discord_user_id=?", (amount, str(discord_user_id))
+                "UPDATE users SET points = points + ? WHERE id=?", (amount, str(discord_user_id))
             )
             await db.commit()
 
             # Fetch new balance
             async with db.execute(
-                "SELECT points FROM users WHERE discord_user_id=?", (str(discord_user_id),)
+                "SELECT points FROM users WHERE id=?", (str(discord_user_id),)
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else 0
@@ -596,7 +596,7 @@ class Store:
         """Set absolute point balance."""
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "INSERT INTO users(discord_user_id, created_at, points) VALUES(?, ?, ?) ON CONFLICT(discord_user_id) DO UPDATE SET points=?",
+                "INSERT INTO users(id, created_at, points) VALUES(?, ?, ?) ON CONFLICT(id) DO UPDATE SET points=?",
                 (str(discord_user_id), int(time.time()), amount, amount),
             )
             await db.commit()
@@ -605,7 +605,7 @@ class Store:
         """Get the permission level for a user (user, sub_admin, vc_admin, owner)."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT permission_level FROM users WHERE discord_user_id=?", (str(discord_user_id),)
+                "SELECT permission_level FROM users WHERE id=?", (str(discord_user_id),)
             ) as cursor:
                 row = await cursor.fetchone()
 
@@ -618,8 +618,8 @@ class Store:
         async with aiosqlite.connect(self._db_path) as db:
             # Upsert
             await db.execute(
-                "INSERT INTO users(discord_user_id, created_at, permission_level) VALUES(?, ?, ?) "
-                "ON CONFLICT(discord_user_id) DO UPDATE SET permission_level=?",
+                "INSERT INTO users(id, created_at, permission_level) VALUES(?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET permission_level=?",
                 (str(discord_user_id), int(time.time()), level, level),
             )
             await db.commit()
@@ -629,7 +629,7 @@ class Store:
         async with aiosqlite.connect(self._db_path) as db:
             # 1. Get user's points
             async with db.execute(
-                "SELECT points FROM users WHERE discord_user_id=?", (str(discord_user_id),)
+                "SELECT points FROM users WHERE id=?", (str(discord_user_id),)
             ) as cursor:
                 row = await cursor.fetchone()
                 if not row:

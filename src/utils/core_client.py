@@ -21,7 +21,9 @@ class CoreAPIClient:
                            idempotency_key: Optional[str] = None,
                            attachments: list = None,
                            context_binding: Optional[dict] = None,
-                           stream: bool = False
+                           stream: bool = False,
+                           client_history: list = None,
+                           client_context: Optional[dict] = None
                            ) -> Dict[str, Any]:
         """
         POST to /v1/messages
@@ -51,7 +53,9 @@ class CoreAPIClient:
             "attachments": normalized_atts,
             "idempotency_key": idempotency_key,
             "stream": stream,
-            "context_binding": context_binding
+            "context_binding": context_binding,
+            "client_history": client_history or [],
+            "client_context": client_context
         }
 
         async with aiohttp.ClientSession() as session:
@@ -67,22 +71,23 @@ class CoreAPIClient:
                 logger.error(f"Failed to connect to Core API: {e}")
                 return {"error": str(e), "status": 500}
 
-    async def get_final_response(self, run_id: str, timeout: int = 60) -> Optional[str]:
+    async def stream_events(self, run_id: str, timeout: int = 300):
         """
-        Listens to SSE events for a specific run_id and returns the final AI text.
+        Yields events from the Core SSE stream for a specific run_id.
         """
         import json
+        import aiohttp
         url = f"{self.base_url}/v1/runs/{run_id}/events"
         
+        # Increase timeout for long-running tool executions
         timeout_cfg = aiohttp.ClientTimeout(total=timeout)
         async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
             try:
                 async with session.get(url) as resp:
                     if resp.status != 200:
                         logger.error(f"Failed to connect to events: {await resp.text()}")
-                        return None
+                        return
                     
-                    final_text = None
                     async for line in resp.content:
                         if not line:
                             continue
@@ -91,28 +96,30 @@ class CoreAPIClient:
                         if not l:
                             continue
                         
-                        # SSE handling: event: ..., data: ...
                         if l.startswith("data: "):
                             try:
                                 event_data = json.loads(l[6:])
-                                event_type = event_data.get("event")
-                                if event_type == "final":
-                                    final_text = event_data.get("data", {}).get("text")
-                                    return final_text
-                                elif event_type == "error":
-                                    logger.error(f"Core API Run Error: {event_data.get('data')}")
-                                    return None
+                                yield event_data
+                                
+                                # Terminate on final or error
+                                if event_data.get("event") in ["final", "error"]:
+                                    break
                             except json.JSONDecodeError:
                                 continue
             except Exception as e:
                 logger.error(f"Error reading SSE stream: {e}")
-                return None
+                return
+
+    async def get_final_response(self, run_id: str, timeout: int = 300) -> Optional[str]:
+        """
+        Convenience method to get just the final text.
+        """
+        async for event in self.stream_events(run_id, timeout):
+            if event.get("event") == "final":
+                return event.get("data", {}).get("text")
         return None
 
-    async def poll_completion(self, run_id: str, timeout: int = 60) -> Optional[str]:
-        """
-        Wait for Run completion and return final response.
-        """
+    async def poll_completion(self, run_id: str, timeout: int = 300) -> Optional[str]:
         return await self.get_final_response(run_id, timeout)
 
 core_client = CoreAPIClient()

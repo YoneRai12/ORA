@@ -1,0 +1,16 @@
+# Ngrok configuration for ORA System
+version: "2"
+# Usage: ngrok start --all --config ngrok.yml
+tunnels:
+  ora-web:
+    proto: http
+    addr: 3000
+    schemes: [https]
+  ora-dashboard:
+    proto: http
+    addr: 3333
+    schemes: [https]
+  ora-api:
+    proto: http
+    addr: 8001
+    schemes: [https]

@@ -3868,9 +3868,28 @@ class ORACog(commands.Cog):
                 f"Message: {message.author} ({message.author.id}): {message.content} | Attachments: {len(message.attachments)}"
             )
 
-        logger.info(
-            f"ORACogメッセージ受信: ユーザー={message.author.id}, 内容={message.content[:50]}, 添付={len(message.attachments)}"
-        )
+        # logger.info(
+        #     f"ORACogメッセージ受信: ユーザー={message.author.id}, 内容={message.content[:50]}, 添付={len(message.attachments)}"
+        # )
+
+        # --- [NEW] Auto-Read (Reading Bot) Logic ---
+        if message.guild and not message.author.bot:
+            media_cog = self.bot.get_cog("MediaCog")
+            if media_cog:
+                auto_channel_id = media_cog._voice_manager.auto_read_channels.get(message.guild.id)
+                if auto_channel_id == message.channel.id:
+                    # Only read if NOT a mention (mentions are handled by AI/ChatHandler)
+                    if not (self.bot.user in message.mentions or message.content.startswith(("@ORA", "@roa"))):
+                         # If it's a very short message or has attachments, we might want to skip or handle specially.
+                         # For now, just play TTS.
+                         asyncio.create_task(media_cog._voice_manager.play_tts(message.author, message.content))
+                         # Do NOT return; we still allow the AI to see the message if it wants? 
+                         # Actually, standard reading bots don't trigger AI.
+                         # But if it's NOT a mention, it's just a regular message.
+                         # Let's just let it be read and stop here if it's purely a reading-bot channel?
+                         # Usually, if it's an auto-read channel, we don't want AI to respond unless mentioned.
+                         # Since we return later if no mention, this is fine.
+        # -------------------------------------------
 
         # --- Voice Triggers (Direct Bypass - Mentions Only) ---
         is_reply_to_me = False
@@ -3936,33 +3955,41 @@ class ORACog(commands.Cog):
                 return
 
             # Music: "XX流して" / "play XX"
-            # Regex to capture content before keywords
-            # DISABLED (2025-12-29): User requested smart "Search then Play".
-            # This bypass prevents LLM from seeing the full context.
-            # import re
-            # music_match = re.search(r"(.*?)\s*(流して|かけて|再生して|歌って|play)", content_stripped, re.IGNORECASE)
-            # if music_match:
-            #     query = music_match.group(1).strip()
-            #     if not query and "play" in content_stripped.lower():
-            #          query = re.sub(r"^play\s*", "", content_stripped, flags=re.IGNORECASE).strip()
+            content_stripped = message.content.replace(f"<@{self.bot.user.id}>", "").replace(f"<@!{self.bot.user.id}>", "").strip()
+            for t in ["@ORA", "@ROA", "＠ORA", "＠ROA", "@ora", "@roa"]:
+                content_stripped = content_stripped.replace(t, "").strip()
 
-            #     if query:
-            #         media_cog = self.bot.get_cog("MediaCog")
-            #         if media_cog:
-            #             try:
-            #                 await media_cog._voice_manager.ensure_voice_client(message.author)
-            #                 await message.add_reaction("🎵")
+            # 1. Instant YouTube URL Trigger
+            youtube_regex = r"(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)[a-zA-Z0-9_-]+)"
+            yt_match = re.search(youtube_regex, message.content)
+            if yt_match:
+                url = yt_match.group(1)
+                media_cog = self.bot.get_cog("MediaCog")
+                if media_cog:
+                    await message.add_reaction("🎵")
+                    ctx = await self.bot.get_context(message)
+                    asyncio.create_task(media_cog.play_from_ai(ctx, url))
+                    return
 
-            #                 # Context creation hack is risky. Let's rely on LLM.
-            #                 # The user explicitly wants "Search -> Play" flow which this blocks.
-            #                 pass
+            # 2. Search & Play Trigger (Regex)
+            music_match = re.search(r"(.*?)\s*(流して|かけて|再生して|歌って|play)", content_stripped, re.IGNORECASE)
+            if music_match:
+                query = music_match.group(1).strip()
+                if not query and "play" in content_stripped.lower():
+                     query = re.sub(r"^play\s*", "", content_stripped, flags=re.IGNORECASE).strip()
 
-            #             except Exception as e:
-            #                 logger.error(f"Regex Music Trigger Failed: {e}")
-            #                 await message.add_reaction("❌")
-            #         return
-        # ------------------------------------------------------
-
+                if query:
+                    media_cog = self.bot.get_cog("MediaCog")
+                    if media_cog:
+                        try:
+                            await message.add_reaction("🔍")
+                            ctx = await self.bot.get_context(message)
+                            asyncio.create_task(media_cog.play_from_ai(ctx, query))
+                            return
+                        except Exception as e:
+                            logger.error(f"Music Trigger Failed: {e}")
+                            await message.add_reaction("❌")
+                    return
         # Check for User Mention
         is_user_mention = self.bot.user in message.mentions
 

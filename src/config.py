@@ -187,6 +187,10 @@ class Config:
     vc_admin_ids: set[int]
     vision_provider: str
     
+    # Notification IDs (Phase 42)
+    ora_web_notify_id: Optional[int] = None
+    ora_api_notify_id: Optional[int] = None
+    
     # ComfyUI (Optional)
     comfy_dir: Optional[str] = None
     comfy_bat: Optional[str] = None
@@ -342,6 +346,13 @@ class Config:
         gaming_processes_str = os.getenv("GAMING_PROCESSES", "valorant.exe,javaw.exe,ffxiv_dx11.exe,osu!.exe")
         gaming_processes = [p.strip() for p in gaming_processes_str.split(",") if p.strip()]
 
+        # Notification IDs
+        ora_web_notify_raw = os.getenv("ORA_WEB_NOTIFY_ID")
+        ora_web_notify_id = int(ora_web_notify_raw) if ora_web_notify_raw and ora_web_notify_raw.isdigit() else None
+        
+        ora_api_notify_raw = os.getenv("ORA_API_NOTIFY_ID")
+        ora_api_notify_id = int(ora_api_notify_raw) if ora_api_notify_raw and ora_api_notify_raw.isdigit() else None
+
         # Model Modes Configuration
         # Maps mode name to batch file name
         model_modes = {
@@ -394,6 +405,8 @@ class Config:
             vc_admin_ids=vc_admin_ids,
             feature_proposal_channel_id=feature_proposal_channel_id,
             vision_provider=vision_provider,
+            ora_web_notify_id=ora_web_notify_id,
+            ora_api_notify_id=ora_api_notify_id,
         )
 
     def validate(self) -> None:

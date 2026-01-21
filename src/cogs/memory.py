@@ -129,17 +129,17 @@ class MemoryCog(commands.Cog):
         self.sem = asyncio.Semaphore(limit)
         self._io_lock = asyncio.Lock()  # Prevent concurrent file access
 
-        # Start core loops (Bypassed for Hub & Spoke Step 2 Migration)
-        # self.memory_worker.start()
-        # self.name_sweeper.start()
+        # [RESTORED] Hub & Spoke: Re-enabled optimization for Discord users
+        self.memory_worker.start()
+        self.name_sweeper.start()
         if self.worker_mode:
             self.status_loop.change_interval(seconds=5)
-            # self.scan_history_task.start()
+            self.scan_history_task.start()
             self.refresh_watcher.start()
             self.idle_log_archiver.start()
         else:
             self.status_loop.start()
-            # self.scan_history_task.start()
+            self.scan_history_task.start()
             self.refresh_watcher.start()
             # Archive logic is Worker-only
             # self.idle_log_archiver.start()
@@ -405,20 +405,18 @@ class MemoryCog(commands.Cog):
         }
         self.message_buffer[message.author.id].append(entry)
 
-        # [LOGIC CUT-OFF] Logic moved to Core API (MainProcess)
-        # ---------------------------------------------------------------------
-        # if len(self.message_buffer[message.author.id]) >= 5:
-        #     logger.info(f"Memory: Instant Optimization Trigger for {message.author.display_name} (5+ new msgs)")
-        #     msgs_to_process = self.message_buffer[message.author.id][:]  # Copy
-        #     self.message_buffer[message.author.id] = []  # Clear
-        #
-        #     # Fire off analysis (Background)
-        #     asyncio.create_task(
-        #         self._analyze_wrapper(
-        #             message.author.id, msgs_to_process, message.guild.id if message.guild else None, is_pub
-        #         )
-        #     )
-        # ---------------------------------------------------------------------
+        # [RESTORED] Local optimization trigger for real-time responsiveness
+        if len(self.message_buffer[message.author.id]) >= 5:
+            logger.info(f"Memory: Instant Optimization Trigger for {message.author.display_name} (5+ new msgs)")
+            msgs_to_process = self.message_buffer[message.author.id][:]  # Copy
+            self.message_buffer[message.author.id] = []  # Clear
+        
+            # Fire off analysis (Background)
+            asyncio.create_task(
+                self._analyze_wrapper(
+                    message.author.id, msgs_to_process, message.guild.id if message.guild else None, is_pub
+                )
+            )
 
 
         # Cap buffer size (Safety net if trigger fails or backlog)
@@ -443,14 +441,12 @@ class MemoryCog(commands.Cog):
         }
         self.channel_buffer[message.channel.id].append(chan_entry)
 
-        # [LOGIC CUT-OFF] Channel analysis moved to Core API
-        # ---------------------------------------------------------
-        # if len(self.channel_buffer[message.channel.id]) >= 10:
-        #     # logger.info(f"Memory: Channel Optimization Trigger for {message.channel.name}")
-        #     c_msgs = self.channel_buffer[message.channel.id][:]
-        #     self.channel_buffer[message.channel.id] = []
-        #     asyncio.create_task(self._analyze_channel_wrapper(message.channel.id, c_msgs))
-        # ---------------------------------------------------------
+        # [RESTORED] Channel optimization trigger
+        if len(self.channel_buffer[message.channel.id]) >= 10:
+            # logger.info(f"Memory: Channel Optimization Trigger for {message.channel.name}")
+            c_msgs = self.channel_buffer[message.channel.id][:]
+            self.channel_buffer[message.channel.id] = []
+            asyncio.create_task(self._analyze_channel_wrapper(message.channel.id, c_msgs))
 
 
         # ---------------------------------------------------------

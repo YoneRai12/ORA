@@ -222,67 +222,57 @@ class ORABot(commands.Bot):
         self.loop.create_task(self._notify_ngrok_url())
 
     async def _notify_ngrok_url(self) -> None:
-        """Checks for Ngrok tunnel and DMs the URL to the owner."""
-        # Add dynamic admin
-        target_ids = []
-        if self.config.admin_user_id:
-            target_ids.append(self.config.admin_user_id)
-
-        # Add Startup Notification Channel
-        if self.config.startup_notify_channel_id:
-            target_ids.append(self.config.startup_notify_channel_id)
+        """Checks for multiple Ngrok tunnels and DMs the URLs to their respective owners."""
+        # Notification mapping: Tunnel Name -> Config Field
+        notify_map = {
+            "ora-web": self.config.ora_web_notify_id,
+            "ora-api": self.config.ora_api_notify_id,
+            "ora-dashboard": self.config.admin_user_id
+        }
+        
         ngrok_api = "http://127.0.0.1:4040/api/tunnels"
-
-        # Wait a bit for Ngrok to spin up
-        await asyncio.sleep(5)
+        await asyncio.sleep(12) # Wait for Ngrok tunnels to stabilize
 
         try:
             async with self.session.get(ngrok_api) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     tunnels = data.get("tunnels", [])
-                    public_url = None
+                    
                     for t in tunnels:
-                        if t.get("proto") == "https":
-                            public_url = t.get("public_url")
-                            break
-
-                    if public_url:
-                        # Add /dashboard to the ngrok URL for direct access
-                        public_url = public_url.rstrip("/")
-                        dashboard_url = f"{public_url}/dashboard"
-                        message = f"ORA SYSTEM：コスト追跡 & 自律最適化ダッシュボード: {dashboard_url}"
-
-                        for tid in target_ids:
+                        name = t.get("name")
+                        public_url = t.get("public_url")
+                        
+                        target_id = notify_map.get(name)
+                        if not target_id:
+                            # Fallback to general log channel if tunnel not mapped
+                            target_id = self.config.admin_user_id
+                        
+                        if public_url and target_id:
+                            # Add /dashboard to the legacy URL
+                            final_url = public_url
+                            if name == "ora-dashboard":
+                                final_url = f"{public_url.rstrip('/')}/dashboard"
+                            
+                            label = name.upper().replace("-", " ")
+                            message = f"🚀 ORA {label}：{final_url}"
+                            
                             try:
-                                # Try sending to channel first, then user
-                                channel = self.get_channel(tid)
-                                if not channel:
-                                    try:
-                                        channel = await self.fetch_channel(tid)
-                                    except Exception:
-                                        channel = None
-
+                                channel = self.get_channel(target_id) or await self.fetch_channel(target_id)
                                 if channel:
                                     await channel.send(message)
-                                    logger.info(
-                                        f"Ngrok URLをチャンネルに送信: {channel.name} ({tid}) -> {dashboard_url}"
-                                    )
+                                    logger.info(f"Ngrok URL ({name}) sent to {target_id}")
                                 else:
-                                    user = await self.fetch_user(tid)
+                                    user = await self.fetch_user(target_id)
                                     if user:
                                         await user.send(message)
-                                        logger.info(
-                                            f"Ngrok URLをユーザーに送信: {user.name} ({tid}) -> {dashboard_url}"
-                                        )
+                                        logger.info(f"Ngrok URL ({name}) sent to user {target_id}")
                             except Exception as e:
-                                logger.error(f"Ngrok URLの送信に失敗しました ({tid}): {e}")
-
+                                logger.error(f"Failed to notify for tunnel {name}: {e}")
                 else:
                     logger.debug("Ngrok API not accessible (Status %s)", resp.status)
         except Exception as e:
-            # Silent fail is fine, Ngrok might not be running
-            logger.debug(f"Ngrok check skipped: {e}")
+            logger.debug(f"Ngrok notification loop error: {e}")
 
     async def on_connect(self) -> None:
         logger.info("Discordゲートウェイに接続しました。")

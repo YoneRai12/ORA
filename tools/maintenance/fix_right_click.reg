@@ -1,8 +1,17 @@
 Windows Registry Editor Version 5.00
 
+; Background right-click (inside folder)
 [HKEY_CLASSES_ROOT\Directory\Background\shell\ORA]
-@="Start ORA Bot"
-"Icon"="SHELL32.dll,71"
+@="🚀 ORA System を起動"
+"Icon"="C:\\Users\\YoneRai12\\Desktop\\ORADiscordBOT-main3\\clients\\web\\app\\favicon.ico"
 
 [HKEY_CLASSES_ROOT\Directory\Background\shell\ORA\command]
-@="\"C:\\Users\\YoneRai12\\Desktop\\ORADiscordBOT-main3\\start_vllm.bat\""
+@="\"C:\\Users\\YoneRai12\\Desktop\\ORADiscordBOT-main3\\scripts\\start_ora_system.bat\""
+
+; Directory right-click (on folder itself)
+[HKEY_CLASSES_ROOT\Directory\shell\ORA]
+@="🚀 ORA System を起動"
+"Icon"="C:\\Users\\YoneRai12\\Desktop\\ORADiscordBOT-main3\\clients\\web\\app\\favicon.ico"
+
+[HKEY_CLASSES_ROOT\Directory\shell\ORA\command]
+@="\"C:\\Users\\YoneRai12\\Desktop\\ORADiscordBOT-main3\\scripts\\start_ora_system.bat\""

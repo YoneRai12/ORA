@@ -13,6 +13,8 @@ bot.log
 *.rar
 *.mp3
 *.wav
+*.db-shm
+*.db-wal
 test_output*.txt
 
 
