@@ -1,90 +1,105 @@
 @echo off
+setlocal enabledelayedexpansion
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
 chcp 65001 >nul
-title ORA Ecosystem Unified Launcher
+title ORA Ecosystem Unified Launcher (FINAL-ULTRA-STABLE)
 
 echo ========================================================
-echo 🚀 ORA System 統合起動 (Full Stack: 3333 & 3000)
-echo 📂 ROOT: %ROOT_DIR%
+echo ORA System 集中管理起動 - 高互換版
+echo ROOT: %ROOT_DIR%
 echo ========================================================
 
 :: --- [CLEANUP] ---
-echo [0/10] 以前のプロセスをクリーンアップ中...
+echo [STEP 0] 以前のプロセスを終了しています...
 taskkill /F /IM python.exe >nul 2>&1
 taskkill /F /IM uvicorn.exe >nul 2>&1
 taskkill /F /IM node.exe >nul 2>&1
-taskkill /F /IM ngrok.exe >nul 2>&1
-echo ✅ クリーンアップ完了
+taskkill /F /IM cloudflared.exe >nul 2>&1
+if exist "logs\cf_*.log" del /Q "logs\cf_*.log"
+echo [ OK ] クリーンアップ完了
+timeout /t 2 >nul
 
 :: --- [DB INIT] ---
-echo [1/11] データベースを準備中 (Schema Check & Init)...
-set PYTHONPATH=core/src
-python scripts/fix_user_id_column.py
-python scripts/init_core_db.py
-echo ✅ DB 準備完了
+echo [STEP 1] データベースの準備中...
+set "PYTHONPATH=%ROOT_DIR%\core\src"
+python "%ROOT_DIR%\scripts\fix_user_id_column.py"
+python "%ROOT_DIR%\scripts\init_core_db.py"
+echo [ OK ] データベース準備完了
 
 :: 1. ORA Core API (Brain) - Port 8001
-echo [2/11] ORA Core API (Port 8001) を起動中...
-start "ORA-CoreAPI" cmd /k "cd /d "%ROOT_DIR%" && set PYTHONPATH=core/src && python -m ora_core.main"
-echo ✅ Step 1 OK
+echo [STEP 2] ORA Core API (8001) を起動中...
+start "ORA-CoreAPI" cmd /k "cd /d ""%ROOT_DIR%"" && set PYTHONPATH=%ROOT_DIR%\core\src && python -m ora_core.main"
+timeout /t 2 >nul
 
 :: 2. ORA Core Web Client (New Main) - Port 3000
-echo [2/10] ORA Core Web Client (Port 3000) を起動中...
-start "ORA-Web-Main" cmd /k "cd /d "%ROOT_DIR%\clients\web" && npm run dev"
-echo ✅ Step 2 OK
+echo [STEP 3] ORA Web 操作画面 (3000) を起動中...
+start "ORA-Web-Main" cmd /k "cd /d ""%ROOT_DIR%\clients\web"" && npm run dev"
+timeout /t 2 >nul
 
-:: 3. ORA Dashboard (Legacy/Discord Info) - Port 3333
-echo [3/10] ORA Dashboard (Port 3333) を起動中...
-start "ORA-Dashboard-Legacy" cmd /k "cd /d "%ROOT_DIR%\ora-ui" && npm run dev"
-echo ✅ Step 3 OK
+:: 3. ORA Dashboard (Legacy) - Port 3333
+echo [STEP 4] ORA ダッシュボード (3333) を起動中...
+start "ORA-Dashboard-Legacy" cmd /k "cd /d ""%ROOT_DIR%\ora-ui"" && npm run dev"
+timeout /t 2 >nul
 
-:: 4. Legacy Web API - Port 8000 (for Bot compatibility)
-echo [4/10] Legacy API (Port 8000) を起動中...
-start "ORA-WebAPI-Legacy" cmd /k "cd /d "%ROOT_DIR%" && set PYTHONPATH=. && L:\ORADiscordBOT_Env\Scripts\uvicorn.exe src.web.app:app --reload --host 0.0.0.0 --port 8000"
-echo ✅ Step 4 OK
+:: 4. Legacy Web API - Port 8000
+echo [STEP 5] レガシー API (8000) を起動中...
+start "ORA-WebAPI-Legacy" cmd /k "cd /d ""%ROOT_DIR%"" && set PYTHONPATH=%ROOT_DIR% && L:\ORADiscordBOT_Env\Scripts\uvicorn.exe src.web.app:app --reload --host 0.0.0.0 --port 8000 --no-access-log"
+timeout /t 2 >nul
 
-:: 5. Ngrok (Multi-Tunnel: 3000, 3333, 8001)
-echo [5/11] Ngrok (Multi-Tunnel) を起動中...
-start "ORA-Ngrok" cmd /k "cd /d "%ROOT_DIR%" && ngrok start --all --config ngrok.yml"
-echo ✅ Step 5 OK
+:: --- [LOGS INIT] ---
+if not exist "logs" mkdir "logs"
 
-:: --- [START ENGINES] ---
+:: 5. External Access (Cloudflare Tunnel)
+echo [STEP 6] 外部アクセストンネルを起動中...
+set "CF_EXE="
+if exist "%ROOT_DIR%\tools\cloudflare\cloudflared.exe" set "CF_EXE=%ROOT_DIR%\tools\cloudflare\cloudflared.exe"
+if not defined CF_EXE if exist "L:\tools\cloudflare\cloudflared.exe" set "CF_EXE=L:\tools\cloudflare\cloudflared.exe"
+
+set "CF_HELPER=%ROOT_DIR%\scripts\start_tunnel_helper.bat"
+
+if defined CF_EXE (
+    echo [ OK ] トンネルを開始: !CF_EXE!
+    start "ORA-CF-Web" cmd /c ""%CF_HELPER%" "!CF_EXE!" http://localhost:3000 "logs\cf_web.log""
+    start "ORA-CF-Dash" cmd /c ""%CF_HELPER%" "!CF_EXE!" http://localhost:3333 "logs\cf_dash.log""
+    start "ORA-CF-API" cmd /c ""%CF_HELPER%" "!CF_EXE!" http://localhost:8001 "logs\cf_api.log""
+    start "ORA-CF-Comfy" cmd /c ""%CF_HELPER%" "!CF_EXE!" http://localhost:8188 "logs\cf_comfy.log""
+) else (
+    echo [ERROR] cloudflared.exe が見つかりませんでした。
+)
+timeout /t 2 >nul
 
 :: 6. ComfyUI (FLUX)
-echo [6/10] ComfyUI (FLUX) をチェック中...
+echo [STEP 7] ComfyUI (8188) を起動中...
 if exist "L:\ComfyUI\main.py" (
     start "ORA-ComfyUI" cmd /k "cd /d L:\ComfyUI && L:\ORADiscordBOT_Env\Scripts\python.exe main.py --listen 127.0.0.1 --port 8188 --normalvram"
 )
-echo ✅ Step 6 OK
 
 :: 7. Voice & Layer Engines
-echo [7/10] Voice/Layer エンジンを起動中...
-start "ORA-Engine-Voice" cmd /k "cd /d "%ROOT_DIR%" && L:\ORADiscordBOT_Env\Scripts\python.exe src\services\voice_server.py"
-start "ORA-Engine-Layer" cmd /k "cd /d "%ROOT_DIR%" && L:\ORADiscordBOT_Env\Scripts\python.exe src\services\layer_server.py"
-echo ✅ Step 7 OK
+echo [STEP 8] 音声・制御エンジンを起動中...
+start "ORA-Engine-Voice" cmd /k "cd /d ""%ROOT_DIR%"" && L:\ORADiscordBOT_Env\Scripts\python.exe src\services\voice_server.py"
+start "ORA-Engine-Layer" cmd /k "cd /d ""%ROOT_DIR%"" && L:\ORADiscordBOT_Env\Scripts\python.exe src\services\layer_server.py"
+timeout /t 1 >nul
 
 :: 8. Visual Engine
-echo [8/10] Visual エンジンを起動中...
-start "ORA-Engine-Visual" cmd /k "cd /d "%ROOT_DIR%" && L:\ORADiscordBOT_Env\Scripts\python.exe src\services\visual_server.py"
-echo ✅ Step 8 OK
+echo [STEP 9] 視覚エンジンを起動中...
+start "ORA-Engine-Visual" cmd /k "cd /d ""%ROOT_DIR%"" && L:\ORADiscordBOT_Env\Scripts\python.exe src\services\visual_server.py"
+timeout /t 1 >nul
 
-:: 9. Discord Bot (Skin)
-echo [9/10] Discord Bot (Port ログ出力用) を起動中...
-start "ORA-Core-Bot" cmd /k "cd /d "%ROOT_DIR%" && scripts\run_bot_loop.bat"
-start "ORA-Worker-Bot" cmd /k "cd /d "%ROOT_DIR%" && scripts\run_worker_loop.bat"
-echo ✅ 全てのコンポーネントが起動されました！
+:: 9. Discord Bot
+echo [STEP 10] Discord Bot を起動中...
+start "ORA-Core-Bot" cmd /c ""%ROOT_DIR%\scripts\run_bot_loop.bat""
+start "ORA-Worker-Bot" cmd /c ""%ROOT_DIR%\scripts\run_worker_loop.bat""
+timeout /t 2 >nul
 
-:: 10. Final Cleanup & URL Open
-echo [10/10] ブラウザでダッシュボードを表示します...
-timeout /t 5 >nul
+:: 10. Final Browser Open
+echo [STEP 11] ローカル画面を表示しています...
+timeout /t 8 >nul
 start http://localhost:3000
-start http://localhost:3333/dashboard
+
 echo ========================================================
-echo ✅ 全システム起動完了！
-echo - Core Web (Main): http://localhost:3000
-echo - Legacy Dash: http://localhost:3333/dashboard
-echo - Core API: http://localhost:8001/docs
+echo [ OK ] 全システム起動完了！
+echo 約 30-60 秒ほどで Discord に日本語で URL が届きます。
 echo ========================================================
 pause

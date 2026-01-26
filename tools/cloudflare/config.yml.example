@@ -1,0 +1,15 @@
+# Cloudflare Tunnel Configuration Template
+# 永続的なトンネルを使用する場合は 'tunnel' と 'credentials-file' を指定してください。
+# 一時的なトンネル (Quick Tunnel) の場合はこのファイルは不要ですが、
+# 複数のポートを公開する場合は固定トンネルが推奨されます。
+
+ingress:
+  - hostname: ora-web.yourdomain.com
+    service: http://localhost:3000
+  - hostname: ora-dash.yourdomain.com
+    service: http://localhost:3333
+  - hostname: ora-api.yourdomain.com
+    service: http://localhost:8001
+  - hostname: ora-comfy.yourdomain.com
+    service: http://localhost:8188
+  - service: http_status:404

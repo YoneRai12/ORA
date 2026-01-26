@@ -1,3 +1,4 @@
+import os
 import aiohttp
 import logging
 from typing import Optional, Any, Dict
@@ -10,8 +11,12 @@ class CoreAPIClient:
     Client for ORA Core API (/v1).
     Delegates message processing and memory management to the the central Brain.
     """
-    def __init__(self, base_url: str = "http://localhost:8001"):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: Optional[str] = None):
+        # 1. Parameter Priority
+        # 2. Env variable Priority (match ORA Core API default)
+        # 3. Last fallback
+        env_url = os.getenv("ORA_CORE_API_URL") or os.getenv("ORA_API_BASE_URL", "http://localhost:8001")
+        self.base_url = (base_url or env_url).rstrip("/")
 
     async def send_message(self, 
                            content: str, 
@@ -23,7 +28,8 @@ class CoreAPIClient:
                            context_binding: Optional[dict] = None,
                            stream: bool = False,
                            client_history: list = None,
-                           client_context: Optional[dict] = None
+                           client_context: Optional[dict] = None,
+                           available_tools: Optional[list] = None
                            ) -> Dict[str, Any]:
         """
         POST to /v1/messages
@@ -55,7 +61,8 @@ class CoreAPIClient:
             "stream": stream,
             "context_binding": context_binding,
             "client_history": client_history or [],
-            "client_context": client_context
+            "client_context": client_context,
+            "available_tools": available_tools # <--- Added
         }
 
         async with aiohttp.ClientSession() as session:

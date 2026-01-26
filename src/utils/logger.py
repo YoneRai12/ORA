@@ -51,7 +51,9 @@ class GuildLogger:
             # Use ISO8601UTCFormatter if available, effectively defaulting to standard for now
             # to avoid circular imports or complex referencing.
 
+            from src.utils.privacy import PrivacyFilter
             handler.setFormatter(formatter)
+            handler.addFilter(PrivacyFilter())
             logger.addHandler(handler)
 
             # Don't propagate to root to avoid spamming main logs with guild chat junk if not needed

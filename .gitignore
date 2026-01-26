@@ -72,3 +72,10 @@ recover_memory.py
 patch_ora.py
 clean_ora.py
 verify_step3_mcp.py
+
+# Backup files
+*.bak
+*.17*
+
+# Large Binaries
+tools/cloudflare/cloudflared.exe

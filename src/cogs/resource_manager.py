@@ -10,15 +10,14 @@ from discord.ext import commands, tasks
 class ResourceManager(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.vllm_port = 8001
+        self.vllm_port = 8008
         self.host = "127.0.0.1"
         self.vllm_process = None
         self.is_starting_vllm = False
         self._lock = asyncio.Lock()
 
-        # Dynamic Management
         self.last_activity = time.time()
-        self.idle_timeout = 300  # 5 minutes
+        self.idle_timeout = 300  # 5 minutes idle
         self.idle_monitor.start()
 
     def is_port_open(self, host, port):
@@ -89,35 +88,35 @@ class ResourceManager(commands.Cog):
                 return False
 
     async def stop_vllm(self):
-        """Stops the vLLM process to save resources."""
+        """Stops the vLLM process to save resources (VRAM/VLAM)."""
         if not self.is_port_open(self.host, self.vllm_port):
             return  # Already stopped
 
-        print("[ResourceManager] Idle timeout reached. Stopping vLLM (Ministral 14B)...")
+        print(f"[ResourceManager] 💤 idle timeout (5m) reached. Stopping vLLM to free VRAM for VLAM...")
         try:
-            # 1. Kill the WSL process specifically
+            # 1. Kill by Window Title (Windows)
             subprocess.run(
-                ["wsl", "-d", "Ubuntu-22.04", "pkill", "-f", "vllm.entrypoints.openai.api_server"],
+                ["taskkill", "/F", "/FI", "WINDOWTITLE eq ORA-vLLM-Server"],
                 creationflags=subprocess.CREATE_NO_WINDOW,
+                check=False,
             )
-
-            # 2. Close the CMD window (by title set in batch file)
+            # 2. Kill by Python module pattern
             subprocess.run(
-                ["taskkill", "/F", "/FI", "WINDOWTITLE eq ORA vLLM Server (INSTRUCT - Default)"],
+                ["powershell", "-Command", "Get-Process | Where-Object { $_.CommandLine -like '*vllm.entrypoints.openai.api_server*' } | Stop-Process -Force"],
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 check=False,
             )
 
-            print("[ResourceManager] vLLM Stopped.")
+            print("[ResourceManager] ✅ vLLM stopped. VRAM is now free.")
         except Exception as e:
-            print(f"[ResourceManager] Error stopping vLLM: {e}")
+            print(f"[ResourceManager] ❌ Error stopping vLLM: {e}")
 
     @tasks.loop(seconds=60)
     async def idle_monitor(self):
         """Checks for idle state and stops vLLM if needed."""
-        if time.time() - self.last_activity > self.idle_timeout:
-            # Only stop if it's actually running
-            if self.is_port_open(self.host, self.vllm_port):
+        # Check if vLLM is actually running on 8008
+        if self.is_port_open(self.host, self.vllm_port):
+            if time.time() - self.last_activity > self.idle_timeout:
                 await self.stop_vllm()
 
     @idle_monitor.before_loop

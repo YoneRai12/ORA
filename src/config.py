@@ -11,14 +11,19 @@ from typing import Dict, List, Optional
 COST_TZ = "UTC"
 # --- Storage & state directory ---
 if os.name == "nt":
-    DEFAULT_STATE_DIR = r"L:\ORA_State"
-    DEFAULT_MEMORY_DIR = r"L:\ORA_Memory"
+    # Fallback to local 'data' folder if L: is full or unavailable to avoid [Errno 28]
+    _local_data = os.path.join(os.getcwd(), "data")
+    DEFAULT_STATE_DIR = os.path.join(_local_data, "state")
+    DEFAULT_MEMORY_DIR = os.path.join(_local_data, "memory")
+    DEFAULT_LOG_DIR = os.path.join(_local_data, "logs")
 else:
     DEFAULT_STATE_DIR = os.path.expanduser("~/ORA_State")
     DEFAULT_MEMORY_DIR = os.path.expanduser("~/ORA_Memory")
+    DEFAULT_LOG_DIR = os.path.expanduser("~/ORA_Logs")
 
 STATE_DIR = os.getenv("ORA_STATE_DIR", DEFAULT_STATE_DIR)
 MEMORY_DIR = os.getenv("ORA_MEMORY_DIR", DEFAULT_MEMORY_DIR)
+LOG_DIR = os.getenv("ORA_LOG_DIR", DEFAULT_LOG_DIR)
 
 # Buffer & Sync Constants
 SAFETY_BUFFER_RATIO = 0.95
@@ -155,9 +160,11 @@ class Config:
     token: str
     app_id: int
     ora_api_base_url: Optional[str]
+    ora_core_api_url: Optional[str]
     public_base_url: Optional[str]
     dev_guild_id: Optional[int]
     log_level: str
+    log_dir: str
     db_path: str
     llm_base_url: str
     llm_api_key: str
@@ -186,6 +193,7 @@ class Config:
     sub_admin_ids: set[int]
     vc_admin_ids: set[int]
     vision_provider: str
+    llm_priority: str  # Added Phase 21: cloud or local
     
     # Notification IDs (Phase 42)
     ora_web_notify_id: Optional[int] = None
@@ -195,9 +203,14 @@ class Config:
     comfy_dir: Optional[str] = None
     comfy_bat: Optional[str] = None
 
-    # External API Keys (Phase 29)
     openai_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    
+    # Architecture Mode
+    force_standalone: bool = False
+    
+    # Auth Strategy (added for Cloudflare Tunnel)
+    auth_strategy: str = "local" 
 
     @classmethod
     def load(cls) -> "Config":
@@ -207,9 +220,18 @@ class Config:
         if not token:
             raise ConfigError("環境変数 DISCORD_BOT_TOKEN が未設定です。")
 
-        vision_provider = os.getenv("VISION_PROVIDER", "local").lower()
+        # Auth Strategy
+        auth_strategy = os.getenv("AUTH_STRATEGY", "local").lower()
+        if auth_strategy not in {"local", "cloudflare"}:
+            auth_strategy = "local"
+
+        llm_priority = os.getenv("ORA_LLM_PRIORITY", "cloud").lower()
+        if llm_priority not in {"local", "cloud"}:
+            llm_priority = "cloud"
+
+        vision_provider = os.getenv("VISION_PROVIDER", llm_priority).lower()
         if vision_provider not in {"local", "openai"}:
-            vision_provider = "local"  # Fallback
+            vision_provider = llm_priority if llm_priority != "cloud" else "openai"
 
         openai_key = os.getenv("OPENAI_API_KEY")
 
@@ -225,6 +247,10 @@ class Config:
         ora_base_url = os.getenv("ORA_API_BASE_URL")
         if ora_base_url:
             ora_base_url = ora_base_url.rstrip("/")
+
+        ora_core_url = os.getenv("ORA_CORE_API_URL")
+        if ora_core_url:
+            ora_core_url = ora_core_url.rstrip("/")
 
         public_base_url = os.getenv("PUBLIC_BASE_URL")
         if public_base_url:
@@ -252,7 +278,7 @@ class Config:
 
         db_path = os.getenv("ORA_BOT_DB", "ora_bot.db")
 
-        llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:8001/v1").rstrip("/")
+        llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:8008/v1").rstrip("/")
         llm_api_key = os.getenv("LLM_API_KEY", "EMPTY")
         llm_model = os.getenv("LLM_MODEL", "GLM-4.7-Flash")
 
@@ -376,9 +402,11 @@ class Config:
             token=token,
             app_id=app_id,
             ora_api_base_url=ora_base_url,
+            ora_core_api_url=ora_core_url,
             public_base_url=public_base_url,
             dev_guild_id=dev_guild_id,
             log_level=log_level,
+            log_dir=LOG_DIR,
             db_path=db_path,
             llm_base_url=llm_base_url,
             llm_api_key=llm_api_key,
@@ -405,8 +433,11 @@ class Config:
             vc_admin_ids=vc_admin_ids,
             feature_proposal_channel_id=feature_proposal_channel_id,
             vision_provider=vision_provider,
+            llm_priority=llm_priority,
             ora_web_notify_id=ora_web_notify_id,
             ora_api_notify_id=ora_api_notify_id,
+            force_standalone=os.getenv("FORCE_STANDALONE", "false").lower() == "true",
+            auth_strategy=auth_strategy,
         )
 
     def validate(self) -> None:

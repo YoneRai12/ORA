@@ -41,6 +41,7 @@ from .utils.search_client import SearchClient
 from .utils.stt_client import WhisperClient
 from .utils.tts_client import VoiceVoxClient
 from .utils.voice_manager import VoiceManager
+from .utils.connection_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class ORABot(commands.Bot):
         llm_client: LLMClient,
         intents: discord.Intents,
         session: aiohttp.ClientSession,
+        connection_manager: ConnectionManager,
     ) -> None:
         super().__init__(
             command_prefix=commands.when_mentioned_or("!"),
@@ -74,11 +76,17 @@ class ORABot(commands.Bot):
         self.store = store
         self.llm_client = llm_client
         self.session = session
+        self.connection_manager = connection_manager
         self.healer = Healer(self, llm_client)
         self.started_at = time.time()
         self._backup_task: Optional[asyncio.Task] = None
 
     async def setup_hook(self) -> None:
+        # -1. Check Connection Health (Determine Mode)
+        is_healthy = await self.connection_manager.check_health()
+        mode_label = "API MODE" if is_healthy else "STANDALONE MODE"
+        logger.info(f"🌐 Startup Mode Check: [{mode_label}] (Standalone: {self.connection_manager.is_standalone})")
+
         # 0. Initialize Google Client (Hybrid-Cloud)
         from .utils.google_client import GoogleClient
         from .utils.unified_client import UnifiedClient  # Import UnifiedClient
@@ -134,6 +142,11 @@ class ORABot(commands.Bot):
             "src.cogs.resource_manager",
             "src.cogs.memory",
             "src.cogs.system_shell",
+            "src.cogs.creative",
+            "src.cogs.voice_engine",
+            "src.cogs.heartbeat",
+            "src.cogs.visual_cortex",
+            "src.cogs.proactive", # [Clawdbot] Proactive Agent
         ]
         for ext in extensions:
             try:
@@ -173,16 +186,18 @@ class ORABot(commands.Bot):
                 guild = discord.Object(id=self.config.dev_guild_id)
                 self.tree.copy_global_to(guild=guild)
                 synced = await self.tree.sync(guild=guild)
-                logger.info("Synchronized %d commands to Dev Guild %s", len(synced), self.config.dev_guild_id)
+                logger.info("✅ 開発用ギルド (%s) に %d 個のコマンドを即時同期しました。", self.config.dev_guild_id, len(synced))
             except Exception as e:
-                logger.warning(f"Failed to sync to Dev Guild: {e}")
+                logger.warning(f"⚠️ 開発用ギルドへの同期に失敗しました: {e}")
 
         # Always sync globally to ensure commands work in all servers
         try:
             synced = await self.tree.sync()
-            logger.info("全サーバー共通コマンドを同期しました (%d個)", len(synced))
+            logger.info("🌐 全サーバー共通（グローバル）コマンドを同期しました (総数: %d個)", len(synced))
+            if len(synced) < 50:
+                logger.warning("📉 同期されたコマンド数が少ないようです (%d個)。一部の Cog が読み込まれていない可能性があります。", len(synced))
         except Exception as e:
-            logger.error(f"Global sync failed: {e}")
+            logger.error(f"❌ グローバル同期に失敗しました: {e}")
 
     async def close(self) -> None:
         """Graceful shutdown."""
@@ -220,18 +235,45 @@ class ORABot(commands.Bot):
         )
         # Verify Ngrok and DM owner
         self.loop.create_task(self._notify_ngrok_url())
+        
+        # [User Request] Open all web interfaces locally
+        self.loop.create_task(self._open_local_interfaces())
+
+    async def _open_local_interfaces(self) -> None:
+        """Opens local web interfaces for Chat, Dashboard, API, and ComfyUI."""
+        import webbrowser
+        
+        # Wait a bit for servers to stabilize
+        await asyncio.sleep(5)
+        
+        urls = [
+            ("Chat UI", "http://localhost:3333"),
+            # Dashboard is likely part of Next.js app now
+            ("Dashboard", "http://localhost:3333"), 
+            ("API Docs", "http://localhost:8001/docs"),
+            ("ComfyUI", "http://127.0.0.1:8188"),
+        ]
+        
+        logger.info("🖥️ Opening local web interfaces...")
+        for name, url in urls:
+            try:
+                webbrowser.open(url)
+                logger.info(f"Opened {name}: {url}")
+            except Exception as e:
+                logger.warning(f"Failed to open {name}: {e}")
 
     async def _notify_ngrok_url(self) -> None:
-        """Checks for multiple Ngrok tunnels and DMs the URLs to their respective owners."""
-        # Notification mapping: Tunnel Name -> Config Field
+        """Checks for multiple Ngrok tunnels and DMs labels to their respective owners."""
+        # Notification mapping: Tunnel Name -> Config Field/Display
         notify_map = {
             "ora-web": self.config.ora_web_notify_id,
             "ora-api": self.config.ora_api_notify_id,
-            "ora-dashboard": self.config.admin_user_id
+            "ora-dashboard": self.config.startup_notify_channel_id,
+            "ora-comfy": self.config.admin_user_id
         }
         
         ngrok_api = "http://127.0.0.1:4040/api/tunnels"
-        await asyncio.sleep(12) # Wait for Ngrok tunnels to stabilize
+        await asyncio.sleep(15) # Wait for Ngrok tunnels to stabilize
 
         try:
             async with self.session.get(ngrok_api) as resp:
@@ -239,40 +281,147 @@ class ORABot(commands.Bot):
                     data = await resp.json()
                     tunnels = data.get("tunnels", [])
                     
+                    if not tunnels:
+                        logger.warning("Ngrok API reached but no tunnels found. Is Ngrok configured correctly?")
+                        return
+
                     for t in tunnels:
                         name = t.get("name")
                         public_url = t.get("public_url")
+                        if not public_url: continue
                         
-                        target_id = notify_map.get(name)
-                        if not target_id:
-                            # Fallback to general log channel if tunnel not mapped
-                            target_id = self.config.admin_user_id
+                        target_id = notify_map.get(name) or self.config.admin_user_id
+                        if not target_id: continue
+
+                        # Formatting
+                        final_url = public_url
+                        if name == "ora-dashboard":
+                            final_url = f"{public_url.rstrip('/')}/dashboard"
+                        elif name == "ora-api":
+                            final_url = f"{public_url.rstrip('/')}/docs"
                         
-                        if public_url and target_id:
-                            # Add /dashboard to the legacy URL
-                            final_url = public_url
-                            if name == "ora-dashboard":
-                                final_url = f"{public_url.rstrip('/')}/dashboard"
-                            
-                            label = name.upper().replace("-", " ")
-                            message = f"🚀 ORA {label}：{final_url}"
-                            
-                            try:
-                                channel = self.get_channel(target_id) or await self.fetch_channel(target_id)
-                                if channel:
-                                    await channel.send(message)
-                                    logger.info(f"Ngrok URL ({name}) sent to {target_id}")
-                                else:
-                                    user = await self.fetch_user(target_id)
-                                    if user:
-                                        await user.send(message)
-                                        logger.info(f"Ngrok URL ({name}) sent to user {target_id}")
-                            except Exception as e:
-                                logger.error(f"Failed to notify for tunnel {name}: {e}")
+                        label = name.upper().replace("-", " ")
+                        message = f"🚀 ORA {label}：{final_url}"
+                        
+                        # Send to target (Channel or User)
+                        try:
+                            # 1. Try User
+                            target = self.get_user(target_id) or await self.fetch_user(target_id)
+                            if target:
+                                await target.send(message)
+                                logger.info(f"Ngrok URL ({name}) sent to User {target_id}")
+                                continue
+                        except Exception:
+                            pass
+                        
+                        try:
+                            # 2. Try Channel
+                            target = self.get_channel(target_id) or await self.fetch_channel(target_id)
+                            if target:
+                                await target.send(message)
+                                logger.info(f"Ngrok URL ({name}) sent to Channel {target_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to notify for tunnel {name} (ID: {target_id}): {e}")
                 else:
                     logger.debug("Ngrok API not accessible (Status %s)", resp.status)
         except Exception as e:
-            logger.debug(f"Ngrok notification loop error: {e}")
+            # Mask IP in exception message
+            err_msg = str(e).replace("127.0.0.1", "[RESTRICTED]").replace("localhost", "[RESTRICTED]")
+            logger.warning(f"Could not reach Ngrok local API: {err_msg}")
+
+        # --- Cloudflare Tunnel Detection (Log Polling) ---
+        cf_logs = {
+            "ora-web": "logs/cf_web.log",
+            "ora-dashboard": "logs/cf_dash.log",
+            "ora-api": "logs/cf_api.log",
+            "ora-comfy": "logs/cf_comfy.log"
+        }
+        
+        async def poll_cf_logs():
+            logger.info("Starting Cloudflare log polling (max 60s)...")
+            detected_urls = set()
+            import re
+            
+            for attempt in range(12):  # 5s * 12 = 60s max
+                await asyncio.sleep(5)
+                for name, log_path in cf_logs.items():
+                    if name in detected_urls: continue
+                    
+                    abs_log_path = os.path.join(os.getcwd(), log_path)
+                    if not os.path.exists(abs_log_path): continue
+                    
+                    try:
+                        with open(abs_log_path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                            match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
+                            if match:
+                                public_url = match.group(0)
+                                if name == "ora-dashboard":
+                                    public_url = f"{public_url.rstrip('/')}/dashboard"
+                                elif name == "ora-api":
+                                    public_url = f"{public_url.rstrip('/')}/docs"
+
+                                # Priority: 1. Service-specific target (Channel/User), 2. Admin User
+                                target_id = notify_map.get(name) or self.config.admin_user_id
+                                if not target_id: continue
+
+                                # Descriptive Japanese labels
+                                label_map = {
+                                    "ora-web": "ウェブ操作画面",
+                                    "ora-dashboard": "管理ダッシュボード",
+                                    "ora-api": "APIドキュメント",
+                                    "ora-comfy": "画像生成 (ComfyUI)"
+                                }
+                                jp_label = label_map.get(name, name.upper())
+                                message = f"🚀 ORA {jp_label} (外部アクセス)：\n{public_url}"
+                                
+                                # Send notification
+                                try:
+                                    target = self.get_user(target_id) or await self.fetch_user(target_id)
+                                    if target:
+                                        await target.send(message)
+                                        logger.info(f"Cloudflare URL ({name}) sent to User {target_id}")
+                                        detected_urls.add(name)
+                                        await asyncio.sleep(1)  # Small gap to prevent rate limit or ordering issues
+                                        continue
+                                except Exception:
+                                    pass
+                                
+                                # Send notification: Try Channel first, then User DM fallback
+                                sent = False
+                                try:
+                                    target = self.get_channel(target_id) or await self.fetch_channel(target_id)
+                                    if target:
+                                        await target.send(message)
+                                        logger.info(f"Cloudflare URL ({name}) sent to Channel {target_id}")
+                                        sent = True
+                                except Exception:
+                                    pass
+                                
+                                if not sent:
+                                    try:
+                                        target = self.get_user(target_id) or await self.fetch_user(target_id)
+                                        if target:
+                                            await target.send(message)
+                                            logger.info(f"Cloudflare URL ({name}) sent to User {target_id}")
+                                            sent = True
+                                    except Exception:
+                                        pass
+                                
+                                if sent:
+                                    detected_urls.add(name)
+                                    await asyncio.sleep(1)  # Gap to prevent ordering issues
+                                    continue
+                    except Exception as e:
+                        logger.error(f"Error reading Cloudflare log {log_path}: {e}")
+                
+                if len(detected_urls) == len(cf_logs):
+                    break
+            
+            logger.info(f"Cloudflare log polling finished. Detected: {len(detected_urls)}")
+
+        # Start polling in background
+        asyncio.create_task(poll_cf_logs())
 
     async def on_connect(self) -> None:
         logger.info("Discordゲートウェイに接続しました。")
@@ -384,7 +533,12 @@ async def run_bot() -> None:
 
     # Create shared ClientSession
     async with aiohttp.ClientSession() as session:
-        link_client = LinkClient(config.ora_api_base_url)
+        connection_manager = ConnectionManager(
+            api_base_url=config.ora_api_base_url, 
+            force_standalone=config.force_standalone
+        )
+
+        link_client = LinkClient(config.ora_core_api_url)
         llm_client = LLMClient(config.llm_base_url, config.llm_api_key, config.llm_model, session=session)
         store = Store(config.db_path)
         await store.init()
@@ -397,6 +551,7 @@ async def run_bot() -> None:
             llm_client=llm_client,
             intents=intents,
             session=session,
+            connection_manager=connection_manager,
         )
         global _bot_instance
         _bot_instance = bot
@@ -413,14 +568,17 @@ async def run_bot() -> None:
             if stop_task in done:
                 logger.info("終了シグナルを受信しました。Botを停止します...")
                 await bot.close()
+                await connection_manager.close()
 
             if bot_task in done:
                 task_exc: Optional[BaseException] = bot_task.exception()
                 if task_exc:
                     logger.exception("Botがエラーにより停止しました。")
+                    await connection_manager.close()
                     raise task_exc
             else:
                 await bot.close()
+                await connection_manager.close()
                 await bot_task
 
             for task in pending:

@@ -4,6 +4,8 @@ from typing import Optional
 
 from ora_core.database.session import get_db, AsyncSessionLocal
 from ora_core.database.repo import Repository
+from ora_core.api.dependencies.auth import get_current_user
+from ora_core.database.models import User
 from ora_core.api.schemas.messages import MessageRequest, MessageResponse
 from ora_core.brain.process import MainProcess
 
@@ -11,19 +13,28 @@ router = APIRouter()
 
 @router.post("/messages", response_model=MessageResponse)
 async def post_message(
-
     req: MessageRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    authenticated_user: Optional[User] = Depends(get_current_user)
 ):
     repo = Repository(db)
 
     # 1. User Resolution
-    user = await repo.get_or_create_user(
-        provider=req.user_identity.provider,
-        provider_id=req.user_identity.id,
-        display_name=req.user_identity.display_name
-    )
+    if authenticated_user:
+        # Trust the Middleware/Header
+        user = authenticated_user
+    else:
+        # Fallback to Payload Identity (Bot/Local)
+        # Note: In Cloudflare Strict Mode, get_current_user might raise 401, so we won't get here if unauthed.
+        if not req.user_identity:
+             raise HTTPException(status_code=400, detail="Missing user_identity in body (and no auth header found).")
+             
+        user = await repo.get_or_create_user(
+            provider=req.user_identity.provider,
+            provider_id=req.user_identity.id,
+            display_name=req.user_identity.display_name
+        )
 
     # 2. Idempotency Check
     existing_run = await repo.get_run_by_idempotency(user.id, req.idempotency_key)

@@ -92,7 +92,7 @@ class CoreCog(commands.Cog):
         else:
             await interaction.response.send_message(text, ephemeral=ephemeral)
 
-    @app_commands.command(name="link", description="ORAアカウントと連携します。")
+    @app_commands.command(name="link", description="ORAアカウントとWebダッシュボードを連携します。")
     async def link(self, interaction: discord.Interaction) -> None:
         """Generate a single-use link code."""
 
@@ -100,15 +100,30 @@ class CoreCog(commands.Cog):
         user_id = interaction.user.id
         try:
             code = await self._link_client.request_link_code(user_id)
-        except Exception:  # noqa: BLE001 - send friendly message while logging separately
+            
+            dashboard_url = getattr(self.bot.config, "public_base_url", "http://localhost:3000")
+            
+            embed = discord.Embed(
+                title="🔐 ORA アカウント連携",
+                description=(
+                    "Webダッシュボードと連携して、記憶や履歴を共有します。\n\n"
+                    f"**連携コード: `{code}`**\n"
+                    "有効期限: 15分間\n\n"
+                    "**【手順】**\n"
+                    f"1. [Webダッシュボード]({dashboard_url}/dashboard) にアクセス\n"
+                    "2. Googleアカウントでログイン\n"
+                    "3. 設定画面の「Discord連携」欄に上記のコードを入力してください。"
+                ),
+                color=discord.Color.blue()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
             logger.exception("Failed to generate link code", extra={"user_id": user_id})
             await interaction.followup.send(
-                "リンクコードの生成に失敗しました。時間を置いて再度お試しください。",
+                f"リンクコードの生成に失敗しました: {e}\n時間を置いて再度お試しください。",
                 ephemeral=True,
             )
-            return
-
-        await interaction.followup.send(f"リンクコード: `{code}`", ephemeral=True)
 
     @app_commands.command(name="health", description="Botの状態を表示します。")
     @app_commands.allowed_installs(guilds=True, users=True)

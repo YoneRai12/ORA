@@ -14,6 +14,107 @@ from src.config import COST_LIMITS
 
 router = APIRouter()
 
+# --- CHAT API IMPLEMENTATION (Simple/Fake Stream) ---
+import asyncio
+import json
+from sse_starlette.sse import EventSourceResponse
+
+# Simple in-memory store for active runs (UUID -> Result Text)
+_RUN_RESULTS = {}
+
+@router.post("/messages")
+async def create_message(request: Request):
+    """
+    Receive user message, interact with LLM, and store result for streaming.
+    Returns: { "run_id": "uuid" }
+    """
+    try:
+        data = await request.json()
+        content = data.get("content", "")
+        # identity = data.get("user_identity", {})
+
+        # Generate Run ID
+        run_id = str(uuid.uuid4())
+
+        # Initialize LLM Client (using Config)
+        from src.config import Config
+        from src.utils.llm_client import LLMClient
+        
+        cfg = Config.load()
+        llm = LLMClient(
+            base_url=cfg.llm_base_url,
+            api_key=cfg.llm_api_key,
+            model=cfg.llm_model,
+            session=None
+        )
+
+        # Prepare messages (Simple stateless for now, or could load context)
+        # TODO: Load context from DB if needed
+        messages = [
+            {"role": "system", "content": "You are ORA, a helpful AI assistant."},
+            {"role": "user", "content": content}
+        ]
+
+        # Call LLM (Wait for full response)
+        # We process this largely synchronously to ensure data is ready for SSE
+        # In a production app, we would put this in a background task
+        response_text, _, _ = await llm.chat(messages=messages)
+        
+        # Store result
+        _RUN_RESULTS[run_id] = response_text or "Sorry, I could not generate a response."
+        
+        return {"run_id": run_id}
+
+    except Exception as e:
+        print(f"Chat Error: {e}")
+        return {"error": str(e)}
+
+@router.get("/runs/{run_id}/events")
+async def get_run_events(run_id: str, request: Request):
+    """
+    Stream the result back to the client via SSE.
+    """
+    async def event_generator():
+        response_text = _RUN_RESULTS.get(run_id)
+        
+        if not response_text:
+            # If not found (or processing - but we waited), send error
+            # In real async, we would loop waiting for result.
+            error_payload = json.dumps({"event": "error", "data": {"text": "Processing failed or timed out."}})
+            yield error_payload
+            return
+
+        # Simulate Streaming (Split by chunks)
+        # Simple Logic: 10 chars per chunk
+        chunk_size = 10
+        for i in range(0, len(response_text), chunk_size):
+            # Check if client disconnected
+            if await request.is_disconnected():
+                break
+                
+            chunk = response_text[i:i+chunk_size]
+            
+            # Construct SSE payload
+            # Frontend expects: { "event": "delta", "data": { "text": "..." } }
+            event_data = {
+                "event": "delta", 
+                "data": {"text": chunk}
+            }
+            yield json.dumps(event_data)
+            
+            # Artificial delay for typing effect
+            await asyncio.sleep(0.02)
+        
+        # Final Event
+        yield json.dumps({"event": "final", "data": {}})
+        
+        # Clean up
+        if run_id in _RUN_RESULTS:
+            del _RUN_RESULTS[run_id]
+
+    return EventSourceResponse(event_generator())
+# ----------------------------------------------------
+
 @router.get("/config/limits")
 async def get_config_limits():
     """Return the current COST_LIMITS configuration."""

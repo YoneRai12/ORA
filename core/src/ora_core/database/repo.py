@@ -38,6 +38,17 @@ class Repository:
         await self.db.flush()
         return new_user
 
+    async def get_or_create_user_by_email(self, email: str) -> User:
+        """
+        Specialized lookup for Cloudflare Auth (Email-based).
+        Treats 'cloudflare' as the provider and email as the provider_id.
+        """
+        return await self.get_or_create_user(
+            provider="cloudflare",
+            provider_id=email,
+            display_name=email.split("@")[0]
+        )
+
     async def get_run(self, run_id: str) -> Run | None:
         stmt = select(Run).where(Run.id == run_id)
         result = await self.db.execute(stmt)
@@ -124,6 +135,26 @@ class Repository:
         # 3. Default
         conv = await self.get_or_create_conversation(None, user_id)
         return conv.id
+
+    async def create_history_message(
+        self, conversation_id: str, role: str, content: str, attachments: list[dict] = None
+    ) -> Message:
+        """Create a message without triggering a run (History Sync)."""
+        msg_id = str(uuid.uuid4())
+        # Map string role to Enum
+        role_enum = AuthorRole.user if role == "user" else AuthorRole.assistant
+        
+        msg = Message(
+            id=msg_id,
+            conversation_id=conversation_id,
+            author=role_enum,
+            content=content,
+            attachments=attachments or []
+        )
+        self.db.add(msg)
+        await self.db.commit()
+        await self.db.refresh(msg)
+        return msg
 
     async def create_user_message_and_run(
         self, conversation_id: str, user_id: str, content: str, attachments: list[dict], idempotency_key: str

@@ -15,7 +15,7 @@ class MusicPlayerView(ui.View):
         super().__init__(timeout=None)  # Persistent view (or handled by cog loop)
         self.cog = cog
         self.guild_id = guild_id
-        self.voice_manager = cog._voice_manager
+        self.voice_manager = cog.bot.voice_manager
 
         # Sync Button States
         self._sync_state()

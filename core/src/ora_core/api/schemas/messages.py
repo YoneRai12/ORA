@@ -30,6 +30,8 @@ class ClientContext(BaseModel):
     is_sub_admin: bool = False
     is_vc_admin: bool = False
     server_name: Optional[str] = None
+    guild_id: Optional[str] = None
+    channel_id: Optional[str] = None
     channel_name: Optional[str] = None
     channel_memory: Optional[dict] = None  # Summary, topics, atmosphere
     timestamp: Optional[str] = None  # ISO format
@@ -46,6 +48,7 @@ class MessageRequest(BaseModel):
     # NEW: Client-provided rich context
     client_history: list[HistoryMessage] = []  # Pre-built history from client
     client_context: Optional[ClientContext] = None  # Admin status, server info, etc.
+    llm_preference: Optional[str] = None # Override engine priority or specify model name
 
 class MessageResponse(BaseModel):
     conversation_id: str

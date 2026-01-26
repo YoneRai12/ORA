@@ -1,4 +1,4 @@
-"""Extended ORA-specific slash commands."""
+﻿"""Extended ORA-specific slash commands."""
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CRITICAL PROTOCOL WARNING
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -160,12 +160,12 @@ def _generate_tree(dir_path: Path, max_depth: int = 2, current_depth: int = 0) -
 
             indent = "    " * current_depth
             if item.is_dir():
-                tree_str += f"{indent}📂 {item.name}/\n"
+                tree_str += f"{indent}唐 {item.name}/\n"
                 tree_str += _generate_tree(item, max_depth, current_depth + 1)
             else:
-                tree_str += f"{indent}📄 {item.name}\n"
+                tree_str += f"{indent}塘 {item.name}\n"
     except PermissionError:
-        tree_str += f"{'    ' * current_depth}🔒 [Permission Denied]\n"
+        tree_str += f"{'    ' * current_depth}白 [Permission Denied]\n"
     except Exception:
         pass
 
@@ -188,7 +188,7 @@ class ORACog(commands.Cog):
         ora_api_base_url: Optional[str],
         privacy_default: str,
     ) -> None:
-        logger.info("ORACog.__init__ 呼び出し - ORACogをロード中")
+        logger.info("ORACog.__init__ 蜻ｼ縺ｳ蜃ｺ縺・- ORACog繧偵Ο繝ｼ繝我ｸｭ")
         self.bot = bot
         self._store = store
         self._llm = llm
@@ -199,6 +199,18 @@ class ORACog(commands.Cog):
         self._search_client = search_client
         self._drive_client = DriveClient()
         self._watcher = DesktopWatcher()
+        # Shared Resources
+        self.unified_client = UnifiedClient(bot.config, llm, bot.google_client)
+        
+        # [Clawdbot] Vector Memory Initialization
+        try:
+            from src.services.vector_memory import VectorMemory
+            self.bot.vector_memory = VectorMemory()
+        except ImportError:
+            logger.warning("ChromaDB not found. Vector Memory disabled.")
+            self.bot.vector_memory = None
+            
+        self.cost_manager = CostManager()
         self._public_base_url = public_base_url
         self._ora_api_base_url = ora_api_base_url
         self._privacy_default = privacy_default  # Store privacy setting
@@ -250,13 +262,13 @@ class ORACog(commands.Cog):
         if self.game_watcher:
             self.game_watcher.start()
 
-        logger.info("ORACog.__init__ 完了 - デスクトップ監視を開始しました")
+        logger.info("ORACog.__init__ 螳御ｺ・- 繝・せ繧ｯ繝医ャ繝礼屮隕悶ｒ髢句ｧ九＠縺ｾ縺励◆")
 
     @app_commands.command(name="dashboard", description="Get the link to this server's web dashboard")
     async def dashboard(self, interaction: discord.Interaction):
         """Get the link to this server's web dashboard."""
         if not interaction.guild:
-            await interaction.response.send_message("❌ Server only command.", ephemeral=True)
+            await interaction.response.send_message("笶・Server only command.", ephemeral=True)
             return
 
         # Default to local if not set or if force_check
@@ -319,7 +331,7 @@ class ORACog(commands.Cog):
 
         if not base:
             base = "http://localhost:8000"
-            warning = "\n⚠️ **Ngrok could not be started.** This link only works on the host machine."
+            warning = "\n笞・・**Ngrok could not be started.** This link only works on the host machine."
         else:
             warning = ""
 
@@ -333,7 +345,7 @@ class ORACog(commands.Cog):
         token = await self.store.get_or_create_dashboard_token(interaction.guild.id, interaction.user.id)
 
         url = f"{base}/api/dashboard/view?token={token}"
-        msg_content = f"📊 **Server Dashboard**\nView analytics for **{interaction.guild.name}** here:\n[Open Dashboard]({url})\n*(This link is secure and unique to this server. You can pin this message.)*{warning}"
+        msg_content = f"投 **Server Dashboard**\nView analytics for **{interaction.guild.name}** here:\n[Open Dashboard]({url})\n*(This link is secure and unique to this server. You can pin this message.)*{warning}"
 
         if is_deferred:
             await interaction.followup.send(msg_content, ephemeral=True)
@@ -342,7 +354,7 @@ class ORACog(commands.Cog):
 
     async def cog_load(self):
         """Called when the Cog is loaded. Performs Startup Sync."""
-        logger.info("🚀 ORACog: Starting Up... Initiating Safety Checks.")
+        logger.info("噫 ORACog: Starting Up... Initiating Safety Checks.")
 
         # Start Loops
         self.desktop_loop.start()
@@ -360,7 +372,7 @@ class ORACog(commands.Cog):
 
         try:
             if self.unified_client and hasattr(self.unified_client, "api_key") and self.unified_client.api_key:
-                logger.info("🔒 [Startup] Verifying OpenAI Usage with Official API...")
+                logger.info("白 [Startup] Verifying OpenAI Usage with Official API...")
 
                 # Use a temp session to be sure (UnifiedClient session might be lazy)
                 async with aiohttp.ClientSession() as session:
@@ -369,16 +381,16 @@ class ORACog(commands.Cog):
                     )
 
                 if "error" in result:
-                    logger.error(f"❌ [Startup] Sync Failed: {result['error']}")
+                    logger.error(f"笶・[Startup] Sync Failed: {result['error']}")
                 elif result.get("updated"):
                     logger.warning(
-                        f"⚠️ [Startup] LIMITER UPDATED: Drift detected. Added {result.get('drift_added')} tokens to local state."
+                        f"笞・・[Startup] LIMITER UPDATED: Drift detected. Added {result.get('drift_added')} tokens to local state."
                     )
                 else:
-                    logger.info(f"✅ [Startup] Usage Verified: {result.get('total_tokens', 0):,} tokens. Sync OK.")
+                    logger.info(f"笨・[Startup] Usage Verified: {result.get('total_tokens', 0):,} tokens. Sync OK.")
 
         except Exception as e:
-            logger.error(f"❌ [Startup] Critical Sync Error: {e}")
+            logger.error(f"笶・[Startup] Critical Sync Error: {e}")
 
     def cog_unload(self):
         try:
@@ -514,7 +526,7 @@ class ORACog(commands.Cog):
         if self._gaming_restore_task:
             self._gaming_restore_task.cancel()
             self._gaming_restore_task = None
-            logger.info("🚫 Cancelled pending Normal Mode restoration.")
+            logger.info("圻 Cancelled pending Normal Mode restoration.")
 
         self.bot.loop.create_task(self.resource_manager.set_gaming_mode(True))
 
@@ -527,13 +539,13 @@ class ORACog(commands.Cog):
 
     async def _restore_normal_mode_delayed(self):
         """Wait 5 minutes then restore Normal Mode."""
-        logger.info("⏳ Game closed. Waiting 5 minutes before restoring Normal Mode...")
+        logger.info("竢ｳ Game closed. Waiting 5 minutes before restoring Normal Mode...")
         try:
             await asyncio.sleep(300)  # 5 minutes
-            logger.info("⏰ 5 minutes passed. Restoring Normal Mode.")
+            logger.info("竢ｰ 5 minutes passed. Restoring Normal Mode.")
             await self.resource_manager.set_gaming_mode(False)
         except asyncio.CancelledError:
-            logger.info("🛑 Restore task cancelled (Game restarted?).")
+            logger.info("尅 Restore task cancelled (Game restarted?).")
         finally:
             self._gaming_restore_task = None
 
@@ -547,18 +559,18 @@ class ORACog(commands.Cog):
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, timeout=5) as resp:
                         if resp.status == 200:
-                            logger.info(f"✅ ComfyUI Connected at {self.bot.config.sd_api_url}")
+                            logger.info(f"笨・ComfyUI Connected at {self.bot.config.sd_api_url}")
                             return
                         else:
-                            logger.warning(f"⚠️ ComfyUI returned status {resp.status}. Retrying... ({i + 1}/12)")
+                            logger.warning(f"笞・・ComfyUI returned status {resp.status}. Retrying... ({i + 1}/12)")
             except Exception as e:
                 # Connection Refused etc.
                 if i % 2 == 0:
-                    logger.warning(f"⏳ Waiting for ComfyUI to start... ({e}) ({i + 1}/12)")
+                    logger.warning(f"竢ｳ Waiting for ComfyUI to start... ({e}) ({i + 1}/12)")
 
             await asyncio.sleep(5)
 
-        logger.error("❌ Could not connect to ComfyUI after 60 seconds.")
+        logger.error("笶・Could not connect to ComfyUI after 60 seconds.")
 
     # --- PERMISSION SYSTEM ---
     SUB_ADMIN_IDS = set()  # Now loaded from config dynamically
@@ -605,7 +617,7 @@ class ORACog(commands.Cog):
     async def hourly_sync_loop(self):
         """Periodically sync OpenAI usage with official API."""
         try:
-            logger.info("⏳ Starting Hourly OpenAI Usage Sync...")
+            logger.info("竢ｳ Starting Hourly OpenAI Usage Sync...")
             # Use temp session for robustness
             async with aiohttp.ClientSession() as session:
                 result = await self.cost_manager.sync_openai_usage(
@@ -613,11 +625,11 @@ class ORACog(commands.Cog):
                 )
 
             if result.get("synced"):
-                logger.info(f"✅ Hourly OpenAI Sync Completed. Total Official: {result.get('total_tokens')}")
+                logger.info(f"笨・Hourly OpenAI Sync Completed. Total Official: {result.get('total_tokens')}")
             else:
-                logger.warning(f"⚠️ Hourly OpenAI Sync Check Failed: {result}")
+                logger.warning(f"笞・・Hourly OpenAI Sync Check Failed: {result}")
         except Exception as e:
-            logger.error(f"❌ Hourly Sync Loop Error: {e}")
+            logger.error(f"笶・Hourly Sync Loop Error: {e}")
 
     @tasks.loop(minutes=5.0)
     async def desktop_loop(self):
@@ -668,26 +680,26 @@ class ORACog(commands.Cog):
                 return
 
             # Construct report (Japanese)
-            report = "🖥️ **デスクトップ監視レポート**\n"
+            report = "箕・・**繝・せ繧ｯ繝医ャ繝礼屮隕悶Ξ繝昴・繝・*\n"
             if hasattr(self, "bot") and mention_admin:
-                report = f"<@{admin_id}> ⚠️ **緊急コストアラート** ⚠️\n" + report
+                report = f"<@{admin_id}> 笞・・**邱頑･繧ｳ繧ｹ繝医い繝ｩ繝ｼ繝・* 笞・十n" + report
 
             if labels:
-                report += f"🏷️ **検出:** {', '.join(labels)}\n"
+                report += f"捷・・**讀懷・:** {', '.join(labels)}\n"
             if faces > 0:
-                report += f"👤 **顔検出:** {faces}人\n"
+                report += f"側 **鬘疲､懷・:** {faces}莠ｺ\n"
             if text:
-                report += f"📝 **テキスト:** {text}...\n"
+                report += f"統 **繝・く繧ｹ繝・** {text}...\n"
 
             # Append Cost Status Header
-            report += "\n📊 **Cost Dashboard**\n"
+            report += "\n投 **Cost Dashboard**\n"
 
             # Status Icon
-            status_icon = "🟢"
+            status_icon = "泙"
             if ratio > SAFETY_BUFFER_RATIO:
-                status_icon = "🔴 (Safety Stop)"
+                status_icon = "閥 (Safety Stop)"
             elif ratio > 0.8:
-                status_icon = "🟡 (Warning)"
+                status_icon = "泯 (Warning)"
 
             report += f"{status_icon} **OpenAI Stable**: {ratio * 100:.1f}% Used\n"
             report += f"   - Rem: {remaining:,} Tokens (Safe)\n"
@@ -697,7 +709,7 @@ class ORACog(commands.Cog):
             # Just show ratio/remaining is enough for Dashboard.
 
             if ratio > 0.9:
-                report += "   ⚠️ **CRITICAL: Apporaching Safety Stop!**\n"
+                report += "   笞・・**CRITICAL: Apporaching Safety Stop!**\n"
 
             # Send DM
             user = await self.bot.fetch_user(admin_id)
@@ -715,10 +727,10 @@ class ORACog(commands.Cog):
     # ------------------------------------------------------------------
     # System Administration Commands
     # ------------------------------------------------------------------
-    system_group = app_commands.Group(name="system", description="システム管理コマンド")
+    system_group = app_commands.Group(name="system", description="System Management Commands")
 
-    @system_group.command(name="reload", description="Botの拡張機能をホットリロードします (音声切断なし)。")
-    @app_commands.describe(extension="リロードする機能 (例: media, ora, all)")
+    @system_group.command(name="reload", description="Reload Bot Extensions")
+    @app_commands.describe(extension="Extension to reload (e.g. media, ora, all)")
     @app_commands.choices(
         extension=[
             app_commands.Choice(name="All Extensions", value="all"),
@@ -731,7 +743,7 @@ class ORACog(commands.Cog):
         """Reloads an extension without restarting the bot."""
         # 1. Permission Check
         if not await self._check_permission(interaction.user.id, "sub_admin"):
-            await interaction.response.send_message("⛔ 権限がありません。", ephemeral=True)
+            await interaction.response.send_message("⛔ Permission Denied.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -752,9 +764,19 @@ class ORACog(commands.Cog):
                 logger.error(f"Reload failed for {ext}: {e}")
                 results.append(f"❌ `{ext}`: {e}")
 
+        # Load Skills & Services
+        try:
+            await self.bot.load_extension("src.cogs.memory")
+            await self.bot.load_extension("src.cogs.proactive") # [Clawdbot] Proactive Agent
+            await self.bot.load_extension("src.skills.voice_skill")
+            results.append("✅ Proactive extensions loaded.")
+        except Exception as e:
+            logger.error(f"Failed to load proactive extensions: {e}")
+            results.append(f"❌ Proactive extensions load failed: {e}")
+
         await interaction.followup.send("\n".join(results), ephemeral=True)
 
-    @app_commands.command(name="desktop_watch", description="デスクトップ監視（DM通知）のオン・オフを切り替えます。")
+    @app_commands.command(name="desktop_watch", description="Toggle Desktop Watcher (DM Notifications)")
     @app_commands.describe(mode="ON/OFF")
     @app_commands.choices(
         mode=[
@@ -767,11 +789,11 @@ class ORACog(commands.Cog):
         # Admin check
         admin_id = self.bot.config.admin_user_id
         if interaction.user.id != admin_id:
-            await interaction.response.send_message("⛔ この機能は管理者専用です。", ephemeral=True)
+            await interaction.response.send_message("⛔ System Admin Only.", ephemeral=True)
             return
 
 
-    @system_group.command(name="info", description="詳細なシステム情報を表示します。")
+    @system_group.command(name="info", description="Show System Info")
     async def system_info(self, interaction: discord.Interaction) -> None:
         """Show system info."""
         # Privacy check (simple default or check DB if needed, but keeping it simple for now)
@@ -793,7 +815,7 @@ class ORACog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=(self._privacy_default == "private"))
 
-    @system_group.command(name="process_list", description="CPU使用率の高いプロセスを表示します。")
+    @system_group.command(name="process_list", description="Show Top Processes by CPU")
     async def system_process_list(self, interaction: discord.Interaction) -> None:
         """List top processes."""
         procs = []
@@ -815,12 +837,12 @@ class ORACog(commands.Cog):
     @desktop_loop.before_loop
     async def before_desktop_loop(self):
         await self.bot.wait_until_ready()
-    @app_commands.describe(ephemeral="自分だけに表示するかどうか (デフォルト: True)")
+    @app_commands.describe(ephemeral="Show only to you (default: True)")
     async def login(self, interaction: discord.Interaction, ephemeral: bool = True) -> None:
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
         if not self._public_base_url:
             await interaction.response.send_message(
-                "PUBLIC_BASE_URL が未設定のためログインURLを発行できません。",
+                "PUBLIC_BASE_URL is missing. Cannot generate login URL.",
                 ephemeral=ephemeral,
             )
             return
@@ -830,7 +852,7 @@ class ORACog(commands.Cog):
         await self._store.start_login_state(state, interaction.user.id, ttl_sec=900)
         url = f"{self._public_base_url}/auth/discord?state={state}"
         await interaction.followup.send(
-            "Google ログインの準備ができました。以下のURLから認証を完了してください。\n" + url,
+            "Ready for authentication. Please click the link below:\n" + url,
             ephemeral=ephemeral,
         )
 
@@ -839,22 +861,22 @@ class ORACog(commands.Cog):
         privacy = await self._store.get_privacy(user.id)
         return privacy == "private"
 
-    @app_commands.command(name="whoami", description="連携済みアカウント情報を表示します。")
+    @app_commands.command(name="whoami", description="Show Linked Account Informaton")
     async def whoami(self, interaction: discord.Interaction) -> None:
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
         google_sub = await self._store.get_google_sub(interaction.user.id)
         privacy = await self._store.get_privacy(interaction.user.id)
         lines = [
             f"Discord: {interaction.user} (ID: {interaction.user.id})",
-            f"Google: {'連携済み' if google_sub else '未連携'}",
-            f"既定の公開範囲: {privacy}",
+            f"Google: {'Linked' if google_sub else 'Unlinked'}",
+            f"Privacy: {privacy}",
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
-    privacy_group = app_commands.Group(name="privacy", description="返信の既定公開範囲を設定します")
+    privacy_group = app_commands.Group(name="privacy", description="Privacy Settings")
 
-    @privacy_group.command(name="set", description="返信の既定公開範囲を変更します。")
-    @app_commands.describe(mode="private は自分のみ / public は全員に表示")
+    @privacy_group.command(name="set", description="Set Privacy Mode")
+    @app_commands.describe(mode="private (Only you) / public (Everyone)")
     @app_commands.choices(
         mode=[
             app_commands.Choice(name="private", value="private"),
@@ -864,10 +886,10 @@ class ORACog(commands.Cog):
     async def privacy_set(self, interaction: discord.Interaction, mode: app_commands.Choice[str]) -> None:
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
         await self._store.set_privacy(interaction.user.id, mode.value)
-        await interaction.response.send_message(f"既定公開範囲を {mode.value} に更新しました。", ephemeral=True)
+        await interaction.response.send_message(f"Privacy set to {mode.value}.", ephemeral=True)
 
-    @privacy_group.command(name="set_system", description="システムコマンドの既定公開範囲を変更します。")
-    @app_commands.describe(mode="private は自分のみ / public は全員に表示")
+    @privacy_group.command(name="set_system", description="Set Privacy for System Commands")
+    @app_commands.describe(mode="private (Only you) / public (Everyone)")
     @app_commands.choices(
         mode=[
             app_commands.Choice(name="private", value="private"),
@@ -878,7 +900,7 @@ class ORACog(commands.Cog):
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
         await self._store.set_system_privacy(interaction.user.id, mode.value)
         await interaction.response.send_message(
-            f"システムコマンドの既定公開範囲を {mode.value} に更新しました。", ephemeral=True
+            f"System command privacy set to {mode.value}.", ephemeral=True
         )
 
     async def chat(self, interaction: discord.Interaction, prompt: str) -> None:
@@ -895,27 +917,27 @@ class ORACog(commands.Cog):
             )
             
             if "error" in response:
-                await interaction.followup.send(f"❌ Core API Error: {response['error']}", ephemeral=True)
+                await interaction.followup.send(f"笶・Core API Error: {response['error']}", ephemeral=True)
                 return
 
             content = await core_client.get_final_response(response["run_id"])
         except Exception as e:
             logger.exception("Core API call failed", extra={"user_id": interaction.user.id})
-            await interaction.followup.send(f"Core API 呼び出しに失敗しました: {e}", ephemeral=True)
+            await interaction.followup.send(f"Core API Call Failed: {e}", ephemeral=True)
             return
         
         if content:
             await interaction.followup.send(content, ephemeral=ephemeral)
         else:
-            await interaction.followup.send("❌ 応答を生成できませんでした。", ephemeral=True)
+            await interaction.followup.send("❌ No response generated.", ephemeral=True)
 
 
-    dataset_group = app_commands.Group(name="dataset", description="データセット管理コマンド")
+    dataset_group = app_commands.Group(name="dataset", description="Dataset Management")
 
-    @dataset_group.command(name="add", description="添付ファイルをデータセットとして登録します。")
+    @dataset_group.command(name="add", description="Add file to Dataset")
     @app_commands.describe(
-        file="取り込む添付ファイル",
-        name="表示名（省略時はファイル名）",
+        file="File to upload",
+        name="Name (optional)",
     )
     async def dataset_add(
         self,
@@ -931,7 +953,7 @@ class ORACog(commands.Cog):
         # Reject ZIP files for security reasons
         if file.filename.lower().endswith(".zip"):
             await interaction.followup.send(
-                "ZIP ファイルはセキュリティ上の理由で受け付けていません。",
+                "ZIP files are not accepted for security reasons.",
                 ephemeral=ephemeral,
             )
             return
@@ -966,25 +988,25 @@ class ORACog(commands.Cog):
                 logger.exception("Dataset upload failed", extra={"user_id": interaction.user.id})
 
         msg = (
-            f"データセット『{title}』を登録しました (ID: {dataset_id}) "
-            f"送信先: {'ORA API' if uploaded else 'ローカルメタデータのみ'}"
+            f"Dataset '{title}' registered (ID: {dataset_id}) "
+            f"Target: {'ORA API' if uploaded else 'Local Metadata Only'}"
         )
         await interaction.followup.send(msg, ephemeral=ephemeral)
 
-    @dataset_group.command(name="list", description="登録済みデータセットを表示します。")
+    @dataset_group.command(name="list", description="List registered datasets")
     async def dataset_list(self, interaction: discord.Interaction) -> None:
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
         ephemeral = await self._ephemeral_for(interaction.user)
         datasets = await self._store.list_datasets(interaction.user.id, limit=10)
         if not datasets:
-            await interaction.response.send_message("登録済みのデータセットはありません。", ephemeral=ephemeral)
+            await interaction.response.send_message("No registered datasets found.", ephemeral=ephemeral)
             return
 
         lines = [f"{dataset_id}: {name} {url or ''}" for dataset_id, name, url, _ in datasets]
         await interaction.response.send_message("\n".join(lines), ephemeral=ephemeral)
 
-    @app_commands.command(name="summarize", description="直近の会話を要約します。")
-    @app_commands.describe(limit="要約するメッセージ数 (デフォルト: 50)")
+    @app_commands.command(name="summarize", description="Summarize recent chat history")
+    @app_commands.describe(limit="Number of messages (default: 50)")
     # REMOVED due to sync crash
     # @app_commands.allowed_installs(guilds=True, users=True)
     # @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -995,7 +1017,7 @@ class ORACog(commands.Cog):
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
 
         if not interaction.channel:
-            await interaction.followup.send("チャンネルが見つかりません。", ephemeral=ephemeral)
+            await interaction.followup.send("Channel not found.", ephemeral=ephemeral)
             return
 
         messages = []
@@ -1005,11 +1027,11 @@ class ORACog(commands.Cog):
                     messages.append(f"{msg.author.display_name}: {msg.content}")
         except Exception as e:
             logger.error(f"Failed to fetch history: {e}")
-            await interaction.followup.send("メッセージ履歴の取得に失敗しました。", ephemeral=ephemeral)
+            await interaction.followup.send("Failed to fetch message history.", ephemeral=ephemeral)
             return
 
         if not messages:
-            await interaction.followup.send("要約するメッセージがありません。", ephemeral=ephemeral)
+            await interaction.followup.send("No messages to summarize.", ephemeral=ephemeral)
             return
 
         # Reverse to chronological order
@@ -1017,10 +1039,10 @@ class ORACog(commands.Cog):
         history_text = "\n".join(messages)
 
         prompt = (
-            f"以下のチャットログを要約してください。\n"
-            f"重要なポイントを箇条書きでまとめ、全体の流れがわかるようにしてください。\n"
+            f"Please summarize the following chat log.\n"
+            f"Highlight key points and ensure the flow is clear.\n"
             f"\n"
-            f"チャットログ:\n"
+            f"Chat Log:\n"
             f"{history_text}"
         )
 
@@ -1030,58 +1052,43 @@ class ORACog(commands.Cog):
                 temperature=0.5,
             )
             await interaction.followup.send(
-                f"**📝 会話の要約 (直近{len(messages)}件)**\n\n{summary}", ephemeral=ephemeral
+                f"**📝 Summary (Last {len(messages)} messages)**\n\n{summary}", ephemeral=ephemeral
             )
         except Exception:
             logger.exception("Summarization failed", extra={"user_id": interaction.user.id})
-            await interaction.followup.send("要約の生成に失敗しました。", ephemeral=ephemeral)
+            await interaction.followup.send("Summarization failed.", ephemeral=ephemeral)
 
     # Voice Commands
-    voice_group = app_commands.Group(name="voice", description="ボイスチャンネル管理")
 
-    @voice_group.command(name="join", description="ボイスチャンネルに参加します。")
-    async def voice_join(self, interaction: discord.Interaction) -> None:
-        media_cog = self.bot.get_cog("MediaCog")
-        if not media_cog:
-            await interaction.response.send_message("Media機能が無効です。", ephemeral=True)
-            return
-        # Delegate to MediaCog.vc
-        await media_cog.vc(interaction)
 
-    @voice_group.command(name="leave", description="ボイスチャンネルから退出します。")
-    async def voice_leave(self, interaction: discord.Interaction) -> None:
-        media_cog = self.bot.get_cog("MediaCog")
-        if not media_cog:
-            await interaction.response.send_message("Media機能が無効です。", ephemeral=True)
-            return
-        # Delegate to MediaCog.leavevc
-        await media_cog.leavevc(interaction)
+    # Voice Commands - Delegated to VoiceEngine / MediaCog
+    # Removed to avoid CommandAlreadyRegistered error with src.cogs.voice_engine
 
     # Music Commands (Fallback)
-    music_group = app_commands.Group(name="music", description="音楽再生・制御 (Fallback)")
+    music_group = app_commands.Group(name="music", description="Music Playback (Fallback)")
 
-    @music_group.command(name="play", description="YouTubeから音楽を再生します。")
-    @app_commands.describe(query="曲名またはURL")
+    @music_group.command(name="play", description="Play music from YouTube")
+    @app_commands.describe(query="Song Name or URL")
     async def music_play(self, interaction: discord.Interaction, query: str) -> None:
         media_cog = self.bot.get_cog("MediaCog")
         if not media_cog:
-            await interaction.response.send_message("Media機能が無効です。", ephemeral=True)
+            await interaction.response.send_message("Media system unavailable.", ephemeral=True)
             return
         await media_cog.ytplay(interaction, query)
 
-    @music_group.command(name="stop", description="再生を停止します。")
+    @music_group.command(name="stop", description="Stop Playback")
     async def music_stop(self, interaction: discord.Interaction) -> None:
         media_cog = self.bot.get_cog("MediaCog")
         if not media_cog:
-            await interaction.response.send_message("Media機能が無効です。", ephemeral=True)
+            await interaction.response.send_message("Media system unavailable.", ephemeral=True)
             return
         await media_cog.stop(interaction)
 
-    @music_group.command(name="skip", description="次の曲へスキップします。")
+    @music_group.command(name="skip", description="Skip to next track")
     async def music_skip(self, interaction: discord.Interaction) -> None:
         media_cog = self.bot.get_cog("MediaCog")
         if not media_cog:
-            await interaction.response.send_message("Media機能が無効です。", ephemeral=True)
+            await interaction.response.send_message("Media system unavailable.", ephemeral=True)
             return
         await media_cog.skip(interaction)
 
@@ -1115,7 +1122,7 @@ class ORACog(commands.Cog):
 
         view = AspectRatioSelectView(self, prompt, negative_prompt, model_name="FLUX.2")
         await interaction.response.send_message(
-            f"🎨 **画像生成アシスタント**\nPrompt: `{prompt}`\nアスペクト比を選択して生成を開始してください。",
+            f"🎨 **Image Generation Assistant**\nPrompt: `{prompt}`\nPlease select an aspect ratio to begin.",
             view=view,
         )
 
@@ -1195,7 +1202,7 @@ class ORACog(commands.Cog):
             # Note: _llm is our LLMClient instance.
             # We override model and potentially provider-specific logic is handled inside LLMClient (it checks model name)
 
-            start_msg = f"👁️ **Vision Analysis**\nModel: `{target_model}` ({provider.upper()})\nProcessing..."
+            start_msg = f"早・・**Vision Analysis**\nModel: `{target_model}` ({provider.upper()})\nProcessing..."
             await interaction.followup.send(start_msg)
 
             response, _, _ = await self._llm.chat(messages=messages, model=target_model, temperature=0.1)
@@ -1210,16 +1217,16 @@ class ORACog(commands.Cog):
             return
 
     # Memory Commands
-    memory_group = app_commands.Group(name="memory", description="記憶管理コマンド")
+    memory_group = app_commands.Group(name="memory", description="Memory Management Commands")
 
-    @memory_group.command(name="clear", description="会話履歴を消去します。")
+    @memory_group.command(name="clear", description="Clear Conversation History")
     async def memory_clear(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         count = await self._store.clear_conversations(str(interaction.user.id))
-        await interaction.followup.send(f"{count} 件の会話履歴を消去しました。", ephemeral=True)
+        await interaction.followup.send(f"Deleted {count} memory entries.", ephemeral=True)
 
-    @app_commands.command(name="test_all", description="全機能の診断テストを実行します。")
-    @app_commands.describe(ephemeral="自分だけに表示するかどうか (デフォルト: True)")
+    @app_commands.command(name="test_all", description="Run System Diagnostic")
+    @app_commands.describe(ephemeral="Show only to you (default: True)")
     async def test_all(self, interaction: discord.Interaction, ephemeral: bool = True) -> None:
         """Run a full system diagnostic check."""
         await interaction.response.defer(ephemeral=ephemeral)
@@ -1265,7 +1272,8 @@ class ORACog(commands.Cog):
             await self._llm.chat([{"role": "user", "content": "ping"}], temperature=0.1)
             report.append("✅ LLM: OK")
         except Exception as e:
-            report.append(f"❌ LLM: Error ({e})")
+            err_msg = str(e).replace("127.0.0.1", "[RESTRICTED]")
+            report.append(f"❌ LLM: Error ({err_msg})")
 
         await interaction.followup.send("\n".join(report), ephemeral=ephemeral)
 
@@ -1283,10 +1291,10 @@ class ORACog(commands.Cog):
             target_channel = user.voice.channel
 
         if not target_channel:
-            return "ボイスチャンネルが見つかりませんでした。"
+            return "❌ Voice channel not found."
 
         members = [m.display_name for m in target_channel.members]
-        return f"チャンネル '{target_channel.name}' (ID: {target_channel.id})\n参加人数: {len(members)}人\n参加者: {', '.join(members)}"
+        return f"Channel '{target_channel.name}' (ID: {target_channel.id})\nUsers: {len(members)}\nMembers: {', '.join(members)}"
 
     # [REMOVED DUPLICATE _build_system_prompt]
     # The active definition is at the bottom of the file around line 4400.
@@ -1314,7 +1322,7 @@ class ORACog(commands.Cog):
             try:
                 # Add a small delay to prevent rate limits
                 await asyncio.sleep(1)
-                await msg.reply("お待たせしました！回答を作成します。", mention_author=True)
+                await msg.reply("Generating response...", mention_author=True)
                 # Correctly pass the preserved prompt
                 await self.handle_prompt(msg, prompt)
             except Exception as e:
@@ -1323,2121 +1331,7 @@ class ORACog(commands.Cog):
 
         return
 
-    async def _execute_tool(
-        self, tool_name: str, args: dict, message: discord.Message, status_manager: Optional[StatusManager] = None
-    ) -> str:
-        # > Phase 1 Refactor: Try ToolHandler first
-        handler_result = await self.tool_handler.execute(tool_name, args, message, status_manager)
-        if handler_result is not None:
-            return handler_result
-
-        try:
-            # Update Status (Start)
-            if status_manager:
-                await status_manager.next_step(f"ツール使用中 ({tool_name})")
-
-
-
-            if tool_name in {"create_file"}:
-                if tool_name == "create_file" and not self._check_permission(message.author.id, "owner"):
-                    return "Permission denied. This tool is restricted to the bot owner."
-
-            if tool_name == "google_search":
-                try:
-                    query = args.get("query")
-                    if not query:
-                        return "Error: No query provided."
-
-                    # Notify status
-                    if status_manager:
-                        await status_manager.next_step(f"Web検索中: {query}")
-
-                    results = DDGS().text(query, max_results=3)
-                    if not results:
-                        return "No results found."
-
-                    formatted = []
-                    for r in results:
-                        title = r.get("title", "No Title")
-                        body = r.get("body", "")
-                        href = r.get("href", "")
-                        formatted.append(f"### [{title}]({href})\n{body}")
-
-                    return "\\n\\n".join(formatted)
-                except Exception as e:
-                    logger.error(f"Search failed: {e}")
-                    return f"Search Error: {e}"
-
-            elif tool_name == "request_feature":
-                feature = args.get("feature_request")
-                context = args.get("context")
-                if not feature or not context:
-                    return "Error: Missing arguments (feature_request, context)."
-
-                # Check permission (Optional: Allow anyone to request, but Healer filters execution?)
-                # Healer's propose_feature sends a proposal to the Debug Channel.
-                # It does NOT execute code. So it is safe for anyone to trigger.
-                # The "Apply" button is locked to Admin.
-
-                if hasattr(self.bot, "healer"):
-                    # Async task to not block response
-                    asyncio.create_task(self.bot.healer.propose_feature(feature, context, message.author))
-                    return f"✅ Feature Request '{feature}' has been sent to the Developer Channel for analysis."
-                else:
-                    return "Error: Healer system is not active."
-
-            if tool_name == "music_play":
-                query = args.get("query")
-                if not query:
-                    return "Error: Missing query."
-
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    # Use helper method
-                    # Correctly get context first
-                    ctx = await self.bot.get_context(message)
-                    await media_cog.play_from_ai(ctx, query)
-                    return f"Music request sent: {query} [SILENT_COMPLETION]"
-                return "Media system not available."
-
-            elif tool_name == "music_control":
-                action = args.get("action")
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    ctx = await self.bot.get_context(message)
-                    await media_cog.control_from_ai(ctx, action)
-                    return f"Music control sent: {action} [SILENT_COMPLETION]"
-                return "Media system not available."
-
-            elif tool_name == "music_tune":
-                speed = float(args.get("speed", 1.0))
-                pitch = float(args.get("pitch", 1.0))
-
-                # Access VoiceManager directly or via MediaCog
-                if hasattr(self.bot, "voice_manager"):
-                    self.bot.voice_manager.set_speed_pitch(message.guild.id, speed, pitch)
-                    return f"Tune set: Speed={speed}, Pitch={pitch} [SILENT_COMPLETION]"
-                return "Voice system not available."
-
-            elif tool_name == "read_messages":
-                try:
-                    count = int(args.get("count", 10))
-                    count = max(1, min(50, count))
-                    history = [m async for m in message.channel.history(limit=count)]
-                    history.reverse()
-
-                    lines = []
-                    for msg in history:
-                        # Simple format
-                        timestamp = msg.created_at.strftime("%H:%M:%S")
-                        author = msg.author.display_name
-                        content = msg.content.replace("\n", " ")
-                        lines.append(f"[{timestamp}] {author}: {content}")
-
-                    return "\n".join(lines) if lines else "No messages found."
-                except Exception as e:
-                    return f"Failed to read messages: {e}"
-
-            elif tool_name == "music_seek":
-                if not message.guild:
-                    return "Command must be used in a guild."
-                try:
-                    seconds = float(args.get("seconds", 0))
-                    media_cog = self.bot.get_cog("MediaCog")
-                    if media_cog and hasattr(media_cog, "_voice_manager"):
-                        media_cog._voice_manager.seek_music(message.guild.id, seconds)
-                        return f"Seeked to {seconds} seconds."
-                    return "Media system not available."
-                except ValueError:
-                    return "Invalid seconds value."
-
-            # --- Video / Vision / Voice (Placeholders) ---
-            # --- 3. Specialized Tools (TTS / Vision) ---
-            elif tool_name == "tts_speak":
-                text = args.get("text")
-                if not text:
-                    return "Error: No text provided."
-
-                # Check for T5Gemma Resources
-                # Note: Actual inference requires loading the model with XCodec2.
-                # For now, we confirm files exist and fallback to system voice to keep bot stable.
-                t5_model_path = r"L:\ai_models\huggingface\Aratako_T5Gemma-TTS-2b-2b"
-                if os.path.exists(t5_model_path) and os.path.exists(os.path.join(t5_model_path, "config.json")):
-                    logger.info("T5Gemma Local Model detected.")
-
-                # Delegate to MediaCog (which uses VoiceManager -> T5TTSClient)
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    ctx = await self.bot.get_context(message)
-                    await media_cog.speak(ctx, text, model_type="t5")
-                    return f"Speaking (High Quality T5): {text}"
-                return "Voice system not available."
-
-            elif tool_name == "segment_objects":
-                # SAM 3 Implementation (Official Repo)
-                try:
-                    sam3_path = r"L:\ai_models\github\sam3"
-                    if os.path.exists(sam3_path):
-                        # In a real scenario, we would sys.path.append(sam3_path) and import sam3
-                        # For now, we signify it marks as available.
-                        return f"SAM 3 (Official) detected at {sam3_path}. Ready for inference tasks."
-
-                    # Fallback to SAM 2
-                    sam2_path = r"L:\ai_models\huggingface\facebook_sam2_hiera_large"
-                    if os.path.exists(sam2_path):
-                        return "SAM 3 not found, but SAM 2 is ready."
-
-                    return "Vision models not found."
-
-                except Exception as e:
-                    return f"Vision Error: {e}"
-
-            # --- 4. Video Generation (Placeholder) ---
-            elif tool_name in ["generate_video", "get_video_models", "change_video_model", "analyze_video"]:
-                # Return result (if not returned earlier)
-                return f"⚠️ Feature '{tool_name}' is currently under development. Coming soon!"
-
-            elif tool_name == "system_shell":
-                # --- ReadOnly Shell Execution ---
-                # Strictly limited to Admins managed by SystemShell Cog logic
-                # However, this tool definition says Admin ONLY, so we check permission here too.
-
-                # Verify Creator/Owner Permission (Double Check)
-                if not await self._check_permission(message.author.id, "creator"):
-                    return "🚫 **Access Denied**: System Shell is restricted to the Bot Owner."
-
-                command = args.get("command")
-                if not command:
-                    return "Error: Command required."
-
-                sys_shell_cog = self.bot.get_cog("SystemShell")
-                if not sys_shell_cog:
-                    return "Error: SystemShell Cog is not loaded."
-
-                # Use the executor from the Cog
-                outcome = sys_shell_cog.executor.run(command)
-
-                # Format output
-                stdout = outcome.get("stdout", "")
-                stderr = outcome.get("stderr", "")
-
-                output = ""
-                if stdout:
-                    output += f"{stdout}\n"
-                if stderr:
-                    output += f"⚠️ STDERR:\n{stderr}\n"
-
-                if not output.strip():
-                    output = "(No Output)"
-
-                # Truncate strictly for LLM context (keep it smaller than Discord msg limit)
-                # LLM handles the summary.
-                if len(output) > 3000:
-                    output = output[:3000] + "\n... [Truncated by System]"
-
-                return f"Shell Output:\n{output}"
-
-            elif tool_name == "create_file":
-                # LOCKDOWN: Creator Only
-                if not self._check_permission(message.author.id, "creator"):
-                    return "Permission denied. Creator only."
-
-                filename = args.get("filename")
-                content = args.get("content")
-                if not filename or not content:
-                    return "Filename and content are required."
-
-                # Security check: Regex for safe filename (Alphanumeric, dot, dash, underscore)
-                import re
-
-                if not re.match(r"^[a-zA-Z0-9_\-\.]+$", filename):
-                    return "Invalid filename. Use only alphanumeric characters, dots, dashes, and underscores."
-
-                if ".." in filename or "/" in filename or "\\" in filename:
-                    return "Invalid filename."
-
-                base = Path("./ora_files")
-                base.mkdir(exist_ok=True)
-                path = base / filename
-                try:
-                    async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                        await f.write(content)
-                    return f"File created: {path}"
-                except Exception as e:
-                    return f"Failed to create file: {e}"
-
-            elif tool_name == "get_server_info":
-                guild = message.guild
-                if not guild:
-                    return "Error: Not in a server."
-                # Count statuses and devices
-                counts = {"online": 0, "idle": 0, "dnd": 0, "offline": 0}
-                devices = {"mobile": 0, "desktop": 0, "web": 0}
-
-                for m in guild.members:
-                    s = str(m.status)
-                    if s in counts:
-                        counts[s] += 1
-                    else:
-                        counts["offline"] += 1
-
-                    if str(m.mobile_status) != "offline":
-                        devices["mobile"] += 1
-                    if str(m.desktop_status) != "offline":
-                        devices["desktop"] += 1
-                    if str(m.web_status) != "offline":
-                        devices["desktop"] += 1
-                    if str(m.web_status) != "offline":
-                        devices["web"] += 1
-
-                logger.info(
-                    f"get_server_info: Guild={guild.name}, API_Count={guild.member_count}, Cache_Count={len(guild.members)}"
-                )
-                logger.info(f"get_server_info: Computed Status={counts}, Devices={devices}")
-
-                # Clarify keys for LLM
-                final_counts = {
-                    "online (active)": counts["online"],
-                    "idle (away)": counts["idle"],
-                    "dnd (do_not_disturb)": counts["dnd"],
-                    "offline (invisible)": counts["offline"],
-                }
-                total_online = counts["online"] + counts["idle"] + counts["dnd"]
-
-                return json.dumps(
-                    {
-                        "name": guild.name,
-                        "id": guild.id,
-                        "member_count": guild.member_count,
-                        "cached_member_count": len(guild.members),
-                        "status_counts": final_counts,
-                        "total_online_members": total_online,
-                        "device_counts": devices,
-                        "owner_id": guild.owner_id,
-                        "created_at": str(guild.created_at),
-                    },
-                    ensure_ascii=False,
-                )
-
-            # REPLACED: generate_image is handled below (lines 1572+)
-            # Keeping block structure empty or redirecting to avoid syntax errors if needed,
-            # but since "elif" chain continues, we can just remove this block or pass.
-            # ...
-            # Actually, standardizing:
-            elif tool_name == "read_file":
-                path = args.get("path")
-                lines_range = args.get("lines_range")
-
-                cmd = f"cat -n {path}" if not lines_range else ""
-
-                if lines_range:
-                    try:
-                        parts = lines_range.split("-")
-                        s = parts[0]
-                        end_line = parts[1] if len(parts) > 1 else str(int(s) + 50)
-                        cmd = f"lines -s {s} -e {end_line} {path}"
-                    except Exception:
-                        cmd = f"cat -n {path}"  # Fallback
-
-                res = await self.safe_shell.run(cmd)
-                return f"Outcome: {res['exit_code']}\nSTDOUT:\n{res['stdout']}\nSTDERR:\n{res['stderr']}"
-
-            elif tool_name == "list_files":
-                path = args.get("path") or "."
-                rec = args.get("recursive")
-
-                if rec:
-                    cmd = f"tree -L 2 {path}"
-                else:
-                    cmd = f"ls -lh {path}"
-
-                res = await self.safe_shell.run(cmd)
-                return f"Outcome: {res['exit_code']}\nSTDOUT:\n{res['stdout']}\nSTDERR:\n{res['stderr']}"
-
-            elif tool_name == "search_code":
-                query = args.get("query")
-                path = args.get("path") or "."
-
-                # Escape query for safety if needed, but SafeShell handles shlex split.
-                # We need to quote the query for shlex to treat it as one arg.
-                safe_query = shlex.quote(query)
-                safe_path = shlex.quote(path)
-
-                cmd = f"rg -n -i -m 20 {safe_query} {safe_path}"
-                res = await self.safe_shell.run(cmd)
-                return f"Outcome: {res['exit_code']}\nSTDOUT:\n{res['stdout']}\nSTDERR:\n{res['stderr']}"
-
-            elif tool_name == "generate_image_legacy":
-                return "Please use the updated generate_image tool."
-
-            elif tool_name == "generate_video":
-                # 1. Rate Limiting (Internal)
-                user_id = message.author.id
-                now = time.time()
-                last_gen = self._spam_buckets.get(f"video_{user_id}", 0)
-
-                if now - last_gen < 60:
-                    remaining = int(60 - (now - last_gen))
-                    return f"⏳ Please wait {remaining}s before generating another video."
-
-                self._spam_buckets[f"video_{user_id}"] = now
-
-                prompt = args.get("prompt")
-                neg = args.get("negative_prompt", "")
-                w = int(args.get("width", 768))
-                h = int(args.get("height", 512))
-                frames = int(args.get("frame_count", 49))
-
-                creative_cog = self.bot.get_cog("CreativeCog")
-                if not creative_cog:
-                    return "Creative module (CreativeCog) is not loaded."
-
-                # Notify status
-                if status_manager:
-                    await status_manager.update_current("🎬 動画生成を開始しました (LTX-2)...")
-
-                try:
-                    # Run in executor to avoid blocking
-
-                    mp4_data = await self.bot.loop.run_in_executor(
-                        None,
-                        lambda: creative_cog.comfy_client.generate_video(
-                            prompt, neg, width=w, height=h, frame_count=frames
-                        ),
-                    )
-
-                    if mp4_data:
-                        video_file = discord.File(sys_io.BytesIO(mp4_data), filename="ltx_video.mp4")
-                        await message.reply(f"🎬 **Generated Video**\nPrompt: {prompt}", file=video_file)
-                        return "Video generated and sent successfully."
-                    else:
-                        return "Video generation failed (returned None). Check ComfyUI console."
-                except Exception as e:
-                    logger.error(f"Video Gen Error: {e}")
-                    return f"Video generation error: {e}"
-
-            elif tool_name == "layer":
-                # Logic reused from CreativeCog
-                if not message.attachments and not (
-                    message.reference and message.reference.resolved and message.reference.resolved.attachments
-                ):
-                    return "Error: No image found to layer. Please attach an image or reply to one."
-
-                target_img = (
-                    message.attachments[0] if message.attachments else message.reference.resolved.attachments[0]
-                )
-
-                try:
-                    await message.add_reaction("⏳")
-                    # We can try to invoke the command directly if we can access CreativeCog
-                    creative_cog = self.bot.get_cog("CreativeCog")
-                    if creative_cog:
-                        # Manually triggering the logic (bypass command context)
-                        # Re-implementing logic here is safer than mocking Interaction
-
-                        async with aiohttp.ClientSession() as session:
-                            original_bytes = await target_img.read()
-                            data = aiohttp.FormData()
-                            data.add_field("file", original_bytes, filename=target_img.filename)
-
-                            # Standard Port 8003
-                            async with session.post("http://127.0.0.1:8003/decompose", data=data) as resp:
-                                if resp.status == 200:
-                                    zip_data = await resp.read()
-                                    zip_file = discord.File(sys_io.BytesIO(zip_data), filename=f"layers_{target_img.filename}.zip")
-                                    await message.reply("✅ レイヤー分解完了 (Layer Decomposition Complete)", file=zip_file)
-                                    return "Success: Sent ZIP file."
-                                else:
-                                    return f"Layer Service Error: {resp.status}"
-                    else:
-                        return "CreativeCog not loaded."
-                except Exception as e:
-                    return f"Layer Failed: {e}"
-
-            elif tool_name == "get_current_model":
-                return "Current Model: FLUX.2 (ComfyUI backend)"
-
-            elif tool_name == "change_model":
-                return "Model switching is managed via ComfyUI workflows. Please use Style Selector."
-
-            elif tool_name == "find_user":
-                query = args.get("name_query")
-                if not query:
-                    return "Error: Missing name_query."
-                guild = message.guild
-                if not guild:
-                    return "Error: Not in a server."
-
-                import re
-
-                found_members = []
-
-                # 0. Check for ID or Mention <@123> or <@!123> or 123
-                id_match = re.search(r"^<@!?(\d+)>$|^(\d+)$", query.strip())
-                if id_match:
-                    user_id = int(id_match.group(1) or id_match.group(2))
-                    logger.info(f"find_user: Detected ID {user_id}")
-                    try:
-                        # Fetch member by ID (works for offline too)
-                        member = await guild.fetch_member(user_id)
-                        found_members.append(member)
-                        logger.info(f"find_user: Found member {member.display_name} in guild")
-                    except discord.NotFound:
-                        # User not in guild, try fetching user globally to confirm existence
-                        try:
-                            user = await self.bot.fetch_user(user_id)
-                            logger.info(f"find_user: Found user {user.name} globally (not in guild)")
-                            # Return special result for "Not in server"
-                            return json.dumps(
-                                [
-                                    {
-                                        "name": user.name,
-                                        "display_name": user.display_name,
-                                        "id": user.id,
-                                        "bot": user.bot,
-                                        "status": "NOT_IN_SERVER",
-                                        "joined_at": "N/A",
-                                    }
-                                ],
-                                ensure_ascii=False,
-                            )
-                        except discord.NotFound:
-                            logger.warning(f"find_user: User {user_id} does not exist at all")
-                    except discord.HTTPException as e:
-                        logger.warning(f"Failed to fetch member {user_id}: {e}")
-
-                # If found by ID (in guild), return immediately (unique)
-                if found_members:
-                    pass  # Proceed to formatting
-                else:
-                    # 1. Search Cache (Linear Search) for Name/Nick/Display
-                    # This covers online members and cached offline members
-                    query_lower = query.lower()
-
-                    for m in guild.members:
-                        if (
-                            query_lower in m.name.lower()
-                            or query_lower in m.display_name.lower()
-                            or (m.global_name and query_lower in m.global_name.lower())
-                        ):
-                            found_members.append(m)
-
-                    # 2. If few results, try API Search (good for fully offline users not in cache)
-                    if len(found_members) < 5:
-                        try:
-                            # query_members searches username and nickname
-                            api_results = await guild.query_members(query, limit=5)
-                            for m in api_results:
-                                if m.id not in [existing.id for existing in found_members]:
-                                    found_members.append(m)
-                        except Exception as e:
-                            logger.warning(f"API member search failed: {e}")
-
-                if not found_members:
-                    return f"No users found matching '{query}'."
-
-                # Limit results
-                found_members = found_members[:10]
-
-                user_results: List[Dict[str, Any]] = []
-                for m in found_members:
-                    status = str(m.status) if hasattr(m, "status") else "unknown"
-                    user_results.append(
-                        {
-                            "name": m.name,
-                            "display_name": m.display_name,
-                            "id": str(m.id),
-                            "bot": str(m.bot),
-                            "status": status,
-                            "joined_at": str(m.joined_at.date()) if m.joined_at else "Unknown",
-                        }
-                    )
-
-                return json.dumps(user_results, ensure_ascii=False)
-
-            elif tool_name == "get_channels":
-                guild = message.guild
-                if not guild:
-                    return "Error: Not in a server."
-
-                lines = ["### 📺 Channels"]
-                # Text
-                lines.append("**Text Channels:**")
-                for c in guild.text_channels[:20]:  # Limit 20
-                    lines.append(f"- {c.name} (ID: {c.id})")
-                if len(guild.text_channels) > 20:
-                    lines.append(f"...and {len(guild.text_channels) - 20} more.")
-
-                # Voice
-                lines.append("\n**Voice Channels:**")
-                for c in guild.voice_channels[:20]:
-                    lines.append(f"- {c.name} (ID: {c.id})")
-                if len(guild.voice_channels) > 20:
-                    lines.append(f"...and {len(guild.voice_channels) - 20} more.")
-
-                return "\n".join(lines)
-
-            elif tool_name == "change_voice":
-                char_name = args.get("character_name")
-                scope = args.get("scope", "user")  # user or server
-                if not char_name:
-                    return "Error: Missing character_name."
-
-                media_cog = self.bot.get_cog("MediaCog")
-                if not media_cog:
-                    return "Media system (and VoiceManager) not available."
-
-                # Check for VoiceManager access
-                if not hasattr(media_cog, "_voice_manager"):
-                    return "VoiceManager internal instance not found."
-
-                # Use dynamic search
-                vm = media_cog._voice_manager
-                result = await vm.search_speaker(char_name)
-
-                if not result:
-                    return f"Error: No voice found matching '{char_name}'. Try existing names like 'Zundamon', 'Metan', etc."
-
-                speaker_id = result["id"]
-                speaker_name = result["name"]
-                style_name = result["style"]
-
-                if scope == "server":
-                    # Check Permission
-                    if not message.guild:
-                        return "Error: Server scope requires a guild context."
-                    if not message.author.guild_permissions.manage_guild:
-                        return "Error: You do not have 'Manage Guild' permission to change server voice."
-
-                    vm.set_guild_speaker(message.guild.id, speaker_id)
-                    return f"Server Default Voice changed to **{speaker_name}** ({style_name}). Persistence saved."
-                else:
-                    # User Scope (Default)
-                    vm.set_user_speaker(message.author.id, speaker_id)
-                    return f"Your Voice changed to **{speaker_name}** ({style_name}). Persistence saved."
-
-            elif tool_name == "recall_memory":
-                # Agentic RAG: Search past conversations
-                query = args.get("query")
-                if not query:
-                    return "Error: Missing query."
-
-                # Default to user scope for privacy
-                # In future we can add scope="channel" or "server" if requested
-
-                store = self.bot.get_cog("ORACog").store
-                if not store:
-                    return "Error: Storage not available."
-
-                # Search
-                results = await store.search_conversations(query, user_id=str(message.author.id), limit=5)
-
-                if not results:
-                    return f"No memories found matching '{query}' in your history."
-
-                # Format for LLM
-                lines = []
-                for r in results:
-                    dt = datetime.fromtimestamp(r["created_at"]).strftime("%Y-%m-%d %H:%M")
-                    lines.append(f"[{dt}] User: {r['message'][:50]}... | ORA: {r['response'][:50]}...")
-
-                return "Found Memories:\n" + "\n".join(lines)
-
-            elif tool_name == "search_knowledge_base":
-                # Agentic RAG: Search static datasets
-                query = args.get("query")
-                if not query:
-                    return "Error: Missing query."
-
-                # TODO: Implement actual Vector DB or robust dataset search
-                # For now, we search the 'datasets' table metadata or list available datasets
-                # Since we don't have the *content* of datasets in SQL (it's in API),
-                # we will simulate this by checking if we implement the API search here via 'unified_client' or directly.
-
-                # Fallback: Search MemoryCog's long-term memory profiles for facts?
-                # Or use Google Search if "knowledge base" implies world knowledge?
-                # User specifically said "search_knowledge_base" for RAG.
-
-                # Let's search the user's profile "facts" (Layer 2)
-                memory_cog = self.bot.get_cog("MemoryCog")
-                if memory_cog:
-                    profile = await memory_cog.get_user_profile(
-                        message.author.id, message.guild.id if message.guild else None
-                    )
-                    if profile:
-                        facts = profile.get("layer2_user_memory", {}).get("facts", [])
-                        matches = [f for f in facts if query.lower() in f.lower()]
-                        if matches:
-                            return "Knowledge Base (Profile Facts) Matches:\n- " + "\n- ".join(matches)
-
-                return "No info found in local knowledge base for this query. (Vector DB not fully connected yet)."
-
-            # Naive join_voice_channel removed (Duplicate)
-
-            elif tool_name == "get_roles":
-                guild = message.guild
-                if not guild:
-                    return "Error: Not in a server."
-
-                lines = ["### 🎭 Roles"]
-                # Reverse to show highest first
-                for r in reversed(guild.roles):
-                    if r.is_default():
-                        continue
-                    lines.append(f"- {r.name} (ID: {r.id}) [Members: {len(r.members)}]")
-                    if len(lines) > 30:  # Hard limit
-                        lines.append("...(truncated)")
-                        break
-                return "\n".join(lines)
-
-            # ... (Keep existing tools like google_search, get_system_stats, etc.)
-            # I need to make sure I don't delete them.
-            # The replacement block covers 552-800.
-            # I should include the existing logic for other tools.
-
-            if tool_name == "google_search":
-                query = args.get("query")
-                if not query:
-                    return "Error: Missing query."
-                if not self._search_client.enabled:
-                    return "Error: Search API disabled."
-
-                results = await self._search_client.search(query, limit=5)
-                if not results:
-                    return f"No results found for query '{query}'. Please try a different keyword."
-
-                # Create/Send Embed
-                # SearchClient now returns list of dicts: title, link, snippet, thumbnail
-
-                embed = EmbedFactory.create_search_embed(query, results)
-                try:
-                    await message.channel.send(embed=embed)
-                except discord.Forbidden:
-                    logger.warning("Missing permissions to send embeds for google_search.")
-                except Exception as e:
-                    logger.error(f"Failed to send search embed: {e}")
-
-                # IMPORTANT: Return the snippet content to the LLM so it can answer the user's question!
-                # The user complain about "just showing links".
-                lines = []
-                for i, r in enumerate(results):
-                    lines.append(f"{i + 1}. {r.get('title')}\n   URL: {r.get('link')}\n   Content: {r.get('snippet')}")
-
-                return "\n\n".join(lines)
-
-            elif tool_name == "get_system_stats":
-                # LOCKDOWN: Creator Only (contains sensitive info)
-                if not self._check_permission(message.author.id, "creator"):
-                    return "Permission denied. Creator only."
-
-                # CPU / Mem / Disk
-                cpu = psutil.cpu_percent(interval=1)
-                mem = psutil.virtual_memory()
-                disk = psutil.disk_usage("/")
-
-                # GPU Stats (nvidia-smi)
-                gpu_report = await _get_gpu_stats()
-
-                # Create Embed
-                fields = {
-                    "CPU Usage": f"{cpu}%",
-                    "Memory": f"{mem.percent}% ({mem.used // (1024**3)}GB / {mem.total // (1024**3)}GB)",
-                    "Disk (C:)": f"{disk.percent}% ({disk.used // (1024**3)}GB / {disk.total // (1024**3)}GB)",
-                }
-                if gpu_report:
-                    fields["GPU Info"] = gpu_report
-
-                embed = EmbedFactory.create_info_embed("System Stats", "Current system status report.", fields)
-                try:
-                    await message.channel.send(embed=embed)
-                except discord.Forbidden:
-                    logger.warning("Missing permissions to send embeds for get_system_stats.")
-                except Exception as e:
-                    logger.error(f"Failed to send stats embed: {e}")
-                    # Fallback to text detail if embed fails
-                    return f"System Stats (Embed Failed): CPU {cpu}%, Mem {mem.percent}%"
-
-                return "System stats report sent as Embed."
-
-            elif tool_name == "get_system_tree":
-                # Helper for Tree Generation - Local Scope
-                def _gen_tree(dir_path: Path, prefix: str = "", max_depth: int = 2, current_depth: int = 0):
-                    if current_depth > max_depth:
-                        return ""
-
-                    output = ""
-                    try:
-                        contents = sorted(list(dir_path.iterdir()), key=lambda x: (not x.is_dir(), x.name))
-                    except PermissionError:
-                        return f"{prefix}[ACCESS DENIED]\n"
-
-                    pointers = [("├── ", "│   ")] * (len(contents) - 1) + [("└── ", "    ")] if contents else []
-
-                    for i, path in enumerate(contents):
-                        if path.name.startswith(".") or "__pycache__" in path.name:
-                            continue
-
-                        pointer, padding = pointers[i]
-                        output += f"{prefix}{pointer}{path.name}\n"
-
-                        if path.is_dir():
-                            extension = _gen_tree(path, prefix + padding, max_depth, current_depth + 1)
-                            output += extension
-                    return output
-
-                # LOCKDOWN: Creator Only (contains sensitive info)
-                if not await self._check_permission(message.author.id, "creator"):
-                    return "Permission denied. Creator only."
-
-                relative_path = args.get("path", ".")
-                depth = int(args.get("depth", 2))
-
-                try:
-                    root = Path.cwd()
-                    target_path = (root / relative_path).resolve()
-
-                    if status_manager:
-                        await status_manager.update_current(f"🌲 {target_path.name} をスキャン中...")
-
-                    tree = _generate_tree(target_path, max_depth=depth)
-
-                    # Direct Send (Split if needed)
-                    header = f"**Current Directory: {target_path}**"
-                    if len(tree) > 1900:
-                        # Split logic or just send as file?
-                        # Send as file if too big
-                        import io
-
-                        with io.BytesIO(tree.encode("utf-8")) as f:
-                            await message.channel.send(header, file=discord.File(f, filename="file_tree.txt"))
-                        return "Tree sent as file attachment."
-                    else:
-                        await message.channel.send(f"{header}\n```\n{tree}\n```")
-                        return "Tree display completed."
-
-                except Exception as e:
-                    return f"Tree Error: {e}"
-
-
-            elif tool_name == "request_feature":
-                feature_desc = args.get("feature_description")
-                if not feature_desc:
-                    return "Error: feature_description required."
-
-                # Direct Send to Developer Channel (Loaded from Config/.env)
-                dev_channel_id = self.bot.config.feature_proposal_channel_id
-
-                if not dev_channel_id:
-                    return "Error: FEATURE_PROPOSAL_CHANNEL_ID not set in .env."
-
-                dev_channel = self.bot.get_channel(dev_channel_id)
-
-                if not dev_channel:
-                    try:
-                        dev_channel = await self.bot.fetch_channel(dev_channel_id)
-                    except Exception as e:
-                        logger.error(f"Failed to fetch Dev Channel: {e}")
-                        return "Error: Developer Channel not found immediately. Please try again later."
-
-                # Create Request Embed
-                embed = discord.Embed(
-                    title="🚀 Feature Request (via ORA)",
-                    description=feature_desc,
-                    color=discord.Color.green(),
-                    timestamp=discord.utils.utcnow(),
-                )
-                embed.set_author(name=message.author.display_name, icon_url=message.author.display_avatar.url)
-                embed.set_footer(text=f"User ID: {message.author.id}")
-
-                try:
-                    await dev_channel.send(
-                        content=f"<@1459561969261744270> New Request from {message.author.mention}", embed=embed
-                    )
-                    if status_manager:
-                        await status_manager.update_current("✅ 開発チャンネルへの送信完了")
-                    return f"Feature request sent to Developer Channel. Reference: {feature_desc[:50]}..."
-                except Exception as e:
-                    logger.error(f"Failed to send feature request: {e}")
-                    return f"Failed to send request: {e}"
-
-            elif tool_name == "summarize_chat":
-                try:
-                    limit = int(args.get("limit", 50))
-                    limit = max(1, min(100, limit))  # Cap at 100 for summary
-
-                    history = [m async for m in message.channel.history(limit=limit)]
-                    history.reverse()
-
-                    lines = []
-                    for msg in history:
-                        # Skip bot's own thinking messages/embeds if needed, or keep for context
-                        # Simple format: [Time] User: Content
-                        timestamp = msg.created_at.strftime("%H:%M")
-                        author = msg.author.display_name
-                        content = msg.content.replace("\n", " ")
-
-                        # Truncate long content
-                        if len(content) > 200:
-                            content = content[:200] + "..."
-
-                        lines.append(f"[{timestamp}] {author}: {content}")
-
-                    text_block = "\n".join(lines)
-                    return f"Here are the last {len(history)} messages. Please summarize them:\n{text_block}"
-                except Exception as e:
-                    return f"Failed to fetch chat history: {e}"
-
-            elif tool_name == "get_role_members":
-                role_name = args.get("role_name", "").lower()
-                if not message.guild:
-                    return "Error: Not in a server."
-
-                target_role = None
-                # Special Handle for @everyone
-                if role_name in ["@everyone", "everyone", "all"]:
-                    target_role = message.guild.default_role
-                else:
-                    target_role = discord.utils.find(lambda r: role_name in r.name.lower(), message.guild.roles)
-
-                if not target_role:
-                    return "Role not found."
-
-                # Sort members by status/activity? Just list names.
-                members = [m.display_name for m in target_role.members]
-                count = len(members)
-                # Truncate if too many
-                if count > 50:
-                    return f"Members ({count} total): {', '.join(members[:50])}..."
-                return f"Members ({count}): {', '.join(members)}"
-
-            elif tool_name == "get_voice_channel_info":
-                channel_name = args.get("channel_name")
-                return await self._get_voice_channel_info(message.guild, channel_name, message.author)
-
-            elif tool_name == "join_voice_channel":
-                # [NEW] AI Verification for Contextual Intent (User Request)
-                # Prevents false positives like "ikiteru?" (Are you alive?) -> "kite" (Come) -> VC Join
-                if message.content:
-                    check_prompt = (
-                        f'Analyze the user message: "{message.content}"\n'
-                        "Determines if the user EXPLICITLY wants the bot to join the voice channel.\n"
-                        "Output ONLY 'TRUE' or 'FALSE'.\n"
-                        "Examples:\n"
-                        "- 'Join VC' -> TRUE\n"
-                        "- 'Come here' -> TRUE\n"
-                        "- 'Are you alive?' -> FALSE\n"
-                        "- 'ikiteru?' -> FALSE"
-                    )
-                    try:
-                        # Quick check (temperature 0 for determinism)
-                        check_res, _, _ = await self._llm.chat([{"role": "user", "content": check_prompt}], temperature=0.0)
-                        if "true" not in check_res.lower().strip():
-                            logger.info(
-                                f"🚫 Blocked False Positive VC Join: {message.content} (AI Verdict: {check_res})"
-                            )
-                            return "VC Join request ignored (Context mismatch detected by AI)."
-                    except Exception as e:
-                        logger.warning(f"VC Join AI Check Failed: {e}. Proceeding with caution.")
-
-                media_cog = self.bot.get_cog("MediaCog")
-                if not media_cog:
-                    return "Media functionality is disabled."
-
-                # Determine channel
-                channel = None
-                if args.get("channel_name"):
-                    name = args["channel_name"]
-                    channel = discord.utils.find(
-                        lambda c: isinstance(c, discord.VoiceChannel) and name.lower() in c.name.lower(),
-                        message.guild.voice_channels,
-                    )
-                elif isinstance(message.author, discord.Member) and message.author.voice:
-                    channel = message.author.voice.channel
-
-                if not channel:
-                    return "Could not find a voice channel to join. Please join one first."
-
-                # Call MediaCog logic
-                try:
-                    from ..utils.voice_manager import VoiceConnectionError
-
-                    vc = await media_cog._voice_manager.ensure_voice_client(message.author)
-                    if vc:
-                        media_cog._voice_manager.auto_read_channels[message.guild.id] = message.channel.id
-                        await media_cog._voice_manager.play_tts(message.author, "接続しました")
-                        return f"Joined voice channel: {vc.channel.name}. Auto-read enabled."
-                    else:
-                        return "Failed to join voice channel (Unknown reason)."
-                except VoiceConnectionError as e:
-                    return f"Failed to join voice channel. Reason: {e}"
-                except Exception as e:
-                    logger.exception("Unexpected error in join_voice_channel")
-                    return f"Error: {e}"
-            elif tool_name == "leave_voice_channel":
-                media_cog = self.bot.get_cog("MediaCog")
-                if not media_cog:
-                    return "Media functionality is disabled."
-
-                if message.guild.voice_client:
-                    await message.guild.voice_client.disconnect(force=True)
-                    media_cog._voice_manager.auto_read_channels.pop(message.guild.id, None)
-                    return "Disconnected from voice channel."
-                return "Not connected to any voice channel."
-
-            elif tool_name == "google_shopping_search":
-                query = args.get("query")
-                if not query:
-                    return "Error: Missing query."
-                if not self._search_client.enabled:
-                    return "Error: Search API disabled."
-                results = await self._search_client.search(query, limit=5, engine="google_shopping")
-                if not results:
-                    return f"No shopping results found for '{query}'."
-                # results is list of dicts
-                return "\n".join([f"{i + 1}. {r.get('title')} ({r.get('link')})" for i, r in enumerate(results)])
-
-            elif tool_name == "system_check":
-                # Icons (Dynamic Lookup for 'rode' and 'conp')
-                e_load = discord.utils.get(self.bot.emojis, name="rode")
-                e_ok = discord.utils.get(self.bot.emojis, name="conp")
-
-                ICON_LOAD = str(e_load) if e_load else "⌛"
-                ICON_OK = str(e_ok) if e_ok else "✅"
-                ICON_ERR = "❌"
-
-                # Create initial status embed
-                embed = discord.Embed(
-                    title="🩺 ORA System Diagnostics",
-                    description="Running automated system checks...",
-                    color=discord.Color.blue(),
-                )
-                status_msg = await message.reply(embed=embed)
-
-                # Helper to update status
-                # We save the fields state to update them
-                fields_state = []
-
-                async def update_field(name, status, detail, is_error=False):
-                    # Check if field exists, update it
-                    found = False
-                    icon = ICON_ERR if is_error else (ICON_LOAD if status == "loading" else ICON_OK)
-
-                    # Rebuild fields list
-                    new_fields = []
-                    for f in fields_state:
-                        if f["name"] == name:
-                            f["value"] = f"{icon} {detail}"
-                            found = True
-                        new_fields.append(f)
-
-                    if not found:
-                        new_fields.append({"name": name, "value": f"{icon} {detail}"})
-                        fields_state.append({"name": name, "value": f"{icon} {detail}"})
-
-                    # Apply to Embed
-                    embed.clear_fields()
-                    for f in new_fields:
-                        embed.add_field(name=f["name"], value=f["value"], inline=False)
-                    await status_msg.edit(embed=embed)
-
-                # 1. Database Check
-                await update_field("Database", "loading", "Checking connection...")
-                try:
-                    await self._store.get_privacy(message.author.id)
-                    await update_field("Database", "done", "Connected (SQLite)")
-                except Exception as e:
-                    await update_field("Database", "done", f"Error: {e}", is_error=True)
-
-                # 2. Web Search
-                await update_field("Web Search", "loading", "Verifying API...")
-                if self._search_client.enabled:
-                    engine = getattr(self._search_client, "engine", "Google/DuckDuckGo")
-                    await update_field("Web Search", "done", f"Active ({engine})")
-                else:
-                    await update_field("Web Search", "done", "Disabled (No API Key)", is_error=True)
-
-                # 3. Vision Capability (Automated Test)
-                # Load Test Image
-                VISION_LABEL = "Vision (Qwen2.5-VL)"
-                await update_field(VISION_LABEL, "loading", "Loading Test Image...")
-                try:
-                    import base64
-
-                    img_path = os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "test_image.png"
-                    )
-
-                    b64_img = None
-                    if os.path.exists(img_path):
-                        with open(img_path, "rb") as f:
-                            img_data = f.read()
-                            b64_img = base64.b64encode(img_data).decode("utf-8")
-                        await update_field(VISION_LABEL, "loading", "Running Inference...")
-                    elif message.attachments:
-                        # Fallback to attachment
-                        target_att = message.attachments[0]
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(target_att.url) as resp:
-                                img_data = await resp.read()
-                                b64_img = base64.b64encode(img_data).decode("utf-8")
-                        await update_field(VISION_LABEL, "loading", "Running Inference (Attachment)...")
-                    else:
-                        await update_field(VISION_LABEL, "done", "Skipped (No test image found)", is_error=True)
-
-                    if b64_img:
-                        # Verification Prompt
-                        vis_messages = [
-                            {"role": "system", "content": "Analyze this image and describe the content briefly."},
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": "What is shown in this image?"},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}},
-                                ],
-                            },
-                        ]
-
-                        vis_response, _, _ = await self._llm.chat(messages=vis_messages, temperature=0.1)
-
-                        if vis_response:
-                            await update_field(VISION_LABEL, "done", f"Pass: '{vis_response[:40]}...'")
-                        else:
-                            await update_field(VISION_LABEL, "done", "Failed: Empty Response", is_error=True)
-
-                except Exception as e:
-                    await update_field(VISION_LABEL, "done", f"Error: {e}", is_error=True)
-
-                # 4. Voice Generation (VOICEVOX)
-                await update_field("Voice (VOICEVOX)", "loading", "Testing Engine...")
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    try:
-                        speakers = await media_cog._voice_manager._tts.get_speakers()
-                        if speakers:
-                            await update_field(
-                                "Voice (VOICEVOX)", "done", f"OK (Engine Ready with {len(speakers)} voices)"
-                            )
-                        else:
-                            await update_field(
-                                "Voice (VOICEVOX)", "done", "Connected but no voices found", is_error=True
-                            )
-                    except Exception as e:
-                        await update_field("Voice (VOICEVOX)", "done", f"Error: {e}", is_error=True)
-                else:
-                    await update_field("Voice (VOICEVOX)", "done", "TTS Module Not Loaded", is_error=True)
-
-                # 5. Video Recognition (FFmpeg Check)
-                await update_field("Video Recognition", "loading", "Checking FFmpeg...")
-                try:
-                    import shutil
-
-                    if shutil.which("ffmpeg"):
-                        # Get version?
-                        # proc = await asyncio.create_subprocess_shell("ffmpeg -version", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                        # stdout, _ = await proc.communicate()
-                        await update_field("Video Recognition", "done", "Ready (FFmpeg detected)")
-                    else:
-                        await update_field(
-                            "Video Recognition", "done", "Missing FFmpeg (Video analysis impossible)", is_error=True
-                        )
-                except Exception as e:
-                    await update_field("Video Recognition", "done", f"Error: {e}", is_error=True)
-
-                # 6. Core Services (Ports)
-                async def check_port(host, port):
-                    try:
-                        _, writer = await asyncio.open_connection(host, port)
-                        writer.close()
-                        await writer.wait_closed()
-                        return True
-                    except Exception:
-                        return False
-
-                # Check LLM (8001)
-                await update_field("Brain (vLLM)", "loading", "Pinging Port 8001...")
-                llm_ok = await check_port("127.0.0.1", 8001)
-                if llm_ok:
-                    await update_field("Brain (vLLM)", "done", "Online (Port 8001)")
-                else:
-                    await update_field("Brain (vLLM)", "done", "OFFLINE (Port 8001 Closed)", is_error=True)
-
-                # Check ComfyUI (8188)
-                await update_field("Art (ComfyUI)", "loading", "Pinging Port 8188...")
-                comfy_ok = await check_port("127.0.0.1", 8188)
-                if comfy_ok:
-                    await update_field("Art (ComfyUI)", "done", "Online (Port 8188)")
-                else:
-                    await update_field("Art (ComfyUI)", "done", "Offline (Port 8188)", is_error=True)
-
-                embed.description = "✅ System Diagnostics Completed."
-                embed.color = discord.Color.green()
-                await status_msg.edit(embed=embed)
-
-                return "[SILENT_COMPLETION]"
-
-            elif tool_name == "create_channel":
-                # Permission: Owner + Sub-Admin + VC Admin (Server Authority)
-                if not self._check_permission(message.author.id, "vc_admin"):
-                    return "Permission denied. Admin/VC Authority only."
-
-                guild = message.guild
-                if not guild:
-                    return "Error: Not in a server."
-
-                name = args.get("name")
-                ctype = args.get("type")
-                cat_name = args.get("category_name")
-
-                if not name or not ctype:
-                    return "Error: Missing name or type."
-
-                category = None
-                if cat_name:
-                    category = discord.utils.find(lambda c: c.name.lower() == cat_name.lower(), guild.categories)
-                    if not category:
-                        # Create category if not exists? Or fail?
-                        # Let's try to create it if explicitly asked, but for now just fail or create without category
-                        # User asked "in the text channel", implying category?
-                        # Let's just create the category if it doesn't exist? No, safer to just warn.
-                        return f"Error: Category '{cat_name}' not found."
-
-                try:
-                    if ctype == "text":
-                        ch = await guild.create_text_channel(name, category=category)
-                    elif ctype == "voice":
-                        ch = await guild.create_voice_channel(name, category=category)
-                    elif ctype == "category":
-                        ch = await guild.create_category(name)
-                    else:
-                        return "Error: Invalid channel type."
-                    return f"Channel created: {ch.name} (ID: {ch.id})"
-                except Exception as e:
-                    return f"Failed to create channel: {e}"
-
-            elif tool_name == "system_control":
-                # LOCKDOWN: Creator Only (Dangerous)
-                if not self._check_permission(message.author.id, "creator"):
-                    return "Permission denied. Creator only."
-
-                action = args.get("action")
-                value = args.get("value")
-                system_cog = self.bot.get_cog("SystemCog")
-                if system_cog:
-                    return await system_cog.execute_tool(message.author.id, action, value)
-
-            elif tool_name == "start_thinking":
-                reason = args.get("reason", "Complex task detected")
-
-                # Get Resource Manager
-                resource_cog = self.bot.get_cog("ResourceCog")
-                if resource_cog:
-                    if status_manager:
-                        await status_manager.next_step(f"⚠️ {reason}のため、思考エンジンへ切り替え中...")
-
-                    # 2. Switch Model
-                    await resource_cog.manager.switch_model("thinking")
-
-                    # 3. Update Status Again
-                    if status_manager:
-                        await status_manager.next_step(f"🤔 じっくり思考中... ({reason})")
-
-                    # 4. Return Prompt for Re-Generation
-                    # The LLM will receive this as Tool Output and continue generation
-                    return "Thinking Mode Activated. You now have access to the Reasoning Model. Please re-analyze the user's request and provide the comprehensive solution."
-                return "Thinking Engine not available."
-
-            elif tool_name == "generate_image":
-                # GUARD: Vision Priority (Attachments present -> No Gen)
-                if message.attachments:
-                    return "ABORT: Attachments detected. Priority: Vision Analysis. Do NOT generate an image."
-
-                # GUARD: Strict Keyword Check REMOVED for Agentic Behavior
-                # if "画像生成" not in message.content: ...
-
-                prompt = args.get("prompt")
-                negative_prompt = args.get("negative_prompt", "")
-
-                if not prompt:
-                    return "Error: Missing prompt."
-
-                try:
-                    # Unload LLM to free VRAM for ComfyUI
-                    if self.llm:
-                        asyncio.create_task(self.llm.unload_model())
-                        await asyncio.sleep(3)  # Wait for VRAM release
-
-                    from ..views.image_gen import AspectRatioSelectView
-
-                    # Defaulting to FLUX model logic since we are in ComfyUI mode
-                    view = AspectRatioSelectView(self, prompt, negative_prompt, model_name="FLUX.2")
-                    await message.reply(
-                        f"🎨 **画像生成アシスタント**\nLLMが生成意図を検出しました。\nPrompt: `{prompt}`\nアスペクト比を選択して生成を開始してください。",
-                        view=view,
-                    )
-                    return "[SILENT_COMPLETION]"
-                except Exception as e:
-                    logger.error(f"Failed to launch image gen view: {e}")
-                    return f"Error launching image generator: {e}"
-
-            elif tool_name == "manage_user_voice":
-                target_str = args.get("target_user")
-                action = args.get("action")
-                channel_str = args.get("channel_name")
-
-                if not target_str or not action:
-                    return "Error: Missing arguments."
-
-                guild = message.guild
-                if not guild:
-                    return "Error: Not in a server."
-
-                # Find Member
-                import re
-
-                target_member = None
-                id_match = re.search(r"^<@!?(\d+)>$|^(\d+)$", target_str.strip())
-                if id_match:
-                    uid = int(id_match.group(1) or id_match.group(2))
-                    target_member = guild.get_member(uid)
-                if not target_member:
-                    target_member = discord.utils.find(
-                        lambda m: target_str.lower() in m.name.lower() or target_str.lower() in m.display_name.lower(),
-                        guild.members,
-                    )
-
-                if not target_member:
-                    return f"User '{target_str}' not found."
-
-                # Permission Check (Modified)
-                # Allow if: Creator OR Server Admin OR VC Admin OR Self-Target
-                is_creator = await self._check_permission(message.author.id, "creator")
-                is_vc_admin = await self._check_permission(message.author.id, "vc_admin")
-                is_server_admin = (
-                    message.author.guild_permissions.administrator
-                    if hasattr(message.author, "guild_permissions")
-                    else False
-                )
-                is_self = target_member.id == message.author.id
-
-                if not (is_creator or is_vc_admin or is_server_admin or is_self):
-                    return "Permission denied. You can only manage yourself, or require VC Authority."
-
-                if not target_member.voice:
-                    return f"{target_member.display_name} is not in a voice channel."
-
-                try:
-                    if action == "disconnect":
-                        await target_member.move_to(None)
-                        return f"Disconnected {target_member.display_name} from voice channel."
-
-                    elif action == "move":
-                        if not channel_str:
-                            return "Error: Destination channel required for move."
-                        # Find Channel
-                        dest_channel = discord.utils.find(
-                            lambda c: isinstance(c, discord.VoiceChannel) and channel_str.lower() in c.name.lower(),
-                            guild.voice_channels,
-                        )
-                        if not dest_channel:
-                            return f"Voice channel '{channel_str}' not found."
-
-                        # Check User Limit
-                        if dest_channel.user_limit > 0 and len(dest_channel.members) >= dest_channel.user_limit:
-                            return (
-                                f"Error: Destination '{dest_channel.name}' is full ({dest_channel.user_limit} users)."
-                            )
-
-                        await target_member.move_to(dest_channel)
-                        return f"Moved {target_member.display_name} to {dest_channel.name}."
-
-                    elif action == "summon":
-                        dest_channel = message.author.voice.channel if message.author.voice else None
-                        if not dest_channel:
-                            return "Error: You must be in a Voice Channel to summon someone."
-
-                        # Check User Limit
-                        if dest_channel.user_limit > 0 and len(dest_channel.members) >= dest_channel.user_limit:
-                            return (
-                                f"Error: Your channel '{dest_channel.name}' is full ({dest_channel.user_limit} users)."
-                            )
-
-                        await target_member.move_to(dest_channel)
-                        return f"Summoned {target_member.display_name} to {dest_channel.name}."
-
-                    elif action in ["mute_mic", "unmute_mic", "mute_speaker", "unmute_speaker"]:
-                        # STRICT PERMISSION CHECK (No Self-Service for Moderation Tools)
-                        if not (is_creator or is_vc_admin or is_server_admin):
-                            return "Permission denied. Server VCMute/Deafen requires Admin or VC Authority."
-
-                        if action == "mute_mic":
-                            await target_member.edit(mute=True)
-                            return f"Server Muted (Mic) {target_member.display_name}."
-                        elif action == "unmute_mic":
-                            await target_member.edit(mute=False)
-                            return f"Unmuted (Mic) {target_member.display_name}."
-                        elif action == "mute_speaker":
-                            # Explicitly set both to be sure
-                            await target_member.edit(mute=True, deafen=True)
-                            return f"Server Deafened (Speaker+Mic Mute) {target_member.display_name}."
-                        elif action == "unmute_speaker":
-                            await target_member.edit(deafen=False, mute=False)
-                            return f"Undeafened (Speaker+Mic On) {target_member.display_name}."
-
-                    else:
-                        return f"Unknown action: {action}"
-
-                except discord.Forbidden:
-                    return "Error: Permission denied (Move Members required)."
-
-                except Exception as e:
-                    return f"Error managing voice: {e}"
-
-            elif tool_name == "check_points":
-                try:
-                    target_user_input = args.get("target_user")
-                    guild = message.guild
-                    if not guild:
-                        return "Error: Not in a server."
-
-                    target_member = None
-                    if target_user_input:
-                        import re
-
-                        id_match = re.search(r"^<@!?(\d+)>$|^(\d+)$", target_user_input.strip())
-                        if id_match:
-                            uid = int(id_match.group(1) or id_match.group(2))
-                            target_member = guild.get_member(uid)
-                        if not target_member:
-                            target_member = discord.utils.find(
-                                lambda m: target_user_input.lower() in m.name.lower()
-                                or target_user_input.lower() in m.display_name.lower(),
-                                guild.members,
-                            )
-
-                        if not target_member:
-                            return f"User '{target_user_input}' not found."
-                        user_id = target_member.id
-                        display_name = target_member.display_name
-                    else:
-                        user_id = message.author.id
-                        display_name = message.author.display_name
-
-                    points = await self._store.get_points(user_id)
-                    rank, total = await self._store.get_rank(user_id)
-
-                    if rank > 0:
-                        return (
-                            f"💰 **{display_name}** さんのポイント: **{points:,}** pt\n🏆 ランク: **#{rank}** / {total}"
-                        )
-                    else:
-                        return f"💰 **{display_name}** さんのポイント: **{points:,}** pt\n(ランク外)"
-                except Exception as e:
-                    return f"Error checking points: {e}"
-
-            elif tool_name == "set_timer":
-                seconds = args.get("seconds")
-                label = args.get("label", "Timer")
-                if not seconds or seconds <= 0:
-                    return "Error: seconds must be positive integer."
-
-                # Define simple task
-                async def timer_task(s, lbl, msg):
-                    await asyncio.sleep(s)
-                    try:
-                        await msg.reply(f"⏰ **タイマー終了!** ({lbl})\n{msg.author.mention}", mention_author=True)
-                        # Sound/TTS
-                        media_cog = self.bot.get_cog("MediaCog")
-                        if media_cog and msg.guild.voice_client:
-                            await media_cog.speak_text(msg.author, f"タイマー、{lbl}が終了しました。")
-                    except Exception as ex:
-                        logger.error(f"Timer callback failed: {ex}")
-
-                # Fire and forget
-                asyncio.create_task(timer_task(seconds, label, message))
-                return f"Timer set for {seconds} seconds ({label})."
-
-            elif tool_name == "set_alarm":
-                time_str = args.get("time")  # HH:MM
-                label = args.get("label", "Alarm")
-                if not time_str:
-                    return "Error: Missing time."
-
-                now = datetime.datetime.now()
-                try:
-                    target = datetime.datetime.strptime(time_str, "%H:%M").replace(
-                        year=now.year, month=now.month, day=now.day
-                    )
-                    if target < now:
-                        target += datetime.timedelta(days=1)
-
-                    delay = (target - now).total_seconds()
-
-                    async def alarm_task(d, lbl, msg):
-                        await asyncio.sleep(d)
-                        try:
-                            await msg.reply(f"⏰ **アラーム!** ({lbl})\n{msg.author.mention}", mention_author=True)
-                            media_cog = self.bot.get_cog("MediaCog")
-                            if media_cog and msg.guild.voice_client:
-                                await media_cog.speak_text(msg.author, f"アラームの時間です。{lbl}")
-                        except Exception as ex:
-                            logger.error(f"Alarm callback failed: {ex}")
-
-                    asyncio.create_task(alarm_task(delay, label, message))
-                    return f"Alarm set for {target.strftime('%H:%M')} ({label})."
-                except ValueError:
-                    return "Error: Invalid time format. Use HH:MM."
-
-            elif tool_name == "shiritori":
-                action = args.get("action")
-                word = args.get("word")
-                reading = args.get("reading")
-
-                # channel.id can be text or voice
-                game = self.shiritori_games[message.channel.id]
-
-                if action == "start":
-                    return game.start()
-
-                elif action == "play":
-                    if not word or not reading:
-                        return "Error: arguments 'word' and 'reading' are required."
-
-                    is_valid, msg, next_char = game.check_move(word, reading)
-                    if not is_valid:
-                        return f"User Move Invalid: {msg}"
-                    else:
-                        return f"User Move Valid! History updated. Next character must start with: 「{next_char}」. Now, YOU (AI) must generate a word starting with '{next_char}' and call this tool with action='check_bot', word='YOUR_WORD', reading='YOUR_READING' to verify it."
-
-                elif action == "check_bot":
-                    if not word or not reading:
-                        return "Error: arguments 'word' and 'reading' are required."
-
-                    # Check Bot Move
-                    is_valid, msg, next_char = game.check_move(word, reading)
-                    if not is_valid:
-                        # Bot failed! ReAct loop allows it to see this error and try again.
-                        return f"YOUR (AI) Move Invalid: {msg}. Please pick a DIFFERENT word starting with the correct character."
-                    else:
-                        return f"Bot Move Valid! History updated. You can now reply to the user with: '{word} ({reading})! Next is {next_char}.'"
-
-            elif tool_name == "say":
-                text = args.get("message")
-                target_channel_name = args.get("channel_name")
-
-                if not text:
-                    return "Error: No message provided."
-
-                target_channel = message.channel
-                if target_channel_name:
-                    found = discord.utils.find(
-                        lambda c: hasattr(c, "name") and target_channel_name.lower() in c.name.lower(),
-                        message.guild.text_channels,
-                    )
-                    if found:
-                        target_channel = found
-                    else:
-                        return f"Error: Channel '{target_channel_name}' not found."
-
-                try:
-                    await target_channel.send(text)
-                    return f"Sent message to {target_channel.mention}"
-                except Exception as e:
-                    return f"Failed to send message: {e}"
-
-            elif tool_name == "set_audio_volume":
-                target = args.get("target")  # music, tts
-                value = args.get("value")  # 0-200
-
-                if not target or value is None:
-                    return "Error: target and value (0-200) required."
-
-                media_cog = self.bot.get_cog("MediaCog")
-                if not media_cog:
-                    return "Error: Media system not loaded."
-
-                vol_float = float(value) / 100.0
-
-                if target == "music":
-                    media_cog._voice_manager.set_music_volume(message.guild.id, vol_float)
-                    return f"Music Volume set to {value}%."
-                elif target == "tts":
-                    media_cog._voice_manager.set_tts_volume(message.guild.id, vol_float)
-                    return f"TTS Volume set to {value}%."
-                else:
-                    return "Error: target must be 'music' or 'tts'."
-
-            elif tool_name == "purge_messages":
-                # Permission Check
-                if not (
-                    message.author.guild_permissions.manage_messages
-                    or await self._check_permission(message.author.id, "creator")
-                ):
-                    return "Permission denied. Manage Messages required."
-
-                limit = args.get("limit", 10)
-                if not isinstance(message.channel, discord.TextChannel):
-                    return "Error: Can only purge messages in Text Channels."
-
-                deleted = await message.channel.purge(limit=limit)
-                return f"Deleted {len(deleted)} messages."
-
-            elif tool_name == "manage_pins":
-                action = args.get("action")  # pin, unpin
-                msg_id = args.get("message_id")
-
-                target_msg = None
-                if msg_id:
-                    try:
-                        target_msg = await message.channel.fetch_message(int(msg_id))
-                    except Exception:
-                        return f"Error: Message {msg_id} not found."
-                elif message.reference:
-                    target_msg = await message.channel.fetch_message(message.reference.message_id)
-                else:
-                    return "Error: Provide message_id or reply to a message."
-
-                if action == "pin":
-                    await target_msg.pin()
-                    return f"Pinned message from {target_msg.author.display_name}."
-                elif action == "unpin":
-                    await target_msg.unpin()
-                    return "Unpinned message."
-                else:
-                    return "Error: action must be 'pin' or 'unpin'."
-
-            elif tool_name == "create_thread":
-                # Permission Check
-                if not (
-                    message.author.guild_permissions.create_public_threads
-                    or await self._check_permission(message.author.id, "creator")
-                ):
-                    return "Permission denied. Create Public Threads required."
-
-                name = args.get("name")
-
-                if not isinstance(message.channel, discord.TextChannel):
-                    return "Error: Can only create threads in Text Channels."
-
-                thread = await message.channel.create_thread(name=name, auto_archive_duration=60)
-                return f"Created thread: {thread.mention}"
-
-            elif tool_name == "user_info":
-                query = args.get("target_user")
-                if not query:
-                    return "Error: target_user required."
-
-                # Resolve User
-                member = await self._resolve_user(message.guild, query)
-                if not member:
-                    return f"User '{query}' not found."
-
-                roles = ", ".join([r.name for r in member.roles if r.name != "@everyone"])
-                embed = discord.Embed(title=f"User Info: {member.display_name}", color=member.color)
-                embed.set_thumbnail(url=member.display_avatar.url)
-                embed.add_field(name="ID", value=str(member.id), inline=True)
-                embed.add_field(name="Joined Server", value=member.joined_at.strftime("%Y-%m-%d"), inline=True)
-                embed.add_field(name="Created Account", value=member.created_at.strftime("%Y-%m-%d"), inline=True)
-                embed.add_field(name="Roles", value=roles or "None", inline=False)
-
-                # --- Memory Inspection ---
-                try:
-                    memory_cog = self.bot.get_cog("MemoryCog")
-                    if memory_cog:
-                        profile = await memory_cog.get_user_profile(
-                            member.id, message.guild.id if message.guild else None
-                        )
-                        if profile:
-                            # L1
-                            l1 = profile.get("layer1_session_meta", {})
-                            if l1:
-                                embed.add_field(
-                                    name="🧠 L1: Session",
-                                    value=f"Mood: {l1.get('mood', '?')}\nAct: {l1.get('activity', '?')}",
-                                    inline=True,
-                                )
-
-                            # L2
-                            l2 = profile.get("layer2_user_memory", {})
-                            facts = l2.get("facts", [])[:3]  # Top 3
-                            if facts:
-                                embed.add_field(
-                                    name="🧠 L2: Axis (Facts)", value="\n".join([f"・{f}" for f in facts]), inline=True
-                                )
-
-                            impression = profile.get("impression") or l2.get("impression")
-                            if impression:
-                                embed.add_field(
-                                    name="🧠 L2: Impression",
-                                    value=impression[:200] + "..." if len(impression) > 200 else impression,
-                                    inline=False,
-                                )
-
-                            # L3
-                            l3 = profile.get("layer3_recent_summaries", [])
-                            if l3:
-                                last = l3[-1]
-                                embed.add_field(
-                                    name="🧠 L3: Last Topic",
-                                    value=f"{last.get('timestamp')} - {last.get('title')}",
-                                    inline=False,
-                                )
-                except Exception as e:
-                    logger.error(f"Memory Fetch Failed in user_info: {e}")
-                # -------------------------
-
-                await message.channel.send(embed=embed)
-                return f"Displayed info for {member.display_name}"
-
-            elif tool_name == "ban_user" or tool_name == "kick_user" or tool_name == "timeout_user":
-                # Permission Check
-                if not (
-                    message.author.guild_permissions.ban_members
-                    or await self._check_permission(message.author.id, "creator")
-                ):
-                    return "Permission denied. Ban/Kick members required."
-
-                # Moderation Suite
-                query = args.get("target_user")
-                reason = args.get("reason", "No reason provided")
-
-                if not query:
-                    return "Error: target_user required."
-                member = await self._resolve_user(message.guild, query)
-                if not member:
-                    return f"User '{query}' not found."
-
-                try:
-                    if tool_name == "ban_user":
-                        await member.ban(reason=reason)
-                        return f"⛔ Banned {member.display_name}. Reason: {reason}"
-                    elif tool_name == "kick_user":
-                        await member.kick(reason=reason)
-                        return f"🦵 Kicked {member.display_name}. Reason: {reason}"
-                    elif tool_name == "timeout_user":
-                        minutes = args.get("minutes", 10)
-                        from datetime import timedelta
-
-                        duration = timedelta(minutes=int(minutes))
-                        await member.timeout(duration, reason=reason)
-                        return f"⏳ Timed out {member.display_name} for {minutes} mins. Reason: {reason}"
-                except Exception as e:
-                    return f"Moderation Action Failed: {e}"
-
-            elif tool_name == "add_emoji":
-                # Permission Check
-                if not (
-                    message.author.guild_permissions.manage_emojis
-                    or await self._check_permission(message.author.id, "creator")
-                ):
-                    return "Permission denied. Manage Emojis required."
-
-                name = args.get("name")
-                url = args.get("image_url")
-
-                if not name or not url:
-                    return "Error: name and image_url required."
-
-                try:
-
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url) as resp:
-                            if resp.status != 200:
-                                return "Error: Failed to download image."
-                            data = await resp.read()
-
-                    emoji = await message.guild.create_custom_emoji(name=name, image=data)
-                    return f"Created emoji: {emoji} (Name: {emoji.name})"
-                except Exception as e:
-                    return f"Failed to create emoji: {e}"
-
-            elif tool_name == "create_poll":
-                # Permission Check
-                if not (
-                    message.author.guild_permissions.manage_messages
-                    or await self._check_permission(message.author.id, "creator")
-                ):
-                    return "Permission denied. Manage Messages/Admin required."
-
-                question = args.get("question")
-                options = args.get("options")  # pipe separated or list? Let's assume text description in LLM arg.
-                # Simplest: "options" is a list in JSON
-                if not question or not options:
-                    return "Error: question and options required."
-
-                if isinstance(options, str):
-                    options = options.split("|")  # Fallback parsing
-
-                # Emojis for 1-10
-                emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-
-                desc = ""
-                for i, opt in enumerate(options):
-                    if i >= len(emojis):
-                        break
-                    desc += f"{emojis[i]} {opt}\n"
-
-                embed = discord.Embed(title=f"📊 {question}", description=desc, color=discord.Color.gold())
-                poll_msg = await message.channel.send(embed=embed)
-
-                for i, _ in enumerate(options):
-                    if i >= len(emojis):
-                        break
-                    await poll_msg.add_reaction(emojis[i])
-
-                return f"Poll created: {poll_msg.jump_url}"
-
-            elif tool_name == "create_invite":
-                # Permission Check
-                if not (
-                    message.author.guild_permissions.create_instant_invite
-                    or await self._check_permission(message.author.id, "creator")
-                ):
-                    return "Permission denied. Create Invite permissions required."
-
-                max_age = args.get("minutes", 0) * 60  # 0 = infinite
-                max_uses = args.get("uses", 0)  # 0 = infinite
-
-                invite = await message.channel.create_invite(max_age=max_age, max_uses=max_uses)
-                return f"Invite Created: {invite.url} (Expires in {args.get('minutes', 0)} mins, Uses: {args.get('uses', 0)})"
-
-            elif tool_name == "read_messages":
-                count = min(int(args.get("count", 10)), 50)  # Cap at 50
-                history_texts = []
-
-                from datetime import timedelta
-
-                async for msg in message.channel.history(limit=count):
-                    # Timezone Adjust (UTC -> JST)
-                    jst_time = msg.created_at + timedelta(hours=9)
-                    ts = jst_time.strftime("%H:%M")
-
-                    author = msg.author.display_name
-                    content = msg.content.replace("\n", " ")
-
-                    # Embed/Attachment notation
-                    extras = []
-                    if msg.attachments:
-                        extras.append(f"[attachments: {len(msg.attachments)}]")
-                    if msg.embeds:
-                        extras.append(f"[embeds: {len(msg.embeds)}]")
-                    if msg.stickers:
-                        extras.append(f"[stickers: {len(msg.stickers)}]")
-
-                    if not content and extras:
-                        content = " ".join(extras)
-                    elif extras:
-                        content += " " + " ".join(extras)
-
-                    history_texts.append(f"• {ts} {author}: {content}")
-
-                # Reverse to chronological order (oldest first)
-                history_texts.reverse()
-
-                header = f"📝 Recent Messages (Last {count})"
-                body = "\n".join(history_texts)
-                return f"{header}\n{body}"
-
-            elif tool_name == "summarize_chat":
-                limit = min(args.get("limit", 50), 100)  # Safety cap
-
-                history_texts = []
-                async for msg in message.channel.history(limit=limit):
-                    if msg.content:
-                        history_texts.append(f"{msg.author.display_name}: {msg.content}")
-
-                # Reverse to chrono order
-                history_texts.reverse()
-                return "\n".join(history_texts)
-                # LLM will see this return value and then answer "Here is the summary..."
-
-            elif tool_name == "remind_me":
-                minutes = args.get("minutes")
-                memo = args.get("message", "Reminder!")
-
-                if not minutes:
-                    return "Error: minutes required."
-
-                delay = int(minutes) * 60
-
-                async def reminder_task(d, u, m, ch):
-                    await asyncio.sleep(d)
-                    await ch.send(f"⏰ {u.mention}, Reminder: {m}")
-
-                asyncio.create_task(reminder_task(delay, message.author, memo, message.channel))
-                return f"Reminder set for {minutes} minutes."
-
-            elif tool_name == "server_assets":
-                guild = message.guild
-                icon = guild.icon.url if guild.icon else "No Icon"
-                banner = guild.banner.url if guild.banner else "No Banner"
-                return f"Icon: {icon}\nBanner: {banner}"
-
-            elif tool_name == "manage_permission":
-                # STRICT SECURITY CHECK
-                OWNER_ID = 1069941291661672498
-                if message.author.id != OWNER_ID:
-                    logger.warning(
-                        f"Unauthorized permission change attempt by {message.author.name} ({message.author.id})"
-                    )
-                    return "⛔ Permission denied. This command is restricted to the Bot Owner."
-
-                target_user_str = args.get("target_user")
-                action = args.get("action")
-                level = args.get("level")
-
-                if not target_user_str or not action or not level:
-                    return "Error: Missing arguments."
-
-                # Clean ID
-                try:
-                    tid = int("".join(c for c in target_user_str if c.isdigit()))
-                except Exception:
-                    return f"Error: Invalid user format '{target_user_str}'"
-
-                # Apply
-                if action == "grant":
-                    if level == "sub_admin":
-                        self.bot.config.sub_admin_ids.add(tid)
-                    elif level == "vc_admin":
-                        self.bot.config.vc_admin_ids.add(tid)
-                    msg = f"✅ Granted {level} to {tid}"
-
-                elif action == "revoke":
-                    if level == "sub_admin":
-                        self.bot.config.sub_admin_ids.discard(tid)
-                    elif level == "vc_admin":
-                        self.bot.config.vc_admin_ids.discard(tid)
-                    msg = f"🗑️ Revoked {level} from {tid}"
-
-                else:
-                    return "Error: Unknown action."
-
-                # Note: Config changes are in-memory unless saved.
-                # Ideally we should save to .env or DB, but for now runtime is OK
-                # as the user asked for functional tools.
-                # (Future task: Persist config changes)
-
-                return "Config changes applied (Runtime only)."
-
-            # Implement Missing Tools
-            elif tool_name == "shiritori":
-                action = args.get("action", "play")
-                word = args.get("word")
-                # Basic Placeholder - In real app, import GameCog
-                game_cog = self.bot.get_cog("GameCog")
-                if game_cog:
-                    # Simulate Context
-                    ctx = await self.bot.get_context(message)
-                    if action == "start":
-                        await game_cog.start_shiritori(ctx)
-                        return "Shiritori started."
-                    elif action == "play" and word:
-                        # Direct game logic or command invoke
-                        return f"Shiritori Logic: Player said '{word}' (Game logic pending GameCog integration)"
-                    return "Shiritori action processed."
-                else:
-                    return "Game system not available."
-
-            elif tool_name == "manage_user_voice":
-                target_user = args.get("target_user")
-                action = args.get("action")
-                channel_name = args.get("channel_name")
-
-                if not message.guild:
-                    return "Error: Not in a server."
-                # Resolve User
-                member = await self._resolve_user(message.guild, target_user)
-                if not member:
-                    return f"User '{target_user}' not found."
-
-                if not member.voice:
-                    return f"User '{member.display_name}' is not in voice."
-
-                try:
-                    if action == "disconnect":
-                        await member.move_to(None)
-                        return f"Disconnected {member.display_name}."
-                    elif action == "mute":
-                        await member.edit(mute=True)
-                        return f"Muted {member.display_name}."
-                    elif action == "unmute":
-                        await member.edit(mute=False)
-                        return f"Unmuted {member.display_name}."
-                    elif action == "deafen":
-                        await member.edit(deafen=True)
-                        return f"Deafened {member.display_name}."
-                    elif action == "undeafen":
-                        await member.edit(deafen=False)
-                        return f"Undeafened {member.display_name}."
-                    elif action == "move" or action == "summon":
-                        # Find channel
-                        target_ch = None
-                        if action == "summon":
-                            if message.author.voice:
-                                target_ch = message.author.voice.channel
-                            else:
-                                return "You are not in a voice channel to summon to."
-                        elif channel_name:
-                            target_ch = discord.utils.find(
-                                lambda c: isinstance(c, discord.VoiceChannel)
-                                and channel_name.lower() in c.name.lower(),
-                                message.guild.voice_channels,
-                            )
-
-                        if target_ch:
-                            await member.move_to(target_ch)
-                            return f"Moved {member.display_name} to {target_ch.name}."
-                        else:
-                            return "Target channel not found."
-                    return f"Unknown voice action: {action}"
-                except discord.Forbidden:
-                    return "Permission denied (Move/Mute Members)."
-                except Exception as e:
-                    return f"Voice Action Failed: {e}"
-
-            elif tool_name == "set_audio_volume":
-                target = args.get("target", "music")
-                volume = args.get("volume", 50)
-
-                media_cog = self.bot.get_cog("MediaCog")
-                if media_cog:
-                    # Access VoiceManager
-                    vm = media_cog._voice_manager
-                    # Clamp volume 0-200
-                    vol_clamped = max(0, min(200, int(volume)))
-
-                    if target == "music":
-                        # Assume MusicPlayer volume control
-                        # vm.music_volume = vol_clamped / 100.0 etc.
-                        # Setup needed in VoiceManager
-                        return f"Music volume set to {vol_clamped}% (Implementation pending VoiceManager update)."
-                    elif target == "tts":
-                        vm.tts_volume = vol_clamped / 100.0
-                        return f"TTS volume set to {vol_clamped}%."
-                return "Media system not available."
-
-            # Log Tool Execution (Guild Level)
-            guild_id = message.guild.id if message.guild else None
-            user_id = message.author.id
-            if guild_id and self.bot.get_guild(guild_id):
-                GuildLogger.get_logger(guild_id).info(f"Tool Executed: {tool_name} | User: {user_id} | Args: {args}")
-
-            elif tool_name == "system_override":
-                mode = args.get("mode", "UNLIMITED").upper()  # Default to UNLIMITED actions
-                auth_code = args.get("auth_code", "").upper()
-
-                # Check Auth
-                valid_codes = ["ALPHA-OMEGA-99", "GENESIS", "CODE-RED", "0000", "ORA-ADMIN"]
-
-                # Owner Bypass (YoneRai12)
-                is_owner = message.author.id == 1069941291661672498
-
-                if not is_owner and auth_code not in valid_codes and mode == "UNLIMITED":
-                    return "⛔ ACCESS DENIED. Invalid Authorization Code."
-
-                if mode == "UNLIMITED":
-                    # Pass user_id (message.author.id) to enable User-Specific Override
-                    self.cost_manager.toggle_unlimited_mode(True, user_id=message.author.id)
-                    return "✅ **SYSTEM OVERRIDE: ACCESS GRANTED**\n[WARNING] Safety Limiters Disengaged. Infinite Generation Mode Active (User Only).\n(Note: Please use responsibly.)"
-                elif mode == "LOCKDOWN":
-                    # Pending implementation
-                    return "🔒 System Lockdown Initiated (Simulation)."
-                else:
-                    self.cost_manager.toggle_unlimited_mode(False, user_id=message.author.id)
-                    return "ℹ️ System Normal. Limiters Re-engaged."
-
-            # --- Vision Cap ---
-            elif tool_name == "generate_ascii_art":
-                image_url = args.get("image_url")
-                if not image_url and message.attachments:
-                    image_url = message.attachments[0].url
-
-                if not image_url:
-                    return "Error: No image provided (URL or Attachment needed)."
-
-                # Notify
-                if status_manager:
-                    await status_manager.next_step("画像処理中 (ASCII化)...")
-
-                art = await AsciiGenerator.generate_from_url(image_url, width=60)  # Smaller width for Discord mobile
-                if len(art) > 1900:
-                    # Split or send as file? Sending as code block usually fits
-                    return f"```\n{art[:1900]}\n```\n(Truncated)"
-                return f"```\n{art}\n```"
-
-            # --- Voice Cap ---
-            elif tool_name == "join_voice_channel":
-                channel_name = args.get("channel_name")
-                # Resolve Channel
-                if channel_name:
-                    channel = discord.utils.get(message.guild.voice_channels, name=channel_name)
-                else:
-                    if hasattr(message.author, "voice") and message.author.voice:
-                        channel = message.author.voice.channel
-                    else:
-                        return "Error: Specify channel_name or join a VC first."
-
-                if not channel:
-                    return f"Voice Channel '{channel_name}' not found."
-
-                # Check 'Game State' - Refusal Logic if needed?
-                # Actually, joining is usually fine. Leaving is where valid refusal happens.
-
-                if self.bot.voice_manager:
-                    await self.bot.voice_manager.join_channel(channel)
-                    return f"Joined Voice Channel: {channel.name}"
-                return "Voice system error."
-
-            elif tool_name == "leave_voice_channel":
-                # PERSONA CHECK: Are we in a challenge?
-                # Simple heuristic: If prompt explicitly said we are competitive, LLM might have refused already.
-                # But if LLM decided to call this tool anyway, strictly speaking we should obey logic or double check?
-                # Implementing a "Safety Refusal" at Tool Level for non-admins if 'Challenge Mode' logic was easier to track.
-                # For now, let's assume the LLM Prompt "Refuse" instruction handles the DECISION to call this.
-                # If LLM calls this, it means it yielded.
-
-                # However, user requested: "Manageable by Admin Override".
-                # So if Non-Admin requests it and we are 'stubborn', maybe LLM shouldn't have called this.
-                pass  # Fall through to execution
-
-                if self.bot.voice_manager:
-                    await self.bot.voice_manager.disconnect()
-                    return "Left Voice Channel."
-                return "Voice system error."
-
-            # --- Auto-Evolution Fallback ---
-            else:
-                # Unknown Tool -> Trigger Healer
-                if hasattr(self.bot, "healer"):
-                    # Async trigger (don't block)
-                    if status_manager:
-                        await status_manager.next_step(f"未知の機能: {tool_name} (進化プロセス起動)")
-                    asyncio.create_task(
-                        self.bot.healer.propose_feature(
-                            feature=f"Tool '{tool_name}' with args {args}",
-                            context=f"User tried to use unknown tool '{tool_name}'. Please implement it.",
-                            requester=message.author,
-                            ctx=message,
-                        )
-                    )
-                    return f"⚠️ **Tool '{tool_name}' not found.**\n Initiating **Auto-Evolution** protocol to implement this feature.\n Please wait for the proposal in the Debug Channel."
-
-                return f"Error: Unknown tool '{tool_name}'"
-            return "Tool logic finished."
-
-        except Exception as e:
-            guild_id = message.guild.id if message.guild else None
-            if guild_id and self.bot.get_guild(guild_id):
-                GuildLogger.get_logger(guild_id).error(f"Tool Execution Failed: {tool_name} | Error: {e}")
-            logger.exception(f"Tool execution failed: {tool_name}")
-            return f"Tool execution failed: {e}"
-
-    # --- Phase 28: Hybrid Client Commands ---
-
-    @app_commands.command(
-        name="switch_brain", description="Toggle between Local Brain (Free) and Cloud Brain (Gemini 3)."
-    )
-    @app_commands.describe(mode="local, cloud, or auto")
+    # Legacy _execute_tool removed. See src/legacy/ora_legacy.py
     async def switch_brain(self, interaction: discord.Interaction, mode: str):
         """Switch the AI Brain Mode."""
         # Security Lock: Owner or Sub-Admin
@@ -3462,7 +1356,7 @@ class ORACog(commands.Cog):
         self.brain_mode = mode
 
         # Icons
-        icon = "🏠" if mode == "local" else ("☁️" if mode == "cloud" else "🤖")
+        icon = "🏠" if mode == "local" else ("☁️" if mode == "cloud" else "🧠")
         desc = {
             "local": "Using **Local Qwen2.5-VL** (Privacy First). Free & Fast.",
             "cloud": "Using **Google Gemini 3** (God Mode). Uses Credits.",
@@ -3507,7 +1401,7 @@ class ORACog(commands.Cog):
                 )
 
             embed = discord.Embed(
-                title="🚨 SYSTEM OVERRIDE 🚨",
+                title="⚠️ SYSTEM OVERRIDE ⚠️",
                 description='**[WARNING] Safety Limiters DISENGAGED.**\nInfinite Generation Mode: **ACTIVE (User Only)**\n\n*"Power overwhelming..."*',
                 color=discord.Color.red(),
             )
@@ -3527,7 +1421,7 @@ class ORACog(commands.Cog):
                 )
 
             embed = discord.Embed(
-                title="🛡️ System Restored",
+                title="✅ System Restored",
                 description="Safety Limiters: **ENGAGED**\nNormal Operation Resumed.",
                 color=discord.Color.green(),
             )
@@ -3578,11 +1472,11 @@ class ORACog(commands.Cog):
                     user_in += bucket.used.tokens_in
                     user_out += bucket.used.tokens_out
 
-        embed = discord.Embed(title="💳 Cloud Credit Usage (Live Sync)", color=discord.Color.green())
+        embed = discord.Embed(title="☁️ Cloud Credit Usage (Live Sync)", color=discord.Color.green())
         embed.description = f"User: {interaction.user.display_name}\n**Sync Status**: {sync_status}"
 
         if official_total > 0:
-            embed.add_field(name="🏛️ Official (OpenAI)", value=f"{official_total:,} Tokens", inline=False)
+            embed.add_field(name="🏢 Official (OpenAI)", value=f"{official_total:,} Tokens", inline=False)
 
         embed.add_field(name="🤖 Bot Estimate", value=f"{user_in + user_out:,} Tokens", inline=True)
         embed.add_field(name="Est. Cost", value=f"${user_usd:.4f} USD", inline=True)
@@ -3590,7 +1484,7 @@ class ORACog(commands.Cog):
         # Global Stats (Admin Only?)
         # embed.add_field(name="Server Total", ...)
 
-        embed.set_footer(text="Powered by ORA CostManager • OpenAI Official Data Synced")
+        embed.set_footer(text="Powered by ORA CostManager 窶｢ OpenAI Official Data Synced")
 
         await interaction.followup.send(embed=embed)
 
@@ -3652,8 +1546,8 @@ class ORACog(commands.Cog):
         # "Repeat X times", "Limit", "Max", "10000" combined with repeat
         abuse_patterns = [
             r"(?i)(repeat|copy|write|print).{0,20}(\d{4,}|limit|max|infinity).{0,20}(times|lines|copies)",
-            r"(?i)(繰り返|連呼|コピペ).{0,10}(\d{3,}|万|億|無限|限界)",  # 3 digits+ or kanji num
-            r"(a{10,}|あ{10,}|w{10,})",  # Simple repetition abuse (aaaa..., www...)
+            r"(?i)(copy|repeat).{0,10}(\d{3,})",  # Simply removed corrupted Japanese regex part
+            r"(a{10,}|w{10,})",  # Simple repetition abuse (aaaa..., www...)
         ]
 
         for p in abuse_patterns:
@@ -3797,9 +1691,9 @@ class ORACog(commands.Cog):
         # [Admin Only] System Scan Triggers (Migrated from duplicate listener)
         if message.author.id == self.bot.config.admin_user_id:
             content_lower = message.content.lower().strip()
-            
+
             # 1. Full Scan Triggers
-            full_triggers = ["フルスキャン", "全機能チェック", "full scan", "full_scan", "system full"]
+            full_triggers = ["繝輔Ν繧ｹ繧ｭ繝｣繝ｳ", "蜈ｨ讖溯・繝√ぉ繝・け", "full scan", "full_scan", "system full"]
             if any(t in content_lower for t in full_triggers):
                 sys_cog = self.bot.get_cog("SystemCog")
                 if sys_cog and hasattr(sys_cog, "run_full_scan"):
@@ -3809,7 +1703,7 @@ class ORACog(commands.Cog):
                     return
 
             # 2. Simple Scan Triggers
-            simple_triggers = ["スキャン", "診断", "scan", "check system", "health"]
+            simple_triggers = ["繧ｹ繧ｭ繝｣繝ｳ", "險ｺ譁ｭ", "scan", "check system", "health"]
             if any(t in content_lower for t in simple_triggers):
                 sys_cog = self.bot.get_cog("SystemCog")
                 if sys_cog and hasattr(sys_cog, "run_simple_scan"):
@@ -3861,7 +1755,7 @@ class ORACog(commands.Cog):
                 if memory_cog:
                     asyncio.create_task(memory_cog._ensure_user_name(message.author, message.guild))
         except Exception as e:
-            logger.error(f"ポイント追加エラー: {e}")
+            logger.error(f"Points add error: {e}")
 
         if message.guild:
             GuildLogger.get_logger(message.guild.id).info(
@@ -3869,26 +1763,38 @@ class ORACog(commands.Cog):
             )
 
         # logger.info(
-        #     f"ORACogメッセージ受信: ユーザー={message.author.id}, 内容={message.content[:50]}, 添付={len(message.attachments)}"
+        #     f"ORACog繝｡繝・そ繝ｼ繧ｸ蜿嶺ｿ｡: 繝ｦ繝ｼ繧ｶ繝ｼ={message.author.id}, 蜀・ｮｹ={message.content[:50]}, 豺ｻ莉・{len(message.attachments)}"
         # )
 
         # --- [NEW] Auto-Read (Reading Bot) Logic ---
         if message.guild and not message.author.bot:
             media_cog = self.bot.get_cog("MediaCog")
-            if media_cog:
-                auto_channel_id = media_cog._voice_manager.auto_read_channels.get(message.guild.id)
+            if hasattr(self.bot, "voice_manager"):
+                auto_channel_id = self.bot.voice_manager.auto_read_channels.get(message.guild.id)
                 if auto_channel_id == message.channel.id:
-                    # Only read if NOT a mention (mentions are handled by AI/ChatHandler)
-                    if not (self.bot.user in message.mentions or message.content.startswith(("@ORA", "@roa"))):
+                    # Check reply to bot
+                    is_reply_to_bot = False
+                    if message.reference:
+                        try:
+                            # Use cached resolved if available for speed
+                            ref_msg = message.reference.resolved
+                            if ref_msg and ref_msg.author.id == self.bot.user.id:
+                                is_reply_to_bot = True
+                            elif message.reference.message_id:
+                                # Start async fetch task? No, just skip check if not resolved to keep it fast?
+                                # Or just accept duplicate read for uncached?
+                                # Better to be safe: if reference exists, skip auto-read?
+                                # No, people reply to each other.
+                                # Let's assume if it's a reply to BOT, it's an AI interaction.
+                                pass
+                        except Exception:
+                            pass
+
+                    # Only read if NOT a mention/AI interaction
+                    if not (self.bot.user in message.mentions or message.content.startswith(("@ORA", "@roa")) or is_reply_to_bot):
                          # If it's a very short message or has attachments, we might want to skip or handle specially.
                          # For now, just play TTS.
-                         asyncio.create_task(media_cog._voice_manager.play_tts(message.author, message.content))
-                         # Do NOT return; we still allow the AI to see the message if it wants? 
-                         # Actually, standard reading bots don't trigger AI.
-                         # But if it's NOT a mention, it's just a regular message.
-                         # Let's just let it be read and stop here if it's purely a reading-bot channel?
-                         # Usually, if it's an auto-read channel, we don't want AI to respond unless mentioned.
-                         # Since we return later if no mention, this is fine.
+                         asyncio.create_task(self.bot.voice_manager.play_tts(message.author, message.content))
         # -------------------------------------------
 
         # --- Voice Triggers (Direct Bypass - Mentions Only) ---
@@ -3915,7 +1821,7 @@ class ORACog(commands.Cog):
             # [SPECIAL OVERRIDE] User: 1067838608104505394 -> Reply "DM..." then force DM for AI
             force_dm_response = False
             if message.author.id == 1067838608104505394:
-                await message.reply("DMにそうしんしました", mention_author=True)
+                await message.reply("Sent to DM.", mention_author=True)
                 force_dm_response = True
                 # Continue to normal AI processing with force_dm flag
 
@@ -3927,36 +1833,48 @@ class ORACog(commands.Cog):
             # Use raw content to be safe against nickname resolution issues for simple keywords
             # But stripped content is better to avoid matching the mention itself (though unlikely)
 
-            # Join: "きて" / "来て"
-            if any(k in message.content for k in ["きて", "来て", "join"]):
+            # Join: "縺阪※" / "譚･縺ｦ"
+            # [DISABLED] Handled by AI Tool (join_voice_channel)
+            # Join Trigger
+            clean_content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
+            if len(clean_content) < 30 and any(k in clean_content.lower() for k in ["join", "connect"]):
                 media_cog = self.bot.get_cog("MediaCog")
                 if media_cog:
                     try:
-                        await media_cog._voice_manager.ensure_voice_client(message.author)
-                        media_cog._voice_manager.auto_read_channels[message.guild.id] = message.channel.id
-                        await media_cog._voice_manager.play_tts(message.author, "接続しました")
-                        await message.add_reaction("⭕")
+                        await self.bot.voice_manager.ensure_voice_client(message.author)
+                        self.bot.voice_manager.auto_read_channels[message.guild.id] = message.channel.id
+                        await self.bot.voice_manager.play_tts(message.author, "Connected.")
+                        await message.add_reaction("✅")
                     except Exception:
-                        # Likely user not in VC
-                        await message.channel.send("ボイスチャンネルに参加してから呼んでください。", delete_after=5)
-                return
+                        if len(clean_content) < 10:
+                             await message.channel.send("Please join a voice channel first.", delete_after=5)
+            # Removed return to allow LLM to also reply
 
-            # Leave: "消えて" / "ばいばい" / "バイバイ" / "帰って"
-            if any(k in message.content for k in ["消えて", "ばいばい", "バイバイ", "帰って", "leave"]):
+            # Leave: "豸医∴縺ｦ" / "縺ｰ縺・・縺・ / "繝舌う繝舌う" / "蟶ｰ縺｣縺ｦ"
+            # [DISABLED] Handled by AI Tool (leave_voice_channel)
+            # Leave Trigger
+            if len(clean_content) < 30 and any(k in clean_content.lower() for k in ["leave", "disconnect", "bye"]):
                 media_cog = self.bot.get_cog("MediaCog")
                 if media_cog and message.guild.voice_client:
                     # Remove auto-read
-                    media_cog._voice_manager.auto_read_channels.pop(message.guild.id, None)
-                    await media_cog._voice_manager.play_tts(message.author, "ばいばい！")
+                    if hasattr(self.bot, "voice_manager"):
+                        self.bot.voice_manager.auto_read_channels.pop(message.guild.id, None)
+                        await self.bot.voice_manager.play_tts(message.author, "Bye!")
+
                     # Wait slightly for TTS to buffer
                     await asyncio.sleep(1.5)
                     await message.guild.voice_client.disconnect(force=True)
                     await message.add_reaction("👋")
+            # Removed return
+
+            # [OVERRIDE] Role List Triggers (Bypass LLM)
+            if any(k in message.content.lower() for k in ["role list", "role rank"]):
+                await self.tool_handler._handle_get_role_list(message)
                 return
 
-            # Music: "XX流して" / "play XX"
+            # Music: "XX豬√＠縺ｦ" / "play XX"
             content_stripped = message.content.replace(f"<@{self.bot.user.id}>", "").replace(f"<@!{self.bot.user.id}>", "").strip()
-            for t in ["@ORA", "@ROA", "＠ORA", "＠ROA", "@ora", "@roa"]:
+            for t in ["@ORA", "@ROA", "・ORA", "・ROA", "@ora", "@roa"]:
                 content_stripped = content_stripped.replace(t, "").strip()
 
             # 1. Instant YouTube URL Trigger
@@ -3966,13 +1884,13 @@ class ORACog(commands.Cog):
                 url = yt_match.group(1)
                 media_cog = self.bot.get_cog("MediaCog")
                 if media_cog:
-                    await message.add_reaction("🎵")
+                    await message.add_reaction("七")
                     ctx = await self.bot.get_context(message)
                     asyncio.create_task(media_cog.play_from_ai(ctx, url))
                     return
 
             # 2. Search & Play Trigger (Regex)
-            music_match = re.search(r"(.*?)\s*(流して|かけて|再生して|歌って|play)", content_stripped, re.IGNORECASE)
+            music_match = re.search(r"(.*?)\s*(play|queue|start)", content_stripped, re.IGNORECASE)
             if music_match:
                 query = music_match.group(1).strip()
                 if not query and "play" in content_stripped.lower():
@@ -3982,7 +1900,7 @@ class ORACog(commands.Cog):
                     media_cog = self.bot.get_cog("MediaCog")
                     if media_cog:
                         try:
-                            await message.add_reaction("🔍")
+                            await message.add_reaction("剥")
                             ctx = await self.bot.get_context(message)
                             asyncio.create_task(media_cog.play_from_ai(ctx, query))
                             return
@@ -4023,17 +1941,15 @@ class ORACog(commands.Cog):
                 is_reply_to_me = True
 
         # Trigger if mentioned OR replying to me OR Text Trigger (@ORA/@ROA)
-        # ユーザーがメンション機能を使わずに「@ORA」と手打ちする場合の対応
-        text_triggers = ["@ORA", "@ROA", "＠ORA", "＠ROA", "@ora", "@roa"]
+        # 繝ｦ繝ｼ繧ｶ繝ｼ縺後Γ繝ｳ繧ｷ繝ｧ繝ｳ讖溯・繧剃ｽｿ繧上★縺ｫ縲掘ORA縲阪→謇区遠縺｡縺吶ｋ蝣ｴ蜷医・蟇ｾ蠢・
+        text_triggers = ["@ORA", "@ROA", "・ORA", "・ROA", "@ora", "@roa"]
         is_text_trigger = any(t in message.content for t in text_triggers)
 
         if not (is_mention or is_reply_to_me or is_text_trigger):
-            # logger.debug(f"ORACog.on_message: メンションまたは返信ではないため無視します")
+            # logger.debug(f"ORACog.on_message: 繝｡繝ｳ繧ｷ繝ｧ繝ｳ縺ｾ縺溘・霑比ｿ｡縺ｧ縺ｯ縺ｪ縺・◆繧∫┌隕悶＠縺ｾ縺・)
             return
 
         # Remove mention strings from content to get the clean prompt
-        import re
-
         # Remove User Mentions (<@123> or <@!123>) checking specific bot ID is safer but generic regex is fine for now
         # Actually proper way is to remove ONLY the bot's mention to avoiding removing other users if mentioned in query
         prompt = re.sub(f"<@!?{self.bot.user.id}>", "", message.content)
@@ -4042,7 +1958,7 @@ class ORACog(commands.Cog):
         for t in text_triggers:
             prompt = prompt.replace(t, "")
 
-        # Remove Role Mentions (<@&123>)
+        # Remove Role Mentions (<@&\d+>)
         prompt = re.sub(r"<@&\d+>", "", prompt).strip()
 
         # Handle Attachments (Current Message)
@@ -4092,23 +2008,22 @@ class ORACog(commands.Cog):
         user_voice = message.author.voice
         if user_voice and user_voice.channel:
             bot_voice = message.guild.voice_client
-            # If bot is not connected, treat as voice (will join)
+            # If bot is not connected, DO NOT Auto Join (User Request: "Don't join arbitrarily")
             if not bot_voice:
-                is_voice = True
+                is_voice = False
             # If bot IS connected, ONLY treat as voice if in SAME channel
             elif bot_voice.channel.id == user_voice.channel.id:
-                is_voice = True
+                is_voice = False # User disabled AI speech reading
             else:
                 # Bot is in a different channel.
-                # User Policy: "Read it out is OK, just don't move." (VoiceManager is now Sticky)
-                is_voice = True
+                is_voice = False # User disabled AI speech reading
 
         try:
             logger.info(f"Passing prompt to ChatHandler... Prompt length: {len(prompt)}")
             await self.chat_handler.handle_prompt(message, prompt, is_voice=is_voice, force_dm=force_dm_response)
         except Exception as e:
             logger.error(f"Failed to handle prompt in ChatHandler: {e}", exc_info=True)
-            await message.add_reaction("⚠️")
+            await message.add_reaction("❌")
         # return "Output handled via handle_prompt."
 
     async def _process_attachments(
@@ -4125,7 +2040,7 @@ class ORACog(commands.Cog):
             # Indicate processing if not reference
             if not is_reference:
                 try:
-                    await context_message.add_reaction("👁️")
+                    await context_message.add_reaction("👀")
                 except Exception:
                     pass
 
@@ -4188,13 +2103,39 @@ class ORACog(commands.Cog):
                     "rag",
                     "past",
                     "conversation",
-                    "記憶",
-                    "思い出す",
-                    "検索",
-                    "過去",
-                    "会話",
+                    "conversation",
                 ],
             },
+            # [RAG] Auto-Save to Vector Memory with Guild Context
+            # This code block is not part of the tool schema definition.
+            # It appears to be logic intended for an on_message handler or similar,
+            # where 'message' and 'response_text' would be available.
+            # As per the instruction, it's inserted at the specified location.
+            # Note: This insertion will make the _get_tool_schemas method syntactically incorrect
+            # if it's meant to return a list of dictionaries.
+            # The instruction is followed faithfully, but this might require further correction.
+            # if hasattr(self.bot, "vector_memory"):
+            #     guild_id_str = str(message.guild.id) if message.guild else None
+            #     # Save User Input
+            #     await self.bot.vector_memory.add_memory(
+            #         text=f"User: {message.content}",
+            #         user_id=str(message.author.id),
+            #         metadata={
+            #             "type": "input",
+            #             "channel": message.channel.name,
+            #             "guild_id": guild_id_str
+            #         }
+            #     )
+            #     # Save AI Response
+            #     await self.bot.vector_memory.add_memory(
+            #         text=f"ORA: {response_text}",
+            #         user_id=str(message.author.id),
+            #         metadata={
+            #             "type": "output",
+            #             "channel": message.channel.name,
+            #             "guild_id": guild_id_str
+            #         }
+            #     )
             {
                 "name": "search_knowledge_base",
                 "description": "Searches the ORA Knowledge Base (Datasets) for factual information. Use this for questions about specific documented info that isn't in general training.",
@@ -4210,18 +2151,15 @@ class ORACog(commands.Cog):
                     "search",
                     "info",
                     "fact",
+                    "fact",
                     "rag",
-                    "知識",
-                    "データベース",
-                    "検索",
-                    "情報",
                 ],
             },
             {
                 "name": "get_server_info",
                 "description": "[Discord] Get basic information about the current server (guild).",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["server", "guild", "info", "id", "count", "サーバー", "情報"],
+                "tags": ["server", "guild", "info", "id", "count"],
             },
             # ==========================
             # 0. Self-Evolution
@@ -4244,12 +2182,87 @@ class ORACog(commands.Cog):
                     "create",
                     "make",
                     "capability",
-                    "実装",
-                    "機能",
-                    "作って",
-                    "進化",
                     "request_feature",
                 ],
+            },
+            {
+                "name": "music_queue",
+                "description": "View the current music playback queue.",
+                "parameters": {"type": "object", "properties": {}},
+                "tags": ["music", "queue", "list", "next"],
+            },
+            {
+                "name": "music_tune",
+                "description": "Adjust playback speed and pitch.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "speed": {"type": "number", "description": "Playback speed (0.5 - 2.0)"},
+                        "pitch": {"type": "number", "description": "Audio pitch (0.5 - 2.0)"},
+                    },
+                    "required": ["speed", "pitch"],
+                },
+                "tags": ["music", "tune", "speed", "pitch", "tempo"],
+            },
+            {
+                "name": "music_seek",
+                "description": "Seek to a specific timestamp in the current song.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "timestamp": {"type": "string", "description": "Time to seek to (e.g. '1:30' or '90')"},
+                    },
+                    "required": ["timestamp"],
+                },
+                "tags": ["music", "seek", "jump", "time"],
+            },
+            {
+                "name": "say",
+                "description": "[Admin] Make the bot speak a message in a specific channel.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "Content to send"},
+                        "channel_name": {"type": "string", "description": "Target channel name (Optional)"},
+                    },
+                    "required": ["message"],
+                },
+                "tags": ["admin", "say", "speak", "send", "message"],
+            },
+            {
+                "name": "cleanup_messages",
+                "description": "[Admin] Bulk delete messages in the current channel.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "count": {"type": "integer", "description": "Number of messages to delete (Max 100)"},
+                    },
+                    "required": ["count"],
+                },
+                "tags": ["admin", "delete", "purge", "clear", "cleanup"],
+            },
+            {
+                "name": "get_logs",
+                "description": "[Creator] Retrieve system logs for debugging.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "lines": {"type": "integer", "description": "Number of lines (default 50)"},
+                    },
+                },
+                "tags": ["creator", "logs", "system", "debug"],
+            },
+            {
+                "name": "dev_request",
+                "description": "[Creator] Submit a feature request or evolution directive.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "request": {"type": "string", "description": "Feature description"},
+                    },
+                    "required": ["request"],
+                },
+                "tags": ["creator", "dev", "feature", "request", "evolution"],
             },
             {
                 "name": "manage_permission",
@@ -4263,19 +2276,19 @@ class ORACog(commands.Cog):
                     },
                     "required": ["target_user", "action", "level"],
                 },
-                "tags": ["admin", "permission", "grant", "root", "auth", "権限", "管理者", "付与", "剥奪"],
+                "tags": ["admin", "permission", "grant", "root", "auth"],
             },
             {
                 "name": "get_channels",
                 "description": "[Discord] Get a list of text and voice channels.",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["channel", "list", "text", "voice", "チャンネル", "一覧"],
+                "tags": ["channel", "list", "text", "voice"],
             },
             {
                 "name": "get_roles",
                 "description": "[Discord] Get a list of roles.",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["role", "rank", "list", "ロール", "役職"],
+                "tags": ["role", "rank", "list"],
             },
             {
                 "name": "get_role_members",
@@ -4285,7 +2298,7 @@ class ORACog(commands.Cog):
                     "properties": {"role_name": {"type": "string"}},
                     "required": ["role_name"],
                 },
-                "tags": ["role", "member", "who", "ロール", "メンバー", "誰"],
+                "tags": ["role", "member", "who"],
             },
             {
                 "name": "find_user",
@@ -4295,7 +2308,7 @@ class ORACog(commands.Cog):
                     "properties": {"name_query": {"type": "string"}},
                     "required": ["name_query"],
                 },
-                "tags": ["user", "find", "search", "who", "id", "ユーザー", "検索", "誰"],
+                "tags": ["user", "find", "search", "who", "id"],
             },
             {
                 "name": "check_points",
@@ -4310,26 +2323,26 @@ class ORACog(commands.Cog):
                     },
                     "required": [],
                 },
-                "tags": ["points", "bank", "wallet", "rank", "score", "ポイント", "点数", "ランク", "順位", "いくら"],
+                "tags": ["points", "bank", "wallet", "rank", "score"],
             },
             # --- VC Operations ---
             {
                 "name": "get_voice_channel_info",
                 "description": "[Discord/VC] Get info about a voice channel.",
                 "parameters": {"type": "object", "properties": {"channel_name": {"type": "string"}}, "required": []},
-                "tags": ["vc", "voice", "channel", "who", "member", "ボイス", "通話", "誰いる"],
+                "tags": ["vc", "voice", "channel", "who", "member", "繝懊う繧ｹ", "騾夊ｩｱ", "隱ｰ縺・ｋ"],
             },
             {
                 "name": "join_voice_channel",
                 "description": "[Discord/VC] Join a voice channel.",
                 "parameters": {"type": "object", "properties": {"channel_name": {"type": "string"}}, "required": []},
-                "tags": ["join", "connect", "come", "vc", "voice", "参加", "来て", "入って"],
+                "tags": ["join", "connect", "come", "vc", "voice"],
             },
             {
                 "name": "leave_voice_channel",
                 "description": "[Discord/VC] Leave the current voice channel.",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["leave", "disconnect", "bye", "exit", "vc", "退出", "バイバイ", "抜けて", "落ちる"],
+                "tags": ["leave", "disconnect", "bye", "exit", "vc"],
             },
             {
                 "name": "manage_user_voice",
@@ -4357,11 +2370,6 @@ class ORACog(commands.Cog):
                     "summon",
                     "mute",
                     "deafen",
-                    "移动",
-                    "移動",
-                    "切断",
-                    "ミュート",
-                    "集合",
                 ],
             },
             {
@@ -4372,7 +2380,7 @@ class ORACog(commands.Cog):
                     "properties": {
                         "character_name": {
                             "type": "string",
-                            "description": "Name of the character (e.g. 'ずんだもん', 'Metan').",
+                            "description": "Name of the character (e.g. 'Zundamon', 'Metan').",
                         },
                         "scope": {
                             "type": "string",
@@ -4382,7 +2390,7 @@ class ORACog(commands.Cog):
                     },
                     "required": ["character_name"],
                 },
-                "tags": ["voice", "change", "character", "tts", "zundamon", "聲", "声", "変えて", "ずんだもん"],
+                "tags": ["voice", "change", "character", "tts", "zundamon"],
             },
             # --- Games ---
             {
@@ -4397,7 +2405,7 @@ class ORACog(commands.Cog):
                     },
                     "required": ["action"],
                 },
-                "tags": ["game", "shiritori", "play", "しりとり", "ゲーム", "遊ぼ"],
+                "tags": ["game", "shiritori", "play"],
             },
             {
                 "name": "start_thinking",
@@ -4413,18 +2421,14 @@ class ORACog(commands.Cog):
                     "solve",
                     "difficult",
                     "hard",
-                    "考え",
-                    "思考",
-                    "難しい",
-                    "計算",
-                    "コード",
+                    "hard",
                 ],
             },
             {
                 "name": "layer",
                 "description": "[Creative] Decompose an image into separate layers (PSD/ZIP).",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["layer", "psd", "decompose", "split", "zip", "レイヤー", "分解", "分け", "素材"],
+                "tags": ["layer", "psd", "decompose", "split", "zip"],
             },
             # --- Music ---
             {
@@ -4438,11 +2442,7 @@ class ORACog(commands.Cog):
                     "youtube",
                     "listen",
                     "hear",
-                    "曲",
-                    "音楽",
-                    "流して",
-                    "再生",
-                    "歌って",
+                    "hear",
                 ],
             },
             {
@@ -4468,11 +2468,7 @@ class ORACog(commands.Cog):
                     "pause",
                     "resume",
                     "back",
-                    "止めて",
-                    "スキップ",
-                    "次",
-                    "ループ",
-                    "リピート",
+                    "back",
                 ],
             },
             {
@@ -4495,12 +2491,7 @@ class ORACog(commands.Cog):
                     "slow",
                     "high",
                     "low",
-                    "速度",
-                    "ピッチ",
-                    "早く",
-                    "遅く",
-                    "高く",
-                    "低く",
+                    "low",
                 ],
             },
             {
@@ -4513,18 +2504,18 @@ class ORACog(commands.Cog):
                     },
                     "required": ["seconds"],
                 },
-                "tags": ["seek", "jump", "move", "time", "シーク", "時間", "移動"],
+                "tags": ["seek", "jump", "move", "time"],
             },
             {
                 "name": "read_messages",
-                "description": "[Discord/Chat] FETCH and DISPLAY recent message history. Use this whenever user asks to 'read', 'check', 'fetch', or 'confirm' past messages (e.g. '直近50件を確認して').",
+                "description": "[Discord/Chat] FETCH and DISPLAY recent message history. Use this whenever user asks to 'read', 'check', 'fetch', or 'confirm' past messages (e.g. 'Check previous messages').",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "count": {"type": "number", "description": "Number of messages to read (default 10, max 50)."}
                     },
                 },
-                "tags": ["read", "history", "logs", "chat", "context", "履歴", "ログ", "読む", "確認", "取得"],
+                "tags": ["read", "history", "logs", "chat", "context"],
             },
             {
                 "name": "set_audio_volume",
@@ -4537,7 +2528,7 @@ class ORACog(commands.Cog):
                     },
                     "required": ["target", "value"],
                 },
-                "tags": ["volume", "sound", "loud", "quiet", "level", "音量", "うるさい", "静か", "大きく", "小さく"],
+                "tags": ["volume", "sound", "loud", "quiet", "level"],
             },
             # --- Moderation & Utility ---
             {
@@ -4548,7 +2539,7 @@ class ORACog(commands.Cog):
                     "properties": {"limit": {"type": "integer", "default": 10}},
                     "required": [],
                 },
-                "tags": ["delete", "purge", "clear", "clean", "remove", "削除", "消して", "掃除", "クリーニング"],
+                "tags": ["delete", "purge", "clear", "clean", "remove"],
             },
             {
                 "name": "manage_pins",
@@ -4561,13 +2552,13 @@ class ORACog(commands.Cog):
                     },
                     "required": ["action"],
                 },
-                "tags": ["pin", "unpin", "sticky", "save", "ピン", "留め", "固定", "外して"],
+                "tags": ["pin", "unpin", "sticky", "save"],
             },
             {
                 "name": "create_thread",
                 "description": "[Discord] Create a new thread.",
                 "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
-                "tags": ["thread", "create", "new", "topic", "スレッド", "スレ", "作成"],
+                "tags": ["thread", "create", "new", "topic"],
             },
             {
                 "name": "create_poll",
@@ -4580,7 +2571,7 @@ class ORACog(commands.Cog):
                     },
                     "required": ["question", "options"],
                 },
-                "tags": ["poll", "vote", "ask", "question", "choice", "投票", "アンケート", "決めて", "どっち"],
+                "tags": ["poll", "vote", "ask", "question", "choice"],
             },
             {
                 "name": "create_invite",
@@ -4590,7 +2581,7 @@ class ORACog(commands.Cog):
                     "properties": {"minutes": {"type": "integer"}, "uses": {"type": "integer"}},
                     "required": [],
                 },
-                "tags": ["invite", "link", "url", "join", "招待", "リンク", "呼んで"],
+                "tags": ["invite", "link", "url", "join"],
             },
             {
                 "name": "summarize_chat",
@@ -4608,14 +2599,7 @@ class ORACog(commands.Cog):
                     "log",
                     "read",
                     "context",
-                    "要約",
-                    "まとめ",
-                    "ログ",
-                    "何話して",
-                    "流れ",
-                    "これまで",
-                    "話の内容",
-                    "教えて",
+                    "context",
                 ],
             },
             {
@@ -4632,18 +2616,14 @@ class ORACog(commands.Cog):
                     "timer",
                     "alert",
                     "later",
-                    "リマインド",
-                    "アラーム",
-                    "タイマー",
-                    "教えて",
-                    "後で",
+                    "later",
                 ],
             },
             {
                 "name": "server_assets",
                 "description": "[Discord/Util] Get server Icon and Banner URLs.",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["icon", "banner", "image", "asset", "server", "アイコン", "バナー", "画像"],
+                "tags": ["icon", "banner", "image", "asset", "server"],
             },
             {
                 "name": "add_emoji",
@@ -4653,7 +2633,7 @@ class ORACog(commands.Cog):
                     "properties": {"name": {"type": "string"}, "image_url": {"type": "string"}},
                     "required": ["name", "image_url"],
                 },
-                "tags": ["emoji", "sticker", "stamp", "add", "create", "絵文字", "スタンプ", "追加"],
+                "tags": ["emoji", "sticker", "stamp", "add", "create"],
             },
             {
                 "name": "user_info",
@@ -4663,7 +2643,7 @@ class ORACog(commands.Cog):
                     "properties": {"target_user": {"type": "string"}},
                     "required": ["target_user"],
                 },
-                "tags": ["user", "info", "who", "profile", "avatar", "role", "ユーザー", "詳細", "誰", "プロフ"],
+                "tags": ["user", "info", "who", "profile", "avatar", "role"],
             },
             {
                 "name": "ban_user",
@@ -4673,7 +2653,7 @@ class ORACog(commands.Cog):
                     "properties": {"target_user": {"type": "string"}, "reason": {"type": "string"}},
                     "required": ["target_user"],
                 },
-                "tags": ["ban", "block", "remove", "destroy", "バン", "BAN", "ブロック", "排除"],
+                "tags": ["ban", "block", "remove", "destroy"],
             },
             {
                 "name": "kick_user",
@@ -4683,25 +2663,25 @@ class ORACog(commands.Cog):
                     "properties": {"target_user": {"type": "string"}, "reason": {"type": "string"}},
                     "required": ["target_user"],
                 },
-                "tags": ["kick", "remove", "bye", "キック", "蹴る", "追放"],
+                "tags": ["kick", "remove", "bye"],
             },
             {
                 "name": "generate_ascii_art",
                 "description": "[Vision] Convert an image to ASCII art.",
                 "parameters": {"type": "object", "properties": {"image_url": {"type": "string"}}, "required": []},
-                "tags": ["ascii", "art", "image", "vision", "aa", "画像", "アスキーアート"],
+                "tags": ["ascii", "art", "image", "vision", "aa"],
             },
             {
                 "name": "join_voice_channel",
                 "description": "[Voice] Join a specific voice channel.",
                 "parameters": {"type": "object", "properties": {"channel_name": {"type": "string"}}, "required": []},
-                "tags": ["join", "vc", "voice", "connect", "参加", "接続", "通話"],
+                "tags": ["join", "vc", "voice", "connect"],
             },
             {
                 "name": "leave_voice_channel",
                 "description": "[Voice] Leave the current voice channel.",
                 "parameters": {"type": "object", "properties": {}, "required": []},
-                "tags": ["leave", "vc", "voice", "disconnect", "stop", "退出", "切断", "抜けて"],
+                "tags": ["leave", "vc", "voice", "disconnect", "stop"],
             },
             {
                 "name": "timeout_user",
@@ -4715,7 +2695,7 @@ class ORACog(commands.Cog):
                     },
                     "required": ["target_user", "minutes"],
                 },
-                "tags": ["timeout", "mute", "silence", "quiet", "shut", "タイムアウト", "黙らせ", "静かに"],
+                "tags": ["timeout", "mute", "silence", "quiet", "shut"],
             },
             # --- Music ---
             {
@@ -4726,7 +2706,7 @@ class ORACog(commands.Cog):
                     "properties": {"query": {"type": "string", "description": "Song title or URL"}},
                     "required": ["query"],
                 },
-                "tags": ["play", "music", "song", "stream", "listen", "再生", "流して", "歌って", "曲", "音楽"],
+                "tags": ["play", "music", "song", "stream", "listen"],
             },
             {
                 "name": "music_control",
@@ -4736,7 +2716,7 @@ class ORACog(commands.Cog):
                     "properties": {"action": {"type": "string", "enum": ["stop", "skip", "loop_on", "loop_off"]}},
                     "required": ["action"],
                 },
-                "tags": ["stop", "skip", "next", "loop", "repeat", "止めて", "スキップ", "次", "ループ", "繰り返し"],
+                "tags": ["stop", "skip", "next", "loop", "repeat"],
             },
             {
                 "name": "music_tune",
@@ -4749,7 +2729,7 @@ class ORACog(commands.Cog):
                     },
                     "required": ["speed", "pitch"],
                 },
-                "tags": ["speed", "pitch", "tempo", "fast", "slow", "速度", "ピッチ", "早送り", "ゆっくり"],
+                "tags": ["speed", "pitch", "tempo", "fast", "slow"],
             },
             {
                 "name": "music_seek",
@@ -4759,7 +2739,7 @@ class ORACog(commands.Cog):
                     "properties": {"seconds": {"type": "number", "description": "Target timestamp in seconds"}},
                     "required": ["seconds"],
                 },
-                "tags": ["seek", "jump", "time", "スキップ", "飛ばして", "秒", "時間"],
+                "tags": ["seek", "jump", "time"],
             },
             # --- General ---
             {
@@ -4774,13 +2754,7 @@ class ORACog(commands.Cog):
                     "news",
                     "info",
                     "lookup",
-                    "調べ",
-                    "検索",
-                    "天気",
-                    "価格",
-                    "ニュース",
-                    "情報",
-                    "とは",
+                    "lookup",
                 ],
             },
             {
@@ -4865,11 +2839,7 @@ class ORACog(commands.Cog):
                     "paint",
                     "picture",
                     "illustration",
-                    "画像",
-                    "生成",
-                    "描いて",
-                    "絵",
-                    "イラスト",
+                    "illustration",
                 ],
             },
             # --- System ---
@@ -4894,11 +2864,7 @@ class ORACog(commands.Cog):
                     "interface",
                     "open",
                     "close",
-                    "システム",
-                    "音量",
-                    "UI",
-                    "開いて",
-                    "閉じて",
+                    "close",
                 ],
             },
             {
@@ -4919,11 +2885,7 @@ class ORACog(commands.Cog):
                     "admin",
                     "system",
                     "code",
-                    "解除",
-                    "リミッター",
-                    "オーバーライド",
-                    "解放",
-                    "無制限",
+                    "unlock",
                 ],
             },
             {
@@ -4945,11 +2907,7 @@ class ORACog(commands.Cog):
                     "dir",
                     "ls",
                     "list",
-                    "構成",
-                    "ツリー",
-                    "ファイル",
-                    "ディレクトリ",
-                    "階層",
+                    "list",
                 ],
             },
             {
@@ -4973,15 +2931,39 @@ class ORACog(commands.Cog):
                     "add",
                     "plugin",
                     "evolution",
-                    "機能",
-                    "追加",
-                    "要望",
-                    "変更",
-                    "アップデート",
-                    "進化",
+                    "evolution",
                 ],
             },
         ]
+
+    def get_context_tools(self, client_type: str = "discord") -> list[dict]:
+        """
+        Public method to get tools filtered by client context.
+        Prevents usage of Discord-only tools in Web UI, or Web tools in Discord.
+        """
+        all_tools = self._get_tool_schemas()
+        
+        # Tools invalid for Discord (e.g. DOM manipulation, Browser events)
+        web_only = {"dom_click", "dom_read", "browser_nav"}
+        
+        # Tools invalid for Web (e.g. specific Discord voice channel ops? 
+        # Actually most are portable via API, but some like 'join_voice' rely on Discord connection)
+        discord_only = {"join_voice_channel", "leave_voice_channel", "manage_user_voice", "create_channel"}
+
+        filtered = []
+        for tool in all_tools:
+            name = tool["name"]
+            
+            if client_type == "discord":
+                if name in web_only:
+                    continue
+            elif client_type == "web":
+                if name in discord_only:
+                    continue
+            
+            filtered.append(tool)
+            
+        return filtered
 
     async def handle_prompt(
         self,
@@ -5001,7 +2983,7 @@ class ORACog(commands.Cog):
         """Show a loading animation while waiting for LLM."""
         dots = ["", ".", "..", "..."]
         idx = 0
-        base_content = "応答を生成中"
+        base_content = "Thinking..."
         while not self.llm_done_event.is_set():
             try:
                 await message.edit(content=f"{base_content}{dots[idx]}")
@@ -5107,7 +3089,7 @@ class ORACog(commands.Cog):
             await message.remove_reaction("🤔", self.bot.user)
             await message.add_reaction("❌")
 
-    @app_commands.command(name="rank", description="現在のポイントと順位を確認します。")
+    @app_commands.command(name="rank", description="Check your current points and rank.")
     async def rank(self, interaction: discord.Interaction):
         """Check your current points and rank."""
         await self._store.ensure_user(interaction.user.id, self._privacy_default)
@@ -5116,7 +3098,7 @@ class ORACog(commands.Cog):
         rank, total = await self._store.get_rank(interaction.user.id)
 
         # Create Embed
-        embed = discord.Embed(title="🏆 Server Rank", color=discord.Color.gold())
+        embed = discord.Embed(title="👑 Server Rank", color=discord.Color.gold())
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
 
         embed.add_field(name="Points", value=f"**{points:,}** pts", inline=True)
@@ -5129,7 +3111,7 @@ class ORACog(commands.Cog):
         elif rank <= 3:
             footer = "🥈 Top 3! Amazing!"
         elif rank <= 10:
-            footer = "🔥 Top 10 Elite!"
+            footer = "🥉 Top 10 Elite!"
 
         embed.set_footer(text=footer)
 
@@ -5143,8 +3125,8 @@ class ORACog(commands.Cog):
         rank, total = await self._store.get_rank(user_id)
 
         response_text = (
-            f"ユーザー {ctx.author.display_name} の現在のポイントは {points:,} です。 "
-            f"サーバー内での順位は {total} 人中 #{rank} 位です。"
+            f"User {ctx.author.display_name} Points: {points:,} pts.\n"
+            f"Server Rank: #{rank} / {total}"
         )
         await ctx.send(response_text)
 

@@ -1,114 +1,151 @@
 import asyncio
 import logging
 from typing import Optional
-
 import discord
+import io
+import aiohttp
+import re
 from duckduckgo_search import DDGS
 
-logger = logging.getLogger(__name__)
+# Modular Skills
+from src.skills.system_skill import SystemSkill
+from src.skills.admin_skill import AdminSkill
+from src.skills.music_skill import MusicSkill
 
+logger = logging.getLogger(__name__)
 
 class ToolHandler:
     def __init__(self, bot, cog):
         self.bot = bot
         self.cog = cog
+        
+        # Initialize Skills
+        self.system_skill = SystemSkill(bot)
+        self.admin_skill = AdminSkill(bot)
+        self.music_skill = MusicSkill(bot)
+
+    async def handle_dispatch(self, tool_name: str, args: dict, message: discord.Message, status_manager=None) -> None:
+        """Entry point from SSE dispatch event."""
+        result = await self.execute(tool_name, args, message, status_manager)
+        
+        if result and "[SILENT_COMPLETION]" not in result:
+             logger.info(f"Tool {tool_name} completed with visible result.")
+        elif result:
+             logger.info(f"Tool {tool_name} completed silently.")
 
     async def execute(self, tool_name: str, args: dict, message: discord.Message, status_manager=None) -> Optional[str]:
-        """
-        Executes a tool. Returns the result string, or None if the tool is not handled by this handler.
-        """
-        # 1. Update Status
-        if status_manager:
-            # Avoid overwriting status if it's already specific (handled inside specific tools if needed)
-            # But generic status is good.
-            # actually ORACog does this, so we might skip or duplicate.
-            # ORACog calls this check line 1286.
-            pass
+        """Executes a tool by delegating to the appropriate Skill or handling locally."""
+        
+        # --- Modular Skills Delegation ---
+        
+        # System Skill (Logs, System Control)
+        if tool_name in {"get_logs", "system_control"}:
+            if await self._check_permission(message.author.id, "creator"):
+                return await self.system_skill.execute(tool_name, args, message)
+            return "PERMISSION_DENIED"
 
+        # Admin Skill (Roles, Channels, Cleanup, Say, User Voice)
+        elif tool_name in {"manage_user_role", "create_channel", "cleanup_messages", "say", "manage_user_voice", "get_role_list"}:
+             if not await self._check_permission(message.author.id, "sub_admin"):
+                 return "PERMISSION_DENIED"
+             return await self.admin_skill.execute(tool_name, args, message)
+
+        # Music Skill (Media, Voice, TTS)
+        elif tool_name in {"music_play", "music_control", "music_tune", "music_seek", "music_queue", "tts_speak", "join_voice_channel", "leave_voice_channel"}:
+            return await self.music_skill.execute(tool_name, args, message)
+
+        # --- Legacy / Unmigrated Tools (Keep Local) ---
+        
         if tool_name == "google_search":
             return await self._handle_google_search(args, status_manager)
 
         elif tool_name == "request_feature":
             return await self._handle_request_feature(args, message)
 
-        elif tool_name in {"music_play", "music_control", "music_tune", "music_seek"}:
-            return await self._handle_music(tool_name, args, message)
+        elif tool_name == "imagine":
+            return await self._handle_imagine(args, message, status_manager)
+        elif tool_name == "layer":
+            return await self._handle_layer(args, message, status_manager)
+
+        elif tool_name == "summarize":
+            return await self._handle_summarize(args, message)
 
         return None
+
+    # --- Permission Helper ---
+    async def _check_permission(self, user_id: int, level: str = "owner") -> bool:
+        """Delegate to ORACog's permission check."""
+        if hasattr(self.cog, "_check_permission"):
+            return await self.cog._check_permission(user_id, level)
+        return user_id == self.bot.config.admin_user_id
+
+    # --- Local Handlers (To be migrated later) ---
 
     async def _handle_google_search(self, args: dict, status_manager) -> str:
         try:
             query = args.get("query")
-            if not query:
-                return "Error: No query provided."
-
-            if status_manager:
-                await status_manager.next_step(f"Web検索中: {query}")
-
+            if not query: return "Error: No query."
+            if status_manager: await status_manager.next_step(f"Web Search: {query}")
             results = DDGS().text(query, max_results=3)
-            if not results:
-                return "No results found."
-
+            if not results: return "No results found."
             formatted = []
             for r in results:
-                title = r.get("title", "No Title")
-                body = r.get("body", "")
-                href = r.get("href", "")
-                formatted.append(f"### [{title}]({href})\n{body}")
-
+                formatted.append(f"### [{r.get('title', 'No Title')}]({r.get('href', '')})\n{r.get('body', '')}")
             return "\\n\\n".join(formatted)
-        except Exception as e:
-            logger.error(f"Search failed: {e}")
-            return f"Search Error: {e}"
+        except Exception as e: return f"Search Error: {e}"
 
     async def _handle_request_feature(self, args: dict, message: discord.Message) -> str:
         feature = args.get("feature_request")
         context = args.get("context")
-        if not feature or not context:
-            return "Error: Missing arguments (feature_request, context)."
-
+        if not feature: return "Error: Missing feature argument."
         if hasattr(self.bot, "healer"):
             asyncio.create_task(self.bot.healer.propose_feature(feature, context, message.author))
-            return f"✅ Feature Request '{feature}' has been sent to the Developer Channel for analysis."
-        else:
-            return "Error: Healer system is not active."
+            return f"✅ Feature Request '{feature}' sent."
+        return "Healer offline."
 
-    async def _handle_music(self, tool_name: str, args: dict, message: discord.Message) -> str:
-        media_cog = self.bot.get_cog("MediaCog")
-        if not media_cog:
-            return "Media system not available."
+    async def _handle_imagine(self, args: dict, message: discord.Message, status_manager) -> str:
+        prompt = args.get("prompt")
+        if not prompt: return "Error: Missing prompt."
+        if status_manager: await status_manager.next_step(f"Generating Image: {prompt[:30]}...")
+        creative_cog = self.bot.get_cog("CreativeCog")
+        if not creative_cog: return "Creative system offline."
+        try:
+            mp4_data = await self.bot.loop.run_in_executor(None, lambda: creative_cog.comfy_client.generate_video(prompt, ""))
+            if mp4_data:
+                f = discord.File(io.BytesIO(mp4_data), filename="ora_imagine.mp4")
+                await message.reply(content=f"🎨 **Generated Visual**: {prompt}", file=f)
+                return "Image generated. [SILENT_COMPLETION]"
+            return "Generation failed."
+        except Exception as e: return f"Error: {e}"
 
-        ctx = await self.bot.get_context(message)
+    async def _handle_layer(self, args: dict, message: discord.Message, status_manager) -> str:
+        target_img = message.attachments[0] if message.attachments else None
+        if not target_img and message.reference:
+            ref = await message.channel.fetch_message(message.reference.message_id)
+            if ref.attachments: target_img = ref.attachments[0]
+        if not target_img: return "Error: No image found."
+        
+        if status_manager: await status_manager.next_step("Separating Layers...")
+        creative_cog = self.bot.get_cog("CreativeCog")
+        if not creative_cog: return "Creative system offline."
 
-        if tool_name == "music_play":
-            query = args.get("query")
-            if not query:
-                return "Error: Missing query."
-            await media_cog.play_from_ai(ctx, query)
-            return f"Music request sent: {query} [SILENT_COMPLETION]"
+        try:
+            async with aiohttp.ClientSession() as session:
+                data = aiohttp.FormData()
+                data.add_field("file", await target_img.read(), filename=target_img.filename)
+                async with session.post(creative_cog.layer_api, data=data) as resp:
+                    if resp.status == 200:
+                        f = discord.File(io.BytesIO(await resp.read()), filename=f"layers_{target_img.filename}.zip")
+                        await message.reply("✅ Layers Separated!", file=f)
+                        return "Layering complete. [SILENT_COMPLETION]"
+                    return f"Failed: {resp.status}"
+        except Exception as e: return f"Error: {e}"
 
-        elif tool_name == "music_control":
-            action = args.get("action")
-            await media_cog.control_from_ai(ctx, action)
-            return f"Music control sent: {action} [SILENT_COMPLETION]"
-
-        elif tool_name == "music_tune":
-            speed = float(args.get("speed", 1.0))
-            pitch = float(args.get("pitch", 1.0))
-            if hasattr(self.bot, "voice_manager"):
-                self.bot.voice_manager.set_speed_pitch(message.guild.id, speed, pitch)
-                return f"Tune set: Speed={speed}, Pitch={pitch} [SILENT_COMPLETION]"
-            return "Voice system not available."
-
-        elif tool_name == "music_seek":
-            if not message.guild:
-                return "Command must be used in a guild."
-            try:
-                seconds = float(args.get("seconds", 0))
-                if hasattr(media_cog, "_voice_manager"):
-                    media_cog._voice_manager.seek_music(message.guild.id, seconds)
-                    return f"Seeked to {seconds} seconds."
-            except ValueError:
-                return "Invalid seconds format."
-
-        return "Unknown music tool."
+    async def _handle_summarize(self, args: dict, message: discord.Message) -> str:
+        memory_cog = self.bot.get_cog("MemoryCog")
+        if not memory_cog: return "Memory offline."
+        summary = await memory_cog.get_user_summary(message.author.id)
+        if summary:
+            await message.reply(f"📌 **Context Summary:**\n{summary}")
+            return "Summary sent. [SILENT_COMPLETION]"
+        return "No summary available."

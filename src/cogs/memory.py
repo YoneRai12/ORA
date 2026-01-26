@@ -463,6 +463,41 @@ class MemoryCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Failed to ensure username: {e}")
 
+    async def add_ai_message(self, user_id: int, content: str, guild_id: Optional[int], channel_id: int, channel_name: str, guild_name: str, is_public: bool):
+        """Manually inject an assistant message into the buffer to ensure balanced context."""
+        timestamp = datetime.now().isoformat()
+        
+        # User Buffer
+        if user_id not in self.message_buffer:
+            self.message_buffer[user_id] = []
+        
+        entry = {
+            "id": int(time.time() * 1000), # Pseudo-ID
+            "content": f"[Assistant]: {content}",
+            "timestamp": timestamp,
+            "channel": channel_name,
+            "guild": guild_name,
+            "guild_id": guild_id,
+            "is_public": is_public,
+        }
+        self.message_buffer[user_id].append(entry)
+        
+        # Channel Buffer
+        if channel_id not in self.channel_buffer:
+            self.channel_buffer[channel_id] = []
+        
+        chan_entry = {
+            "content": f"[Assistant]: {content}",
+            "timestamp": timestamp,
+            "author": "ORA",
+        }
+        self.channel_buffer[channel_id].append(chan_entry)
+        
+        # Persist as raw log
+        asyncio.create_task(
+            self._persist_message(user_id, entry, guild_id, is_public)
+        )
+
     def _get_memory_path(self, user_id: int, guild_id: int | str = None, is_public: bool = True) -> str:
         """Get path to user memory file. Supports Scope Partitioning."""
         if guild_id:
@@ -783,6 +818,10 @@ class MemoryCog(commands.Cog):
 
     def _parse_analysis_json(self, text: str) -> Dict[str, Any]:
         """Robustly extract and parse JSON from LLM response."""
+        if text is None:
+            logger.error("Memory: LLM recovery failed (No response text)")
+            return {}
+
         # 1. Clean Markdown
         cleaned_text = text.replace("```json", "").replace("```", "").strip()
 
@@ -805,6 +844,10 @@ class MemoryCog(commands.Cog):
                 pass
 
         # 3. Parse with fallback repair
+        if not potential_json.strip():
+            logger.warning("Memory: JSON potential block is empty.")
+            return {}
+
         try:
             return json.loads(potential_json, strict=False)
         except json.JSONDecodeError:
@@ -818,7 +861,11 @@ class MemoryCog(commands.Cog):
             repaired = robust_json_repair(potential_json)
             # Log the tail for debugging
             logger.debug(f"Truncated JSON Tail: {potential_json[-200:]}")
-            return json.loads(repaired, strict=False)
+            try:
+                return json.loads(repaired, strict=False)
+            except Exception as e:
+                logger.error(f"Memory: JSON final repair failed: {e}")
+                return {}
 
     async def _analyze_batch(
         self,
@@ -848,7 +895,7 @@ class MemoryCog(commands.Cog):
             # but we keep the mode names for categorization.
             # However, to be safe, we default to the deepest mode within budget.
             depth_mode = "Extreme Deep Reflection"
-            max_output = 128000  # Max for GPT-5 / Mini Peak
+            max_output = 16384  # Optimized for GPT-4o-mini (Cloud) and reliability
             extra_instructions = (
                 "5. **Deep Psychological Profile**: 提供された会話から、ユーザーの潜在的な価値観、孤独感、承認欲求、または知的好奇心の傾向を深く洞察してください。\n"
                 "6. **Relationship Analysis**: ORA（AI）や他者に対してどのような距離感を保とうとしているか分析してください。\n"
@@ -1059,6 +1106,30 @@ class MemoryCog(commands.Cog):
                 profile["raw_history"] = profile["raw_history"][-100:]
 
             await self._save_user_profile_atomic(path, profile)
+
+            # [Sync] ORA Core API Injection
+            if hasattr(self.bot, "connection_manager") and self.bot.connection_manager.mode == "API":
+                try:
+                    payload = [{
+                        "user_id": str(user_id), # Internal User ID (Discord ID maps to ID)
+                        "role": "user" if "Assistant" not in entry.get("content", "") else "assistant", # Heuristic based on content label from add_ai_message
+                        "content": entry["content"].replace("[Assistant]: ", "") if entry["content"].startswith("[Assistant]: ") else entry["content"],
+                        "timestamp": entry["timestamp"],
+                        "provider": "discord",
+                        "provider_id": str(user_id)
+                    }]
+                    
+                    # We need a proper HTTP client. bot.session is shared.
+                    # API URL: bot.config.ora_api_base_url + /v1/memory/history
+                    api_url = f"{self.bot.config.ora_api_base_url}/v1/memory/history"
+                    
+                    async with self.bot.session.post(api_url, json=payload) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"Memory Sync Failed ({resp.status}): {await resp.text()}")
+                            # Ideally, connection_manager should know about failure, but we just log for now
+                except Exception as ex:
+                    logger.debug(f"Memory Sync Error: {ex}")
+
         except Exception as e:
             logger.error(f"Failed to persist message for {user_id}: {e}")
 

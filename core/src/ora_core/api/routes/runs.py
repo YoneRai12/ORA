@@ -14,9 +14,13 @@ async def stream_run_events(run_id: str, request: Request):
         async for event in event_manager.listen(run_id):
             if await request.is_disconnected():
                 break
-            yield {
+            # Bundle event type into data payload for simple client parsing
+            payload = {
                 "event": event["event"],
-                "data": json.dumps(event["data"])
+                "data": event["data"]
+            }
+            yield {
+                "data": json.dumps(payload)
             }
 
     return EventSourceResponse(event_generator())

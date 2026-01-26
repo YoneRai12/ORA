@@ -24,6 +24,8 @@ class ISO8601UTCFormatter(logging.Formatter):
         return f"{formatted}"
 
 
+from src.utils.privacy import PrivacyFilter
+
 class MaxLevelFilter(logging.Filter):
     """Filter that only allows records BELOW OR EQUAL to a certain level."""
 
@@ -61,12 +63,16 @@ def setup_logging(level: str) -> None:
                 "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
             }
         },
-        "filters": {"exclude_errors": {"()": MaxLevelFilter, "level": logging.INFO}},
+        "filters": {
+            "exclude_errors": {"()": MaxLevelFilter, "level": logging.INFO},
+            "privacy": {"()": PrivacyFilter}
+        },
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "structured",
                 "level": level,
+                "filters": ["privacy"],
             },
             "file_all": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -76,6 +82,7 @@ def setup_logging(level: str) -> None:
                 "maxBytes": 10 * 1024 * 1024,  # 10 MB
                 "backupCount": 5,
                 "encoding": "utf-8",
+                "filters": ["privacy"],
             },
             "file_success": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -85,7 +92,7 @@ def setup_logging(level: str) -> None:
                 "maxBytes": 5 * 1024 * 1024,  # 5 MB
                 "backupCount": 5,
                 "encoding": "utf-8",
-                "filters": ["exclude_errors"],  # Exclude WARNING/ERROR/CRITICAL
+                "filters": ["exclude_errors", "privacy"],  # Exclude WARNING/ERROR/CRITICAL
             },
             "file_error": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -95,6 +102,7 @@ def setup_logging(level: str) -> None:
                 "maxBytes": 5 * 1024 * 1024,
                 "backupCount": 5,
                 "encoding": "utf-8",
+                "filters": ["privacy"],
             },
             "queue": {
                 "class": "src.utils.logger.QueueHandler",
@@ -104,6 +112,7 @@ def setup_logging(level: str) -> None:
         "root": {
             "handlers": ["console", "file_all", "file_success", "file_error"],
             "level": level,
+            "filters": ["privacy"],
         },
     }
 

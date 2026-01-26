@@ -14,35 +14,71 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VisualCortex")
 
-app = FastAPI(title="ORA Visual Cortex", version="1.0")
+import os
 
 # Configuration
-MODEL_PATH = r"L:\AI_Models\T5Gemma\VisualCortex_4B"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DTYPE = torch.bfloat16
+# Default to PaliGemma/T5Gemma based models
+MODEL_PATH = "google/paligemma-3b-pt-224" 
+if os.path.exists(r"models/VisualCortex"):
+    MODEL_PATH = r"models/VisualCortex"
+elif os.path.exists(r"L:\AI_Models\T5Gemma\VisualCortex") and os.name == "nt":
+    MODEL_PATH = r"L:\AI_Models\T5Gemma\VisualCortex"
+elif os.path.exists(r"models/paligemma-3b-pt-224"):
+    MODEL_PATH = r"models/paligemma-3b-pt-224"
 
-# Global Model State
+DEVICE = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+DTYPE = torch.bfloat16 if DEVICE != "cpu" else torch.float32
+
+# Global State
 model = None
 processor = None
 
+from contextlib import asynccontextmanager
 
-@app.on_event("startup")
-async def load_model():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global model, processor
     try:
         logger.info(f"Loading Visual Cortex from {MODEL_PATH}...")
         start_time = time.time()
 
-        processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
+        # Fix for certain tokenizers (e.g. Gemma/Mistral regex warnings)
+        processor = AutoProcessor.from_pretrained(
+            MODEL_PATH, 
+            trust_remote_code=True
+        )
+        
+        # Ensure image_token_id is present if expected by model
+        if hasattr(processor, "tokenizer"):
+            if not hasattr(processor.tokenizer, "image_token_id"):
+                # Multimodal models usually have an image token. 
+                # If the tokenizer is missing it but the processor has it, sync them.
+                if hasattr(processor, "image_token_id"):
+                    processor.tokenizer.image_token_id = processor.image_token_id
+                    logger.info(f"Patched tokenizer with image_token_id: {processor.image_token_id}")
+                else:
+                    # Fallback to a common value if still missing (specific to T5Gemma/PaliGemma)
+                    # For T5Gemma, if not found, we might need to find it from the config or 
+                    # use a known ID. Let's try to find it in special_tokens_map if possible.
+                    pass
+        
         model = AutoModelForCausalLM.from_pretrained(
-            MODEL_PATH, device_map=DEVICE, torch_dtype=DTYPE, trust_remote_code=True
+            MODEL_PATH, 
+            device_map=DEVICE, 
+            torch_dtype=DTYPE, 
+            trust_remote_code=True
         ).eval()
 
         logger.info(f"Visual Cortex Loaded in {time.time() - start_time:.2f}s")
     except Exception as e:
         logger.error(f"Failed to load Visual Cortex: {e}")
-        # Build dummy for testing if actual weights fail (e.g. during download)
-        # model = "DUMMY"
+    
+    yield
+    # Shutdown logic (optional)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+app = FastAPI(title="ORA Visual Cortex", version="1.0", lifespan=lifespan)
 
 
 @app.post("/analyze")
@@ -88,6 +124,11 @@ async def analyze_image(file: UploadFile = File(...), prompt: str = Form("Descri
 
 if __name__ == "__main__":
     import uvicorn
+    try:
+        from src.utils.logging_config import get_privacy_log_config
+        log_config = get_privacy_log_config()
+    except ImportError:
+        log_config = None
 
     # visual cortex runs on port 8004
-    uvicorn.run(app, host="127.0.0.1", port=8004)
+    uvicorn.run(app, host="127.0.0.1", port=8004, log_config=log_config)

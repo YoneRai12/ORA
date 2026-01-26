@@ -21,6 +21,13 @@ class TransientHTTPError(RuntimeError):
 _SEM = asyncio.Semaphore(10)
 
 
+def _mask_url(url: str) -> str:
+    """Masks host/IP in URL to [RESTRICTED]."""
+    import re
+    # Simple regex to replace host:port or just host
+    return re.sub(r'://[^/]+', '://[RESTRICTED]', url)
+
+
 async def robust_json_request(
     session: aiohttp.ClientSession,
     method: str,
@@ -57,7 +64,8 @@ async def robust_json_request(
         try:
             async with _SEM:
                 # 4. Execute Request
-                timeout = aiohttp.ClientTimeout(total=req_timeout_val, connect=5.0, sock_connect=5.0, sock_read=300.0)
+                # Short connect timeout to detect locally down services immediately
+                timeout = aiohttp.ClientTimeout(total=req_timeout_val, connect=2.0, sock_connect=2.0, sock_read=300.0)
 
                 try:
                     async with session.request(
@@ -100,7 +108,9 @@ async def robust_json_request(
                     raise re
                 except Exception as e:
                     last_err = e
-                    logger.warning(f"Request failed (Attempt {attempt}/{max_attempts}): {e}")
+                    masked_url = _mask_url(url)
+                    msg = str(e).replace("127.0.0.1", "[RESTRICTED]").replace("localhost", "[RESTRICTED]")
+                    logger.warning(f"Request failed (Attempt {attempt}/{max_attempts}) for {masked_url}: {msg}")
                     # Fallthrough to retry logic
 
         except asyncio.CancelledError:
@@ -475,7 +485,7 @@ class LLMClient:
                     msg_data = data["choices"][0]["message"]
                     return msg_data.get("content"), msg_data.get("tool_calls"), data.get("usage", {})
 
-                raise RuntimeError(f"LLM request failed ({model_name}): {e}") from e
+                raise RuntimeError(f"LLM request failed ({model_name}): {str(e).replace('127.0.0.1', '[RESTRICTED]')}") from e
         else:
             async with aiohttp.ClientSession() as session:
                 try:

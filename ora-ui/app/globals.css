@@ -1,264 +1,39 @@
 @import "tailwindcss";
 
-@font-face {
-  font-family: 'Google Sans Flex';
-  src: url('/fonts/GoogleSansFlex.ttf') format('truetype');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
+@theme {
+  --color-background: #212121;
+  /* ChatGPT-like dark background */
+  --color-foreground: #ececec;
+
+  --color-sidebar: #171717;
+  /* Sidebar Darker */
+  --color-input: #2f2f2f;
+  /* Input Area */
+
+  --color-primary: #10a37f;
+  /* OpenAI Green (or ORA Blue?) Let's stick to neutral/brand */
+  --color-brand: #3b82f6;
+  /* ORA Blue */
+
+  --font-sans: 'Inter', system-ui, sans-serif;
 }
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
+@layer utilities {
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  .scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
 
 body {
-  background: #000000;
-  position: relative;
-  color: var(--foreground);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
   font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.08), transparent 70%),
-    radial-gradient(circle at 85% 30%, rgba(6, 182, 212, 0.05), transparent 50%);
-  z-index: -1;
-  pointer-events: none;
-}
-
-/* Custom Text Selection */
-::selection {
-  background: rgba(6, 182, 212, 0.3);
-  /* Cyan tint */
-  color: #ffffff;
-  text-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
-}
-
-/* Custom Dark Scrollbar */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #262626;
-  border-radius: 4px;
-  opacity: 0.5;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #404040;
-  opacity: 1;
-}
-
-/* CSS Variables for Smooth Interpolation */
-@property --x {
-  syntax: '<length>';
-  initial-value: -1000px;
-  inherits: false;
-}
-
-@property --y {
-  syntax: '<length>';
-  initial-value: -1000px;
-  inherits: false;
-}
-
-@property --spotlight-opacity {
-  syntax: '<number>';
-  initial-value: 0;
-  inherits: false;
-}
-
-/* Apple-Style Mercury Glass (Black Edition + Smooth Spotlight) */
-.mercury-glass {
-  /* Default white, overridden inline */
-  --spotlight-color: 255, 255, 255;
-  --spotlight-opacity: 0;
-  /* Starts invisible */
-
-  /* Transparent border to allow background-clip to work on the border area */
-  border: 1px solid transparent;
-  border-radius: 1rem;
-
-  /* Layered Backgrounds */
-  background-image:
-    /* 1. Inner Spotlight (Sharper, trailing) */
-    radial-gradient(250px circle at var(--x) var(--y),
-      rgba(var(--spotlight-color), var(--spotlight-opacity)),
-      transparent 80%),
-    /* Sharper falloff */
-
-    /* 2. Inner Dark Base */
-    linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)),
-
-    /* 3. Border Spotlight (Multiplied Opacity) */
-    radial-gradient(250px circle at var(--x) var(--y),
-      rgba(var(--spotlight-color), calc(var(--spotlight-opacity) * 4)),
-      transparent 80%),
-    /* 4. Border Static Base */
-    linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1));
-
-  background-origin: border-box;
-  background-clip: padding-box, padding-box, border-box, border-box;
-
-  backdrop-filter: blur(25px) saturate(200%);
-  -webkit-backdrop-filter: blur(25px) saturate(200%);
-
-  box-shadow:
-    0 8px 32px 0 rgba(0, 0, 0, 0.6),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-
-  /* 
-     Transitions:
-     --x, --y: Lag (0.1s)
-     --spotlight-opacity: FAST Fade (0.2s) to eliminate residue
-  */
-  transition:
-    --x 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
-    --y 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
-    --spotlight-opacity 0.2s ease-out,
-    transform 0.2s,
-    box-shadow 0.2s;
-}
-
-/* Class-based activation for robust "Off" state */
-.mercury-glass.spotlight-active {
-  --spotlight-opacity: 0.18;
-  /* Target opacity when active */
-}
-
-.mercury-glass:hover {
-  /* Keep shadow/transform primarily on hover, or move to active if preferred. 
-     Keeping it here allows "physical" lift even if spotlight script fails, 
-     but usually we want them synced. Let's keep transform here. */
-  box-shadow:
-    0 12px 42px -4px rgba(0, 0, 0, 0.4),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
-  transform: translateY(-2px);
-}
-
-
-/* Texture overlay for "Metal" feel */
-.metal-texture {
-  position: absolute;
-  inset: 0;
-  opacity: 0.4;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  mix-blend-mode: overlay;
-  pointer-events: none;
-}
-
-/* --- NERV DASHBOARD STYLES --- */
-
-@keyframes blink {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.4;
-  }
-}
-
-@keyframes scanline {
-  0% {
-    transform: translateY(-100%);
-  }
-
-  100% {
-    transform: translateY(100%);
-  }
-}
-
-@keyframes scroll-stripe {
-  0% {
-    background-position: 0 0;
-  }
-
-  100% {
-    background-position: 50px 0;
-  }
-}
-
-.nerv-alert {
-  background-color: #000;
-  color: #ff0000;
-  font-family: "Times New Roman", "YuMincho", "Hiragino Mincho ProN", serif;
-  border-bottom: 2px solid #ff0000;
-  box-shadow: 0 0 20px #ff0000 inset;
-  position: relative;
   overflow: hidden;
-}
-
-.nerv-alert::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(45deg,
-      transparent,
-      transparent 10px,
-      rgba(255, 0, 0, 0.1) 10px,
-      rgba(255, 0, 0, 0.1) 20px);
-  animation: scroll-stripe 2s linear infinite;
-  z-index: 0;
-}
-
-.nerv-title {
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  transform: scaleY(1.2);
-  text-shadow: 0 0 5px #ff0000;
-}
-
-.nerv-hex-grid {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  opacity: 0.1;
-  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0 L55 15 L55 45 L30 60 L5 45 L5 15 Z' stroke='%23ff0000' fill='none' stroke-width='2'/%3E%3C/svg%3E");
-  background-size: 30px 30px;
-  z-index: 1;
-}
-
-.nerv-blink {
-  animation: blink 0.8s step-end infinite alternate;
+  height: 100vh;
+  width: 100vw;
 }

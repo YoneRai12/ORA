@@ -49,10 +49,28 @@ class EventManager:
 
         # 2. Stream from AI
         full_text = ""
+        used_model = "ORA Universal Brain" # Default
+
         try:
-            async for token in omni_engine.generate_stream(input_messages):
-                full_text += token
-                await self.emit(run_id, "delta", {"text": token})
+            async for event_data in omni_engine.generate_stream(input_messages):
+                # Handle String (Legacy/Error)
+                if isinstance(event_data, str):
+                     full_text += event_data
+                     await self.emit(run_id, "delta", {"text": event_data})
+                
+                # Handle Structured Dict
+                elif isinstance(event_data, dict):
+                    evt_type = event_data.get("type")
+                    
+                    if evt_type == "meta":
+                        used_model = event_data.get("model", used_model)
+                        await self.emit(run_id, "meta", {"model": used_model})
+                    
+                    elif evt_type == "text":
+                        content = event_data.get("content", "")
+                        full_text += content
+                        await self.emit(run_id, "delta", {"text": content})
+
                 # await asyncio.sleep(0.01) # Optional: Smooth out if too fast
         except Exception as e:
             full_text += f"\n[Generation Error: {e}]"
@@ -67,10 +85,9 @@ class EventManager:
                 role=AuthorRole.assistant,
                 content=full_text
             )
-            # Update Run
             await repo.update_run_status(run_id, RunStatus.done)
             
-        await self.emit(run_id, "final", {"text": full_text, "message_id": str(msg.id)})
+        await self.emit(run_id, "final", {"text": full_text, "message_id": str(msg.id), "model": used_model})
 
     async def emit(self, run_id: str, event_type: str, data: dict):
         if run_id in self.listeners:

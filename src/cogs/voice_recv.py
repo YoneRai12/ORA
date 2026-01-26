@@ -67,7 +67,8 @@ class VoiceSink(voice_recv.AudioSink):
                     media_cog = self.cog.bot.get_cog("MediaCog")
                     if media_cog:
                         # Stop playback
-                        media_cog._voice_manager.stop_playback(user.guild.id)
+                        if hasattr(self.cog.bot, "voice_manager"):
+                            self.cog.bot.voice_manager.stop_playback(user.guild.id)
                         ud.last_stop_time = time.time()
                         logger.info("バージイン検知: 再生を停止しました。")
 

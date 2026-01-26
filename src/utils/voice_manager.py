@@ -380,6 +380,7 @@ class VoiceManager:
 
         # Persist auto-read channels here so they survive MediaCog reloads
         self.auto_read_channels: Dict[int, int] = {}  # guild_id -> channel_id
+        self.load_auto_read()
         self.has_warned_voicevox = False
 
         # Audio Cache for static notifications (join/leave)
@@ -432,6 +433,36 @@ class VoiceManager:
                 json.dump(self._guild_speakers, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"Failed to save guild voices: {e}")
+
+    # Persistence for Auto-Read Channels
+    def load_auto_read(self):
+        path = Path(STATE_DIR) / "auto_read.json"
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.auto_read_channels = {int(k): v for k, v in data.items()}
+                logger.info(f"Loaded {len(self.auto_read_channels)} auto-read configs.")
+            except Exception as e:
+                logger.error(f"Failed to load auto-read config: {e}")
+
+    def save_auto_read(self):
+        path = Path(STATE_DIR) / "auto_read.json"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.auto_read_channels, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save auto-read config: {e}")
+
+    def set_auto_read(self, guild_id: int, channel_id: int):
+        self.auto_read_channels[guild_id] = channel_id
+        self.save_auto_read()
+
+    def remove_auto_read(self, guild_id: int):
+        if guild_id in self.auto_read_channels:
+            del self.auto_read_channels[guild_id]
+            self.save_auto_read()
 
     async def get_speakers(self) -> list[dict]:
         """Fetch available speakers from VoiceVox Engine."""
@@ -564,7 +595,7 @@ class VoiceManager:
             return False
 
         # Clean and Truncate Text
-        text = self.clean_for_tts(text)
+        text = self.clean_for_tts(text, member.guild)
         if not text:
             return False
 
@@ -1000,8 +1031,22 @@ class VoiceManager:
         if state.voice_client and state.voice_client.is_playing():
             state.voice_client.stop()
 
-    def clean_for_tts(self, text: str) -> str:
-        """Clean text for TTS (remove URLs, code blocks, and parentheses)."""
+    def clean_for_tts(self, text: str, guild: Optional[discord.Guild] = None) -> str:
+        """Clean text for TTS (remove URLs, code blocks, and parentheses). Resolves mentions."""
+
+        # Resolve Mentions to Names
+        if guild:
+            def replace_mention(match):
+                try:
+                    uid = int(match.group(1))
+                    member = guild.get_member(uid)
+                    if member:
+                        return member.display_name
+                except Exception:
+                    pass
+                return ""  # Fallback: remove mention if unknown or just silnece? User said "Name only". If unknown, nothing.
+
+            text = re.sub(r"<@!?(\d+)>", replace_mention, text)
 
         # Remove Code Blocks
         text = re.sub(r"```[\s\S]*?```", "コードブロック", text)

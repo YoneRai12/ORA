@@ -13,6 +13,8 @@ from src.config import ROUTER_CONFIG
 from src.utils.core_client import core_client
 from src.utils.cost_manager import Usage
 
+from src.cogs.handlers.tool_selector import ToolSelector
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +22,8 @@ class ChatHandler:
     def __init__(self, cog):
         self.cog = cog
         self.bot = cog.bot
-        logger.info("ChatHandler v3.9.1 (HOTFIXED) Initialized")
+        self.tool_selector = ToolSelector(self.bot)
+        logger.info("ChatHandler v3.9.2 (RAG Enabled) Initialized")
 
     async def handle_prompt(
         self,
@@ -56,23 +59,107 @@ class ChatHandler:
             "external_id": ext_id
         }
 
-        # 3. Call Core API
         try:
+            # 2.5 Build Rich Client Context for Brain
+            client_context = {
+                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "server_name": message.guild.name if message.guild else "Direct Message",
+                "guild_id": str(message.guild.id) if message.guild else None,
+                "channel_id": str(message.channel.id),
+                "channel_name": message.channel.name if hasattr(message.channel, "name") else "DM",
+                "is_admin": message.author.guild_permissions.administrator if message.guild else True
+            }
+
+            # 3. Call Core API
+            # [MEMORY INJECTION] Fetch User Profile
+            memory_context = ""
+            try:
+                memory_cog = self.cog.bot.get_cog("MemoryCog")
+                if memory_cog:
+                    # Use a timeout to prevent hanging if file lock issue
+                    user_profile = await asyncio.wait_for(
+                        memory_cog.get_user_profile(message.author.id, message.guild.id if message.guild else None),
+                        timeout=1.0
+                    )
+                    
+                    if user_profile:
+                        # Extract key info
+                        name = user_profile.get("name", message.author.display_name)
+                        impression = user_profile.get("impression", "None")
+                        traits = ", ".join(user_profile.get("traits", []))
+                        
+                        memory_context = f"""
+[USER PROFILE]
+Name: {name}
+Impression: {impression}
+Traits: {traits}
+"""
+            except Exception as e:
+                logger.warning(f"Memory Fetch Failed: {e}")
+
+            # [SOURCE INJECTION] Explicitly state this is Discord
+            system_context = f"""
+[SOURCE: DISCORD]
+[SERVER: {message.guild.name if message.guild else 'Direct Message'}]
+[CHANNEL: {message.channel.name if hasattr(message.channel, 'name') else 'DM'}]
+{memory_context}
+"""
+            # Prepend to prompt
+            full_prompt = system_context.strip() + "\n\n" + prompt
+
             # Prepare attachments
             attachments = []
             for att in message.attachments:
                 attachments.append({"type": "image_url", "url": att.url})
             
             # Send Request (Initial Handshake)
+            # Fetch Context-Aware Tools (Discord Only)
+            discord_tools = self.cog.get_context_tools("discord")
+
+            # [RAG ROUTER] Analyze Intent & Select Tools
+            # This reduces context usage and improves accuracy
+            await status_manager.update_current("🔍 Intent Analysis (RAG)...")
+            
+            # [Clawdbot Feature] Vector Memory Retrieval (User + Guild Shared)
+            rag_context = ""
+            if hasattr(self.bot, "vector_memory") and self.bot.vector_memory:
+                guild_id_str = str(message.guild.id) if message.guild else None
+                memories = await self.bot.vector_memory.search_memory(
+                    query= prompt,
+                    user_id=str(message.author.id),
+                    guild_id=guild_id_str,
+                    limit=3
+                )
+                if memories:
+                    rag_context = "\n[Relevant Past Memories]:\n" + "\n".join([f"- {m}" for m in memories]) + "\n"
+                    logger.info(f"RAG: Injected {len(memories)} memories.")
+
+            # Append RAG context to system prompt or user prompt?
+            # Ideally User prompt to make it visible to the model as "Context"
+            full_prompt_with_rag = f"{rag_context}\n{full_prompt}"
+
+            # Select tools based on Platform Context
+            selected_tools = await self.tool_selector.select_tools(
+                prompt=prompt, 
+                available_tools=discord_tools, 
+                platform="discord"
+            )
+
+            # If tools were filtered, log it
+            if len(selected_tools) != len(discord_tools):
+                logger.info(f"Tool Selection: {len(discord_tools)} -> {len(selected_tools)} tools")
+
             response = await core_client.send_message(
-                content=prompt,
+                content=full_prompt_with_rag,
                 provider_id=str(message.author.id),
                 display_name=message.author.display_name,
                 conversation_id=None, 
                 idempotency_key=f"discord:{message.id}",
                 context_binding=context_binding,
                 attachments=attachments,
-                stream=True # Use SSE stream
+                stream=False, # User requested no streaming
+                client_context=client_context,
+                available_tools=selected_tools  # Use RAG selected tools
             )
 
             if "error" in response:
@@ -81,56 +168,55 @@ class ChatHandler:
                 return
 
             run_id = response.get("run_id")
-            await status_manager.update_current(f"🧠 Brain 思考中... (Run: {run_id[:8]})")
+            await status_manager.update_current(f"🧠 ORA Brain が考え中... (ID: {run_id[:8]})")
 
-            # 4. SSE Event Loop (Reactive UI)
+            # 4. Process SSE Events (Streaming/Incremental Updates)
             full_content = ""
-            last_status_update = 0
-            
+            model_name = "ORA Universal Brain"
+
             async for event in core_client.stream_events(run_id):
-                e_type = event.get("event")
-                data = event.get("data", {})
+                ev_type = event.get("event")
+                ev_data = event.get("data", {})
 
-                if e_type == "delta":
-                    token = data.get("text", "")
-                    full_content += token
-                    # We don't edit Discord messages for every token (too many requests)
+                if ev_type == "delta":
+                    # For non-streaming UI, we just accumulate. 
+                    # If we want real-time typing, we'd update message here.
+                    full_content += ev_data.get("text", "")
                 
-                elif e_type == "tool_start":
-                    t_name = data.get("tool")
-                    await status_manager.update_current(f"🛠️ ツール実行中: {t_name}...")
-                
-                elif e_type == "tool_result":
-                    t_name = data.get("tool")
-                    latency = data.get("latency_ms", 0)
-                    logger.info(f"Tool {t_name} finished in {latency}ms")
-                    await status_manager.update_current(f"✅ {t_name} 完了 ({latency}ms)")
+                elif ev_type == "meta":
+                     model_name = ev_data.get("model", model_name)
 
-                elif e_type == "dispatch":
-                    # Brain requested an action from the Skin
-                    action = data.get("action", {})
-                    t_name = data.get("tool")
-                    logger.info(f"🚀 Dispatching Skin Action: {t_name}")
+                elif ev_type == "dispatch":
+                    # TOOL CALL detected!
+                    tool_name = ev_data.get("tool")
+                    tool_args = ev_data.get("args", {})
+                    logger.info(f"🚀 Dispatching tool action: {tool_name}")
                     
-                    # Map to local executor
-                    # We reuse _execute_tool for legacy compatibility, or call cogs directly.
-                    # Since we want it 'thin', calling the legacy _execute_tool is the easiest bridge.
-                    await self.cog._execute_tool(t_name, action, message, status_manager=status_manager)
+                    # Call ToolHandler (Handles music, imagine, tts, etc.)
+                    # We pass the message context so it knows where to reply or join voice.
+                    asyncio.create_task(
+                        self.cog.tool_handler.handle_dispatch(
+                            tool_name=tool_name,
+                            args=tool_args,
+                            message=message,
+                            status_manager=status_manager
+                        )
+                    )
 
-                elif e_type == "final":
-                    full_content = data.get("text", full_content)
+                elif ev_type == "final":
+                    full_content = ev_data.get("text", "")
+                    model_name = ev_data.get("model", model_name)
                     break
-                
-                elif e_type == "error":
-                    err = data.get("text", "Unknown Error")
+
+                elif ev_type == "error":
                     await status_manager.finish()
-                    await message.reply(f"❌ Brain 実行エラー: {err}")
+                    await message.reply(f"⚠️ Core Error: {ev_data.get('message', 'Unknown error')}")
                     return
 
             # 5. Final Output Handover
             await status_manager.finish()
             
-            if not full_content:
+            if not full_content and not response.get("run_id"): # If we had tools, content might be empty but OK
                 await message.reply("❌ 応答を生成できませんでした。")
                 return
 
@@ -140,13 +226,44 @@ class ChatHandler:
             while remaining:
                 chunk = remaining[:4000]
                 remaining = remaining[4000:]
-                embed = EmbedFactory.create_chat_embed(chunk)
+                embed = EmbedFactory.create_chat_embed(chunk, model_name=model_name)
                 await message.reply(embed=embed)
             
             # 6. Post-Process Actions (Voice, etc.)
+            # [MEMORY UPDATE] Inject AI response into MemoryCog buffer
+            try:
+                memory_cog = self.bot.get_cog("MemoryCog")
+                if memory_cog:
+                    asyncio.create_task(
+                        memory_cog.add_ai_message(
+                            user_id=message.author.id,
+                            content=full_content,
+                            guild_id=message.guild.id if message.guild else None,
+                            channel_id=message.channel.id,
+                            channel_name=message.channel.name if hasattr(message.channel, "name") else "DM",
+                            guild_name=message.guild.name if message.guild else "Direct Message",
+                            is_public=message.author.guild_permissions.administrator if message.guild else True # Use same logic as context
+                        )
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to update MemoryCog: {e}")
+
             # Check if user is in VC and if we should speak
             if is_voice:
-                await self.cog._voice_manager.play_tts(message.author, full_content)
+                # [REQUESTED FEATURE] Suppress AI speech if this channel is an Auto-Read channel
+                # User wants "Reading Bot" behavior where AI text response is just text, unless specifically asked?
+                # Or simply "Don't read AI response".
+                should_speak = True
+                if message.guild and hasattr(self.bot, "voice_manager"):
+                    auto_channel_id = self.bot.voice_manager.auto_read_channels.get(message.guild.id)
+                    if auto_channel_id == message.channel.id:
+                        should_speak = False
+                
+                # [FIX] Accessed via bot instance as it's a shared resource now
+                if should_speak and hasattr(self.bot, "voice_manager"):
+                    await self.bot.voice_manager.play_tts(message.author, full_content)
+                else:
+                    logger.warning("VoiceManager not found on Bot instance.")
 
         except Exception as e:
             logger.error(f"Core API Delegation Failed: {e}", exc_info=True)

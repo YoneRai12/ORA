@@ -221,7 +221,7 @@ class EmbedFactory:
         return embed
 
     @staticmethod
-    def create_chat_embed(content: str, footer_text: Optional[str] = None) -> discord.Embed:
+    def create_chat_embed(content: str, model_name: str = "ORA Universal Brain", footer_text: str = "Sanitized & Powered by ORA Universal Brain") -> discord.Embed:
         """
         Create a card for normal chat responses.
         """
@@ -234,7 +234,11 @@ class EmbedFactory:
             color=0x7289DA,  # Blurple or Brand Color
             timestamp=discord.utils.utcnow(),
         )
+        
+        # Header: Model Name
+        embed.set_author(name=f"⚡ {model_name}", icon_url="https://cdn.discordapp.com/emojis/1326002165039206461.webp?size=96&quality=lossless")
 
+        # Footer
         if footer_text:
             embed.set_footer(text=footer_text)
 
