@@ -19,7 +19,7 @@ class CreativeCog(commands.Cog):
         # Ensure we have access to UserPrefs via Bot's store
         from ..utils.user_prefs import UserPrefs
         if hasattr(bot, "store"):
-            self.user_prefs = UserPrefs(bot.store)
+            self.user_prefs = UserPrefs()
         else:
             self.user_prefs = None # Fallback or Error?
 

@@ -21,6 +21,16 @@ services:
     stdin_open: true # For interactive console
     tty: true
 
+  # 💻 ORA UI (Next.js Dashboard)
+  ora-ui:
+    build: ./ora-ui
+    container_name: ora-ui
+    restart: unless-stopped
+    ports:
+      - "3333:3333"
+    depends_on:
+      - ora-web
+
   # 🌐 NERV Dashboard Backend
   ora-web:
     build: .
