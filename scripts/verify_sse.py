@@ -1,7 +1,7 @@
-import requests
-import sseclient
 import json
 import sys
+
+import requests
 
 API_URL = "http://127.0.0.1:8001"
 

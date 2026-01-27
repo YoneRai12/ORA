@@ -1,6 +1,8 @@
 import asyncio
 from typing import Dict
+
 from ora_core.database.models import RunStatus
+
 
 class EventManager:
     def __init__(self):
@@ -24,10 +26,10 @@ class EventManager:
         """
         Real AI Streaming Process via OmniEngine.
         """
-        from ora_core.engine.omni_engine import omni_engine
-        from ora_core.database.session import AsyncSessionLocal
+        from ora_core.database.models import AuthorRole
         from ora_core.database.repo import Repository
-        from ora_core.database.models import RunStatus, AuthorRole
+        from ora_core.database.session import AsyncSessionLocal
+        from ora_core.engine.omni_engine import omni_engine
 
         # 1. Fetch Context (Recent messages)
         # TODO: Ideally fetch from DB. For now, we'll just send the "latest" logic or minimal context.

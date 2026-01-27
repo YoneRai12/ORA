@@ -1,16 +1,16 @@
 import asyncio
 import sys
 import uuid
-import os
 from pathlib import Path
 
 # Add core to path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "core" / "src"))
 
-from ora_core.database.session import engine, AsyncSessionLocal
-from ora_core.database.models import Base, ConversationBinding, Conversation
+from ora_core.api.schemas.messages import ContextBinding, MessageRequest, UserIdentity
+from ora_core.database.models import Base
 from ora_core.database.repo import Repository
-from ora_core.api.schemas.messages import MessageRequest, UserIdentity, ContextBinding
+from ora_core.database.session import AsyncSessionLocal, engine
+
 
 async def setup_db():
     async with engine.begin() as conn:
@@ -20,7 +20,7 @@ async def setup_db():
 async def test_binding_resolution():
     async with AsyncSessionLocal() as session:
         repo = Repository(session)
-        user_id = str(uuid.uuid4())
+        str(uuid.uuid4())
         
         # Identity
         identity = UserIdentity(provider="discord", id="123456", display_name="TestUser")
@@ -29,7 +29,7 @@ async def test_binding_resolution():
         # Test 1: DM Binding
         print("Testing DM Binding...")
         dm_binding = ContextBinding(provider="discord", kind="dm", external_id="dm:123456")
-        req1 = MessageRequest(
+        MessageRequest(
             user_identity=identity,
             content="Hello DM",
             idempotency_key="idem-dm-1",

@@ -1,12 +1,11 @@
 import logging
-import aiohttp
 from typing import Any, Dict, List, Optional
 
 from src.config import Config
 
+from .connection_manager import ConnectionManager
 from .google_client import GoogleClient
 from .llm_client import LLMClient
-from .connection_manager import ConnectionManager
 
 logger = logging.getLogger("ORA.UnifiedClient")
 
@@ -70,13 +69,17 @@ class UnifiedClient:
         # Fallback Order
         priority = self.config.llm_priority
         if priority == "cloud":
-            if self.openai_client: attempts.append("openai")
-            if self.google_client: attempts.append("gemini_trial")
+            if self.openai_client:
+                attempts.append("openai")
+            if self.google_client:
+                attempts.append("gemini_trial")
             attempts.append("local")
         else:
             attempts.append("local")
-            if self.openai_client: attempts.append("openai")
-            if self.google_client: attempts.append("gemini_trial")
+            if self.openai_client:
+                attempts.append("openai")
+            if self.google_client:
+                attempts.append("gemini_trial")
         
         # Optional: If a provider is explicitly requested, honor it (override start)
         if provider and provider in ["local", "openai", "gemini_trial"]:
@@ -88,7 +91,8 @@ class UnifiedClient:
                 if p == "ora_core":
                     # Proxy to Core API
                     # Using local_llm client structure but pointing to Core
-                    if not self.connection_manager or not self.connection_manager.api_base_url: continue
+                    if not self.connection_manager or not self.connection_manager.api_base_url:
+                        continue
                     
                     # Core API expects messages and can handle tools
                     # We use a temporary LLMClient pointing to Core for convenience
@@ -114,12 +118,14 @@ class UnifiedClient:
                     return await self.local_llm.chat(messages, **kwargs)
 
                 elif p == "gemini_trial":
-                    if not self.google_client: continue
+                    if not self.google_client:
+                        continue
                     model_name = kwargs.get("model_name", "gemini-1.5-pro")
                     return await self.google_client.chat(messages, model_name=model_name)
 
                 elif p == "openai":
-                    if not self.openai_client: continue
+                    if not self.openai_client:
+                        continue
                     # Safety: If model name looks like a local model, swap for a cloud one
                     model_name = kwargs.get("model", "")
                     if "qwen" in model_name.lower() or "mistral" in model_name.lower() or not model_name:

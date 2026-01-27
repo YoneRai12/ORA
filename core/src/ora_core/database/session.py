@@ -1,8 +1,9 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 # 1: database, 2: ora_core, 3: src, 4: core, 5: root
 load_dotenv(Path(__file__).resolve().parent.parent.parent.parent.parent / ".env")
 
@@ -23,6 +24,8 @@ engine = create_async_engine(
 )
 
 from sqlalchemy import event
+
+
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()

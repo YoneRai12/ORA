@@ -1,20 +1,21 @@
 import asyncio
 import os
 import uuid
-from typing import Literal, Optional
-from pydantic import BaseModel
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Set PYTHONPATH
 import sys
+
 sys.path.append(os.path.join(os.getcwd(), "core", "src"))
 
-from ora_core.database.session import AsyncSessionLocal
-from ora_core.database.repo import Repository
-from ora_core.api.schemas.messages import MessageRequest, UserIdentity, ContextBinding
+from ora_core.api.schemas.messages import ContextBinding, MessageRequest, UserIdentity
 from ora_core.brain.process import MainProcess
+from ora_core.database.repo import Repository
+from ora_core.database.session import AsyncSessionLocal
+
 
 async def debug_post_message():
     async with AsyncSessionLocal() as db:
@@ -57,7 +58,7 @@ async def debug_post_message():
 
         print("--- Debug 4: Brain Initialiation ---")
         # Just init, don't run yet
-        brain = MainProcess(run.id, conv_id, req, db)
+        MainProcess(run.id, conv_id, req, db)
         print("Brain initialized.")
 
         # Note: We won't call brain.run() here as it might try to call real APIs

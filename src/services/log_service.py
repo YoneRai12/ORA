@@ -1,7 +1,8 @@
-import os
 import glob
-from typing import Optional
+import os
+
 from src.config import Config
+
 
 class LogService:
     def __init__(self, config: Config):

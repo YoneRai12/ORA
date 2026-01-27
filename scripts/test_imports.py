@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+
 def test_imports():
     print("Running import validation...")
     root = Path(__file__).parent.parent

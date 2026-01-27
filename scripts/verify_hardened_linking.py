@@ -1,19 +1,16 @@
 import asyncio
 import sys
-import uuid
-import os
-import json
-from pathlib import Path
 from datetime import datetime, timedelta
-from sqlalchemy import text, select
+from pathlib import Path
+
+from sqlalchemy import select
 
 # Add core to path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "core" / "src"))
 
-from ora_core.database.session import AsyncSessionLocal
-from ora_core.database.models import Base, IdentityLinkAudit, User
+from ora_core.database.models import Base, IdentityLinkAudit
 from ora_core.database.repo import Repository
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # USE TEST DB
 TEST_DB = "sqlite+aiosqlite:///test_hardened.db"
@@ -39,7 +36,7 @@ async def test_hardened_linking():
         
         print(f"Testing Rate Limiting for Web User {w_uid}...")
         # 2. Test Rate Limiting (5 failures)
-        for i in range(5):
+        for _i in range(5):
             await repo.update_user_link_failure(w_uid, ip="127.0.0.1")
         
         await session.refresh(web_user)

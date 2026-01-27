@@ -1,9 +1,9 @@
 import asyncio
-import sys
-import uuid
-import traceback
 import json
 import os
+import sys
+import traceback
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -21,14 +21,14 @@ async def test_phase6_mcp_hardened_final():
     
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_NAME}"
     
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-    from sqlalchemy import select, update as sqlalchemy_update
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
     engine = create_async_engine(f"sqlite+aiosqlite:///{TEST_DB_NAME}")
     AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     
-    from ora_core.database.models import Base, User, ToolCall
+    from ora_core.database.models import Base, ToolCall, User
     from ora_core.database.repo import Repository
-    from ora_core.mcp.registry import tool_registry, ToolDefinition
+    from ora_core.mcp.registry import ToolDefinition, tool_registry
     from ora_core.mcp.runner import ToolRunner
 
     # Re-register tools for test (to ensure they exist in this session)
@@ -85,7 +85,7 @@ async def test_phase6_mcp_hardened_final():
         # --- CASE 4: GPU Concurrency ---
         print("\nCase 4: GPU Concurrency...")
         start = asyncio.get_event_loop().time()
-        results = await asyncio.gather(
+        await asyncio.gather(
             run_in_new_session("gpu_1", user_id, "gpu_slow"),
             run_in_new_session("gpu_2", user_id, "gpu_slow")
         )

@@ -1,5 +1,7 @@
 from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
+
 
 class UserIdentity(BaseModel):
     provider: Literal["discord", "web", "google", "apple"] = "web"

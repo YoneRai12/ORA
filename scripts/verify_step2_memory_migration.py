@@ -1,21 +1,20 @@
 import asyncio
-import sys
-import uuid
-import os
 import json
+import os
+import sys
 from pathlib import Path
-from datetime import datetime
 
 # Add core to path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "core" / "src"))
 
-from ora_core.database.session import engine, AsyncSessionLocal
+from ora_core.api.schemas.messages import MessageRequest, UserIdentity
+from ora_core.brain.context import ContextBuilder
+from ora_core.brain.memory import USER_MEMORY_DIR
+from ora_core.brain.process import MainProcess
 from ora_core.database.models import Base
 from ora_core.database.repo import Repository
-from ora_core.api.schemas.messages import MessageRequest, UserIdentity, ContextBinding
-from ora_core.brain.context import ContextBuilder
-from ora_core.brain.memory import memory_store, USER_MEMORY_DIR
-from ora_core.brain.process import MainProcess
+from ora_core.database.session import AsyncSessionLocal, engine
+
 
 async def setup_db():
     async with engine.begin() as conn:

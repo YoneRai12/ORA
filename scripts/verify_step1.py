@@ -1,7 +1,7 @@
-import requests
-import uuid
-import json
 import sys
+import uuid
+
+import requests
 
 BASE_URL = "http://localhost:8001/v1"
 
@@ -10,7 +10,7 @@ def print_result(name, passed, msg=""):
     print(f"{icon} {name}: {msg}")
 
 def test_schema_validation():
-    print(f"\n--- Test 1: Schema Validation (422 Manual) ---")
+    print("\n--- Test 1: Schema Validation (422 Manual) ---")
     # Missing user_identity and idempotency_key
     payload = {"content": "Invalid Request"}
     try:
@@ -30,7 +30,7 @@ def test_schema_validation():
     return False
 
 def test_idempotency():
-    print(f"\n--- Test 2: Idempotency & Replay ---")
+    print("\n--- Test 2: Idempotency & Replay ---")
     
     idem_key = str(uuid.uuid4())
     user_id_data = {"provider": "web", "id": "verifier", "display_name": "Tester"}
@@ -53,7 +53,7 @@ def test_idempotency():
             
         data1 = res1.json()
         run_id_1 = data1["run_id"]
-        conv_id_1 = data1["conversation_id"]
+        data1["conversation_id"]
         print(f"1st Run ID: {run_id_1}")
         
         # Second Attempt (Same Key)

@@ -10,19 +10,11 @@ Key methods preserved:
 - _select_tools: Tool RAG selection
 """
 
-import asyncio
 import datetime
-import json
 import logging
-import re
-import secrets
-from datetime import datetime as dt_class
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 import discord
-
-from src.config import ROUTER_CONFIG
-from src.utils.cost_manager import Usage
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +215,6 @@ class ChatHandlerLegacy:
         except Exception as e:
             logger.error(f"Failed to inject cost context: {e}")
 
-        server_name = message.guild.name if message.guild else "Direct Message"
         base_prompt += (
             f"{cost_context}"
             "\n[Capabilities]\n"

@@ -1,5 +1,7 @@
-from typing import Literal, Optional, Any
-from pydantic import BaseModel, Field
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel
+
 
 class ToolCallRequest(BaseModel):
     tool_name: str

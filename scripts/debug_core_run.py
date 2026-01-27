@@ -1,8 +1,8 @@
 import asyncio
-import aiohttp
-import json
-import sys
 import os
+import sys
+
+import aiohttp
 
 # Ensure src is in path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

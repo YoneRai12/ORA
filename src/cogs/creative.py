@@ -32,7 +32,7 @@ class CreativeCog(commands.Cog):
             return
 
         url = f"{self.bot.config.sd_api_url}/system_stats"
-        for i in range(12):
+        for _i in range(12):
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, timeout=5) as resp:

@@ -1,11 +1,12 @@
+import logging
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from google_auth_oauthlib.flow import Flow
-import os
-import logging
-from ora_core.database.session import get_db
 from ora_core.database.repo import Repository
+from ora_core.database.session import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

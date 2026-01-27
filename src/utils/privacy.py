@@ -1,6 +1,7 @@
 import logging
 import re
 
+
 class PrivacyFilter(logging.Filter):
     """
     Filter that masks IP addresses and localhost in log messages.

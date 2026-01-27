@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Request
-from sse_starlette.sse import EventSourceResponse
-from ora_core.engine.simple_worker import event_manager
 import json
+
+from fastapi import APIRouter, Request
+from ora_core.engine.simple_worker import event_manager
+from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter()
 

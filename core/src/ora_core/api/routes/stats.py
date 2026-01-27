@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
-from ora_core.database.session import AsyncSessionLocal
 from ora_core.database.repo import Repository
-from sqlalchemy.ext.asyncio import AsyncSession
+from ora_core.database.session import AsyncSessionLocal
 
 router = APIRouter()
 

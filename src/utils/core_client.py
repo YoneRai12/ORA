@@ -1,8 +1,8 @@
-import os
-import aiohttp
 import logging
-from typing import Optional, Any, Dict
-from src.config import STATE_DIR # Using existing config style
+import os
+from typing import Any, Dict, Optional
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ class CoreAPIClient:
         Yields events from the Core SSE stream for a specific run_id.
         """
         import json
+
         import aiohttp
         url = f"{self.base_url}/v1/runs/{run_id}/events"
         

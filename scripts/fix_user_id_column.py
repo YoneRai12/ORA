@@ -1,5 +1,6 @@
-import sqlite3
 import os
+import sqlite3
+
 
 def fix_schema():
     db_name = "ora_bot.db"

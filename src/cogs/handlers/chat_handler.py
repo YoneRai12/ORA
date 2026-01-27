@@ -1,19 +1,12 @@
 import asyncio
 import datetime
-import json
 import logging
-import re
-import secrets
-from datetime import datetime as dt_class  # Avoid conflict
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 import discord
 
-from src.config import ROUTER_CONFIG
-from src.utils.core_client import core_client
-from src.utils.cost_manager import Usage
-
 from src.cogs.handlers.tool_selector import ToolSelector
+from src.utils.core_client import core_client
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +30,7 @@ class ChatHandler:
         [Thin Client] Process a user message by delegating to ORA Core.
         Discord handles UI (Status, Voice, Embeds) while Core handles Brain.
         """
-        from src.utils.ui import StatusManager, EmbedFactory
+        from src.utils.ui import EmbedFactory, StatusManager
 
         # 1. Initialize StatusManager
         status_manager = StatusManager(message.channel, existing_message=existing_status_msg)

@@ -1,5 +1,4 @@
 
-import asyncio
 import os
 import sys
 
@@ -7,6 +6,7 @@ import sys
 sys.path.append(os.getcwd())
 
 from src.utils.cost_manager import CostManager, Usage
+
 
 def main():
     cm = CostManager()

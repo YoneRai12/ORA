@@ -7,8 +7,8 @@ root = Path(__file__).parent.parent
 sys.path.append(str(root / "core" / "src"))
 
 async def check_run_status():
-    from ora_core.database.session import AsyncSessionLocal
     from ora_core.database.repo import Repository
+    from ora_core.database.session import AsyncSessionLocal
     
     # Use the run_id from previous attempt
     run_id = "0e7b0e95-a486-406c-81df-597abcdba49d"

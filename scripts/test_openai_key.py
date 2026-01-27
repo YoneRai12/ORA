@@ -1,9 +1,10 @@
-import os
 import asyncio
-from openai import AsyncOpenAI
+import os
 
 # Load key from .env manually to be sure
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
+
 load_dotenv(override=True)
 
 async def test_key():

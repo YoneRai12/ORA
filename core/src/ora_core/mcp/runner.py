@@ -1,11 +1,13 @@
 import asyncio
+import json
 import logging
-from typing import Dict, Any
-from .registry import tool_registry, ToolDefinition
+import time
+from typing import Any
+
 from ora_core.database.repo import Repository
 from ora_core.engine.simple_worker import event_manager
-import time
-import json
+
+from .registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +62,8 @@ class ToolRunner:
             tool_call_id, run_id, user_id, tool_name, args
         )
         
-        from datetime import datetime, timedelta
         import uuid
+        from datetime import datetime, timedelta
         lease_token = str(uuid.uuid4())
         
         # Helper for polling logic
@@ -70,8 +72,8 @@ class ToolRunner:
             for _ in range(30): # Up to 30 seconds
                 await asyncio.sleep(1.0)
                 await self.repo.db.rollback()
-                from sqlalchemy import select
                 from ora_core.database.models import ToolCall
+                from sqlalchemy import select
                 stmt = select(ToolCall).where(ToolCall.id == tool_call_id, ToolCall.user_id == user_id)
                 r = await self.repo.db.execute(stmt)
                 updated_record = r.scalar_one_or_none()

@@ -1,9 +1,9 @@
 
-import logging
 import asyncio
-from datetime import datetime, time
+import logging
+from datetime import datetime
+
 import pytz
-import discord
 from discord.ext import commands, tasks
 
 logger = logging.getLogger(__name__)

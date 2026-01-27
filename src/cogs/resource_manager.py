@@ -92,7 +92,7 @@ class ResourceManager(commands.Cog):
         if not self.is_port_open(self.host, self.vllm_port):
             return  # Already stopped
 
-        print(f"[ResourceManager] 💤 idle timeout (5m) reached. Stopping vLLM to free VRAM for VLAM...")
+        print("[ResourceManager] 💤 idle timeout (5m) reached. Stopping vLLM to free VRAM for VLAM...")
         try:
             # 1. Kill by Window Title (Windows)
             subprocess.run(

@@ -1,14 +1,15 @@
-import discord
 import asyncio
 import os
 import sys
 
+import discord
 from dotenv import load_dotenv
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.config import Config
+
 
 async def main():
     load_dotenv()

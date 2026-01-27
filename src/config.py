@@ -7,6 +7,8 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+import yaml
+
 # --- Cost Management Constants ---
 COST_TZ = "UTC"
 # --- Storage & state directory ---
@@ -51,7 +53,7 @@ AUTO_SYNC_INTERVAL = 20  # Increased from 5 to reduce blocking latency
 # BYOK Lane: User Keys (Optional Limits)
 #
 # --- External Config Loading ---
-import yaml
+
 
 def _load_yaml_config() -> dict:
     """Load config.yaml if it exists, otherwise return defaults."""

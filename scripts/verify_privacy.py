@@ -1,11 +1,12 @@
 import logging
-import sys
 import os
+import sys
 
 # Add root to path
 sys.path.append(os.getcwd())
 
 from src.utils.privacy import PrivacyFilter
+
 
 def test_privacy_filter():
     print("--- Privacy Filter Test ---")

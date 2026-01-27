@@ -1,9 +1,8 @@
 import asyncio
-import sys
-import json
+
+import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-import mcp.types as types
 
 # Create a server
 server = Server("mcp-artist")

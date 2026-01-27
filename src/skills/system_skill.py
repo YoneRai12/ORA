@@ -1,6 +1,9 @@
-from src.services.log_service import LogService
 from typing import Optional
+
 import discord
+
+from src.services.log_service import LogService
+
 
 class SystemSkill:
     def __init__(self, bot):

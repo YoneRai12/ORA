@@ -17,6 +17,7 @@ router = APIRouter()
 # --- CHAT API IMPLEMENTATION (Simple/Fake Stream) ---
 import asyncio
 import json
+
 from sse_starlette.sse import EventSourceResponse
 
 # Simple in-memory store for active runs (UUID -> Result Text)
@@ -669,7 +670,7 @@ async def get_dashboard_users(response: Response):
                             # User_123_456 -> 123
                             parts = display_name.split("_")
                             if len(parts) > 1:
-                                maybe_id = parts[1]
+                                parts[1]
                                 # We still want a name, but if we CANNOT find one, 
                                 # we keep it as is or try to look up in a global name cache if we had one.
                                 # For now, let's just ensure the priority above works.
@@ -1376,7 +1377,7 @@ async def get_server_dashboard_view(token: str):
 async def get_admin_dashboard_view(token: str):
     """Render a SUPER ADMIN DASHBOARD showing ALL servers."""
     from fastapi.responses import HTMLResponse
-    from src.config import Config
+
     
     # Simple Token Check (In real app, check against DB/Env)
     # For now, we accept any token if it matches a temporary "admin_session" or just a fast check

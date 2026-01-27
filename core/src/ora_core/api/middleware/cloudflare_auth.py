@@ -1,8 +1,9 @@
-from typing import Annotated, Optional
 import logging
-from fastapi import Request, Depends, HTTPException, status
-from ora_core.database.repo import Repository
+from typing import Annotated
+
+from fastapi import Depends, HTTPException, Request, status
 from ora_core.database.models import User
+from ora_core.database.repo import Repository
 
 logger = logging.getLogger(__name__)
 

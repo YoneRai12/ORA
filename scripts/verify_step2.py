@@ -1,12 +1,11 @@
-import requests
 import uuid
-import json
-import sseclient # Requests can't handle SSE easily natively, but we can iterate lines
+
+import requests
 
 BASE_URL = "http://localhost:8001/v1"
 
 def test_brain_stream():
-    print(f"\n--- Test 3: Brain Integration (Streaming) ---")
+    print("\n--- Test 3: Brain Integration (Streaming) ---")
     
     idem_key = str(uuid.uuid4())
     user_id = f"tester-{str(uuid.uuid4())[:8]}"

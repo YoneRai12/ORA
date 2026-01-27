@@ -1,6 +1,7 @@
 import logging
-from typing import Dict, Any
-from ..mcp.registry import tool_registry, ToolDefinition
+from typing import Any, Dict
+
+from ..mcp.registry import ToolDefinition, tool_registry
 
 logger = logging.getLogger(__name__)
 

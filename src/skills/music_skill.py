@@ -1,5 +1,7 @@
-import discord
 from typing import Optional
+
+import discord
+
 
 class MusicSkill:
     def __init__(self, bot):

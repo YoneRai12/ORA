@@ -1,7 +1,8 @@
-import logging
 import json
+import logging
 import os
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List
+
 from src.utils.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class ToolSelector:
         # For now, we assume available_tools is already platform-filtered by the caller.
         
         # 2. Construct System Prompt for the Router
-        tool_names = [t["name"] for t in available_tools]
+        [t["name"] for t in available_tools]
         tool_descriptions = []
         for t in available_tools:
             desc = t.get("description", "No description")

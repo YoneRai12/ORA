@@ -1,6 +1,6 @@
 import subprocess
 import sys
-import os
+
 
 def check_task_history_deletions():
     """

@@ -1,8 +1,8 @@
 import asyncio
 import sys
 import uuid
-import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Add core to path
@@ -11,13 +11,12 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / "core" / "src"))
 # Load env before imports
 load_dotenv()
 
-from ora_core.database.session import AsyncSessionLocal
+from ora_core.api.schemas.messages import MessageRequest, UserIdentity
+from ora_core.brain.process import MainProcess
 from ora_core.database.models import Base, RunStatus
 from ora_core.database.repo import Repository
-from ora_core.brain.process import MainProcess
-from ora_core.api.schemas.messages import MessageRequest, UserIdentity
 from ora_core.engine.simple_worker import event_manager
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # USE TEST DB
 TEST_DB = "sqlite+aiosqlite:///test_search.db"
@@ -52,6 +51,7 @@ async def test_search_cycle():
         
         # 2. Mock OmniEngine to force tool usage
         from unittest.mock import AsyncMock, MagicMock
+
         from ora_core.engine import omni_engine as engine_module
 
         # Mock response object structure
@@ -107,8 +107,8 @@ async def test_search_cycle():
         run = await repo.get_run(run_id)
         assert run.status == RunStatus.completed
         
-        from sqlalchemy import select
         from ora_core.database.models import ToolCall
+        from sqlalchemy import select
         stmt = select(ToolCall).where(ToolCall.run_id == run_id)
         calls = (await session.execute(stmt)).scalars().all()
         

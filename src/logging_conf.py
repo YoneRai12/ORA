@@ -26,6 +26,7 @@ class ISO8601UTCFormatter(logging.Formatter):
 
 from src.utils.privacy import PrivacyFilter
 
+
 class MaxLevelFilter(logging.Filter):
     """Filter that only allows records BELOW OR EQUAL to a certain level."""
 

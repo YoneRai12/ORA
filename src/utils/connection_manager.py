@@ -1,7 +1,7 @@
 import logging
-import aiohttp
-import asyncio
 from typing import Literal
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 

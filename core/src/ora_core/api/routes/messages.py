@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from ora_core.database.session import get_db, AsyncSessionLocal
-from ora_core.database.repo import Repository
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from ora_core.api.dependencies.auth import get_current_user
-from ora_core.database.models import User
 from ora_core.api.schemas.messages import MessageRequest, MessageResponse
 from ora_core.brain.process import MainProcess
+from ora_core.database.models import User
+from ora_core.database.repo import Repository
+from ora_core.database.session import AsyncSessionLocal, get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 

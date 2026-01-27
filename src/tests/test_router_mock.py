@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from unittest.mock import MagicMock, AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 # Mock dependency setup
 sys.modules["src.utils.llm_client"] = Mock()

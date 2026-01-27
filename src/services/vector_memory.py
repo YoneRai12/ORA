@@ -1,14 +1,12 @@
 
 import logging
 import os
-import asyncio
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
+
 import chromadb
-from chromadb.config import Settings
 
 from src.config import Config
-import sys
 
 # Load config to get the correct path
 try:
@@ -113,7 +111,7 @@ class VectorMemory:
                 docs = results["documents"][0]
                 dists = results["distances"][0]
 
-                for doc, dist in zip(docs, dists):
+                for doc, dist in zip(docs, dists, strict=False):
                     # Filter by relevance (heuristic)
                     if dist < threshold: 
                         memories.append(doc)

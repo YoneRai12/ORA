@@ -33,6 +33,7 @@ from .cogs.ora import ORACog  # noqa: E402
 from .config import Config, ConfigError  # noqa: E402
 from .logging_conf import setup_logging
 from .storage import Store
+from .utils.connection_manager import ConnectionManager
 from .utils.healer import Healer
 from .utils.link_client import LinkClient
 from .utils.llm_client import LLMClient
@@ -41,7 +42,6 @@ from .utils.search_client import SearchClient
 from .utils.stt_client import WhisperClient
 from .utils.tts_client import VoiceVoxClient
 from .utils.voice_manager import VoiceManager
-from .utils.connection_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +347,7 @@ class ORABot(commands.Bot):
             detected_urls = set()
             import re
             
-            for attempt in range(12):  # 5s * 12 = 60s max
+            for _attempt in range(12):  # 5s * 12 = 60s max
                 await asyncio.sleep(5)
                 for name, log_path in cf_logs.items():
                     if name in detected_urls: continue

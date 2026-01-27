@@ -1,8 +1,6 @@
 import asyncio
-import aiohttp
-import json
-import uuid
 import sys
+import uuid
 from pathlib import Path
 
 # Add core & project root to path
@@ -52,10 +50,10 @@ async def test_discord_thin_client_flow():
     final_text = await client.get_final_response(run_id)
     
     if final_text:
-        print(f"\n✅ SUCCESS: Final AI Response received:")
-        print(f"----------------------------------------")
+        print("\n✅ SUCCESS: Final AI Response received:")
+        print("----------------------------------------")
         print(final_text)
-        print(f"----------------------------------------")
+        print("----------------------------------------")
     else:
         print("❌ Failed to receive final response.")
 
@@ -67,11 +65,11 @@ async def test_discord_thin_client_flow():
         if profile and "layer4_raw_logs" in profile:
             logs = profile["layer4_raw_logs"]
             if any("Hello Core" in entry.get("user", "") for entry in logs):
-                print(f"✅ Memory Sync Verified! Found 'Hello Core' in layer4_raw_logs.")
+                print("✅ Memory Sync Verified! Found 'Hello Core' in layer4_raw_logs.")
             else:
                 print(f"⚠️ Memory Sync Check: Log entry not found in profile. (Logs: {len(logs)})")
         else:
-            print(f"❌ Memory Profile or L4 logs missing for 123456789.")
+            print("❌ Memory Profile or L4 logs missing for 123456789.")
 
 if __name__ == "__main__":
     asyncio.run(test_discord_thin_client_flow())

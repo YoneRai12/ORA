@@ -1,5 +1,5 @@
-import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env in the root project directory relative to this file
@@ -14,11 +14,11 @@ else:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from ora_core.api.routes.auth import router as auth_router
 from ora_core.api.routes.messages import router as messages_router
 from ora_core.api.routes.runs import router as runs_router
-from ora_core.api.routes.auth import router as auth_router
-from ora_core.api.routes.google_auth import router as google_auth_router
 from ora_core.api.routes.stats import router as stats_router
+
 
 def create_app():
     app = FastAPI(title="ORA Core", version="0.1")
@@ -38,8 +38,8 @@ def create_app():
     from ora_core.tools.discord_proxy import register_discord_proxies
     register_discord_proxies()
 
-    from fastapi.responses import JSONResponse
     from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc):
@@ -114,6 +114,7 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
     from src.utils.logging_config import get_privacy_log_config
     
     # Apply privacy log config to hide IP addresses

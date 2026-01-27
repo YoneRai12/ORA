@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from pathlib import Path
+
 from sqlalchemy import select
 
 # Add core to path
@@ -8,8 +9,8 @@ root = Path(__file__).parent.parent
 sys.path.append(str(root / "core" / "src"))
 
 async def list_recent_runs():
-    from ora_core.database.session import AsyncSessionLocal
     from ora_core.database.models import Run
+    from ora_core.database.session import AsyncSessionLocal
     
     async with AsyncSessionLocal() as session:
         stmt = select(Run).order_by(Run.id.desc()).limit(5)

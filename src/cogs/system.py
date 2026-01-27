@@ -9,8 +9,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from src.utils.cost_manager import Usage
-
 # Audio control
 try:
     from comtypes import CLSCTX_ALL

@@ -1,10 +1,25 @@
-from sqlalchemy import select, update, or_, and_
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from .models import User, UserIdentity, Conversation, Message, Run, RunStatus, AuthorRole, ConversationScope, ToolCall, ConversationBinding, IdentityLinkRequest, IdentityLinkAudit
+import logging
 import uuid
 from datetime import datetime
-import logging
+
+from sqlalchemy import and_, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from .models import (
+    AuthorRole,
+    Conversation,
+    ConversationBinding,
+    ConversationScope,
+    IdentityLinkAudit,
+    IdentityLinkRequest,
+    Message,
+    Run,
+    RunStatus,
+    ToolCall,
+    User,
+    UserIdentity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -489,8 +504,8 @@ class Repository:
 
     async def get_dashboard_stats(self):
         """Fetch summary stats for the dashboard."""
+        from ora_core.database.models import Run, ToolCall
         from sqlalchemy import func
-        from ora_core.database.models import ToolCall, Run
         
         # 1. Recent Runs
         run_count = await self.db.execute(select(func.count(Run.id)))

@@ -1,10 +1,11 @@
 import asyncio
-import sys
-import uuid
 import json
 import os
-from unittest.mock import MagicMock, AsyncMock, patch
+import sys
+import uuid
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,13 +22,13 @@ async def test_main_process_tool_loop():
     if os.path.exists(TEST_DB): os.remove(TEST_DB)
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB}"
     
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
     engine = create_async_engine(f"sqlite+aiosqlite:///{TEST_DB}")
     AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     
-    from ora_core.database.models import Base
-    from ora_core.brain.process import MainProcess
     from ora_core.api.schemas.messages import MessageRequest
+    from ora_core.brain.process import MainProcess
+    from ora_core.database.models import Base
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -61,7 +62,7 @@ async def test_main_process_tool_loop():
         user_id = "test_user_id_1"
         
         async with AsyncSessionLocal() as session:
-            from ora_core.database.models import User, Conversation, Run, ConversationScope, RunStatus
+            from ora_core.database.models import Conversation, ConversationScope, Run, RunStatus, User
             # Create User
             user = User(id=user_id)
             session.add(user)

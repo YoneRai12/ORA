@@ -48,9 +48,9 @@ from src.utils.safe_shell import SafeShell
 from ..managers.resource_manager import ResourceManager
 from ..storage import Store
 from ..utils.ascii_art import AsciiGenerator
+from ..utils.core_client import core_client
 from ..utils.cost_manager import CostManager, Usage
 from ..utils.desktop_watcher import DesktopWatcher
-from ..utils.core_client import core_client
 from ..utils.drive_client import DriveClient
 from ..utils.llm_client import LLMClient
 from ..utils.logger import GuildLogger

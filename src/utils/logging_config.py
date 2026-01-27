@@ -1,5 +1,7 @@
 import copy
+
 from uvicorn.config import LOGGING_CONFIG
+
 
 def get_privacy_log_config():
     """Returns a Uvicorn log config that hides client IP addresses."""

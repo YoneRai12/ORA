@@ -1,11 +1,10 @@
-import asyncio
-import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from .registry import tool_registry, ToolDefinition
+from .registry import ToolDefinition, tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +18,14 @@ class MCPClientManager:
         # server_name -> exit_stack (to clean up stdio)
         self.exit_stacks: Dict[str, Any] = {}
 
-    async def connect_stdio(self, server_name: str, command: str, args: List[str] = [], env: Dict[str, str] = {}):
+    async def connect_stdio(self, server_name: str, command: str, args: List[str] = None, env: Dict[str, str] = None):
         """
         Connect to an MCP server via stdio and register its tools.
         """
+        if env is None:
+            env = {}
+        if args is None:
+            args = []
         logger.info(f"Connecting to MCP server '{server_name}' via stdio: {command} {' '.join(args)}")
         
         server_params = StdioServerParameters(
@@ -114,4 +117,4 @@ class MCPClientManager:
 # Singleton instance
 mcp_client_manager = MCPClientManager()
 
-import os # Required for PATH expansion in connect_stdio
+import os  # Required for PATH expansion in connect_stdio

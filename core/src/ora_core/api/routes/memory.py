@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from pydantic import BaseModel
 
-from ora_core.database.session import get_db
+from fastapi import APIRouter, Depends
 from ora_core.database.repo import Repository
+from ora_core.database.session import get_db
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 

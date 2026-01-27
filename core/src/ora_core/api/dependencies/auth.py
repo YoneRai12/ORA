@@ -1,9 +1,11 @@
 from typing import Optional
-from fastapi import Request, Depends, HTTPException, status
+
+from fastapi import Depends, Request
 from ora_core.database.models import User
 from ora_core.database.repo import Repository
 from ora_core.database.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
+
 
 async def get_repo(db: AsyncSession = Depends(get_db)) -> Repository:
     return Repository(db)

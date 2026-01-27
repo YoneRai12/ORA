@@ -1,16 +1,17 @@
 import asyncio
+import io
 import logging
 from typing import Optional
-import discord
-import io
+
 import aiohttp
-import re
+import discord
 from duckduckgo_search import DDGS
+
+from src.skills.admin_skill import AdminSkill
+from src.skills.music_skill import MusicSkill
 
 # Modular Skills
 from src.skills.system_skill import SystemSkill
-from src.skills.admin_skill import AdminSkill
-from src.skills.music_skill import MusicSkill
 
 logger = logging.getLogger(__name__)
 
@@ -84,20 +85,25 @@ class ToolHandler:
     async def _handle_google_search(self, args: dict, status_manager) -> str:
         try:
             query = args.get("query")
-            if not query: return "Error: No query."
-            if status_manager: await status_manager.next_step(f"Web Search: {query}")
+            if not query:
+                return "Error: No query."
+            if status_manager:
+                await status_manager.next_step(f"Web Search: {query}")
             results = DDGS().text(query, max_results=3)
-            if not results: return "No results found."
+            if not results:
+                return "No results found."
             formatted = []
             for r in results:
                 formatted.append(f"### [{r.get('title', 'No Title')}]({r.get('href', '')})\n{r.get('body', '')}")
             return "\\n\\n".join(formatted)
-        except Exception as e: return f"Search Error: {e}"
+        except Exception as e:
+            return f"Search Error: {e}"
 
     async def _handle_request_feature(self, args: dict, message: discord.Message) -> str:
         feature = args.get("feature_request")
         context = args.get("context")
-        if not feature: return "Error: Missing feature argument."
+        if not feature:
+            return "Error: Missing feature argument."
         if hasattr(self.bot, "healer"):
             asyncio.create_task(self.bot.healer.propose_feature(feature, context, message.author))
             return f"✅ Feature Request '{feature}' sent."
@@ -105,10 +111,13 @@ class ToolHandler:
 
     async def _handle_imagine(self, args: dict, message: discord.Message, status_manager) -> str:
         prompt = args.get("prompt")
-        if not prompt: return "Error: Missing prompt."
-        if status_manager: await status_manager.next_step(f"Generating Image: {prompt[:30]}...")
+        if not prompt:
+            return "Error: Missing prompt."
+        if status_manager:
+            await status_manager.next_step(f"Generating Image: {prompt[:30]}...")
         creative_cog = self.bot.get_cog("CreativeCog")
-        if not creative_cog: return "Creative system offline."
+        if not creative_cog:
+            return "Creative system offline."
         try:
             mp4_data = await self.bot.loop.run_in_executor(None, lambda: creative_cog.comfy_client.generate_video(prompt, ""))
             if mp4_data:
@@ -116,18 +125,23 @@ class ToolHandler:
                 await message.reply(content=f"🎨 **Generated Visual**: {prompt}", file=f)
                 return "Image generated. [SILENT_COMPLETION]"
             return "Generation failed."
-        except Exception as e: return f"Error: {e}"
+        except Exception as e:
+            return f"Error: {e}"
 
     async def _handle_layer(self, args: dict, message: discord.Message, status_manager) -> str:
         target_img = message.attachments[0] if message.attachments else None
         if not target_img and message.reference:
             ref = await message.channel.fetch_message(message.reference.message_id)
-            if ref.attachments: target_img = ref.attachments[0]
-        if not target_img: return "Error: No image found."
+            if ref.attachments:
+                target_img = ref.attachments[0]
+        if not target_img:
+            return "Error: No image found."
         
-        if status_manager: await status_manager.next_step("Separating Layers...")
+        if status_manager:
+            await status_manager.next_step("Separating Layers...")
         creative_cog = self.bot.get_cog("CreativeCog")
-        if not creative_cog: return "Creative system offline."
+        if not creative_cog:
+            return "Creative system offline."
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -139,11 +153,13 @@ class ToolHandler:
                         await message.reply("✅ Layers Separated!", file=f)
                         return "Layering complete. [SILENT_COMPLETION]"
                     return f"Failed: {resp.status}"
-        except Exception as e: return f"Error: {e}"
+        except Exception as e:
+            return f"Error: {e}"
 
     async def _handle_summarize(self, args: dict, message: discord.Message) -> str:
         memory_cog = self.bot.get_cog("MemoryCog")
-        if not memory_cog: return "Memory offline."
+        if not memory_cog:
+            return "Memory offline."
         summary = await memory_cog.get_user_summary(message.author.id)
         if summary:
             await message.reply(f"📌 **Context Summary:**\n{summary}")

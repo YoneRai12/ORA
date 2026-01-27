@@ -1,7 +1,9 @@
 import asyncio
-import aiohttp
 import json
 import uuid
+
+import aiohttp
+
 
 async def test_proxy_dispatch():
     base_url = "http://localhost:8001"
@@ -46,7 +48,7 @@ async def test_proxy_dispatch():
                     print(f"Event: {event_type}")
                     
                     if event_type == "dispatch":
-                        print(f"✅ FOUND DISPATCH EVENT!")
+                        print("✅ FOUND DISPATCH EVENT!")
                         print(f"Action: {json.dumps(event_data.get('data'), indent=2)}")
                     
                     if event_type == "final":

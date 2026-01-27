@@ -1,7 +1,7 @@
 
 import asyncio
 import os
-import shutil
+
 from src.services.vector_memory import VectorMemory
 
 # Clean test env
