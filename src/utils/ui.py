@@ -16,9 +16,97 @@ class StatusManager:
         self.channel = channel
         self.message: Optional[discord.Message] = existing_message
         self.steps: List[dict] = []  # List of {"label": str, "done": bool}
+        self.file_buffer: List[dict] = [] # List of {"path": str, "filename": str, "content": str}
         self._lock = asyncio.Lock()
         self._last_update_time = 0.0
         self._update_task = None
+
+    def add_file(self, file_path: str, filename: str, content: str = ""):
+        """Buffer a file to be sent later."""
+        self.file_buffer.append({
+            "path": file_path,
+            "filename": filename,
+            "content": content
+        })
+
+    async def flush_files(self, message: discord.Message = None):
+        """Flush buffered files into combined messages."""
+        if not self.file_buffer:
+            return
+
+        target_msg = message or self.message
+        if not target_msg:
+             return
+
+        # Determine Limit
+        limit_bytes = 10 * 1024 * 1024 # 10MB Default
+        if target_msg.guild:
+             limit_bytes = target_msg.guild.filesize_limit
+        
+        # Max files per message = 10
+        import os
+        
+        current_batch_files = []
+        current_batch_size = 0
+        current_content_lines = []
+
+        async def send_batch(files, content_lines):
+             if not files: return
+             
+             # Construct content
+             final_content = "\n".join(content_lines)
+             if len(final_content) > 2000: final_content = final_content[:2000]
+             
+             try:
+                 await target_msg.reply(content=final_content, files=files)
+             except Exception as e:
+                 # Fallback: Send individually
+                 first_err = e
+                 for f in files:
+                      try:
+                          f.fp.seek(0)
+                          await target_msg.reply(file=f)
+                      except Exception as inner_e:
+                          await target_msg.channel.send(f"⚠️ ファイル送信失敗 ({f.filename}): {inner_e}")
+
+
+        for item in self.file_buffer:
+             try:
+                 size = os.path.getsize(item["path"])
+                 
+                 # Check if adding this file exceeds limit or count
+                 if (len(current_batch_files) >= 10) or (current_batch_size + size > limit_bytes):
+                      # Flush current
+                      await send_batch(current_batch_files, current_content_lines)
+                      # Reset
+                      current_batch_files = []
+                      current_batch_size = 0
+                      current_content_lines = []
+                 
+                 # Add to current
+                 f_obj = discord.File(item["path"], filename=item["filename"])
+                 current_batch_files.append(f_obj)
+                 current_batch_size += size
+                 if item["content"]:
+                     current_content_lines.append(item["content"])
+                     
+             except Exception as e:
+                 # If file error, skip
+                 pass
+
+        # Flush remaining
+        if current_batch_files:
+             await send_batch(current_batch_files, current_content_lines)
+        
+        # Cleanup: Delete all buffered files
+        for item in self.file_buffer:
+             try:
+                 if os.path.exists(item["path"]):
+                     os.remove(item["path"])
+             except: pass
+        
+        # Clear buffer
+        self.file_buffer = []
 
     async def start(self, label: str = "思考中", mode: str = "normal"):
         """
@@ -58,15 +146,24 @@ class StatusManager:
             self.steps[-1]["label"] = label
             await self._update(force=force)
 
+    async def complete(self):
+        """Mark the current step as done without adding a new one."""
+        async with self._lock:
+            if self.steps:
+                self.steps[-1]["done"] = True
+                await self._update(force=True)
+
     async def finish(self):
-        """Mark all as done and delete the message."""
+        """Mark all as done, flush any remaining files, and delete the message."""
         async with self._lock:
             if not self.message:
                 return
 
             try:
-                # Instead of deleting, we might want to keep the final log if debug mode?
-                # But standard behavior is delete.
+                # Flush any remaining files before deleting status message
+                if self.file_buffer:
+                    await self.flush_files()
+                
                 await self.message.delete()
             except Exception:
                 pass

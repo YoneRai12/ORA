@@ -429,8 +429,9 @@ class ToolHandler:
                         pass
             
             if public_url:
-                # The caller logic in _handle_web_remote_control                # [User Request] Web Operation Channel
-                target_channel_id = 1467163318845440062
+                # The caller logic in _handle_web_remote_control
+                # [User Request] Web Operation Channel
+                target_channel_id = getattr(self.bot.config, "ora_web_notify_id", None)
                 
                 direct_url = f"{public_url.rstrip('/')}/static/operator.html"
                 
