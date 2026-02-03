@@ -57,73 +57,36 @@ When a runtime error occurs (e.g., specific API failure), ORA:
 
 ORA uses a "Hybrid Brain" architecture to balance **Intelligence** vs **Cost**.
 
+### 🔄 Agentic System Flow
+ORA is not just a bot; she is an "Agent" that autonomously manages tools with the following flow:
+
 ```mermaid
 graph TD
     %% Styling
     classDef user fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000
     classDef router fill:#e1f5fe,stroke:#039be5,stroke-width:2px,color:#000
-    classDef cloud fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,color:#000
-    classDef local fill:#212121,stroke:#90a4ae,stroke-width:2px,color:#fff
     classDef core fill:#bbdefb,stroke:#1565c0,stroke-width:3px,color:#000
     classDef tool fill:#fff3e0,stroke:#fb8c00,stroke-width:2px,color:#000
     classDef final fill:#fce4ec,stroke:#f06292,stroke-width:2px,color:#000
+
+    User([👤 User Input]):::user --> Router{🧠 Omni-Router}:::router
     
-    %% 1. User Input & Decision
-    User["User Prompt"]:::user --> Check{Route Check}:::router
-    Check -.-> Criteria["❓ Criteria:<br/>- Privacy (PII)?<br/>- Image/Tokens?<br/>- VRAM Budget?"]:::router
-
-    %% 2. Resource Manager (VRAM Budget)
-    subgraph Resources ["⚡ Resource Manager (VRAM Budget: 25GB)"]
-        direction TB
-        style Resources fill:#fafafa,stroke:#d32f2f,stroke-width:2px,stroke-dasharray: 5 5
-
-        %% Cloud
-        subgraph Cloud ["☁️ OpenAI API (Cloud)"]
-            direction TB
-            M_Code["💻 Codex"]:::cloud
-            M_Deep["🧠 Deep"]:::cloud
-            M_Mini["👁️ Vision"]:::cloud
-        end
-
-        %% Local
-        subgraph Local ["🏠 Local PC (Priv)"]
-            direction TB
-            L_Deep["🦉 Qwen"]:::local
-            L_Code["💻 Coder"]:::local
-            L_Chat["🌪️ Mistral"]:::local
-        end
+    subgraph CoreSystem ["💎 Thinking Process (Agentic Logic)"]
+        Router -->|Intent Analysis| ToolSelect[🛠️ Tool Selection]:::core
+        ToolSelect -->|Execution Plan| Dispatcher[⚙️ Dispatcher]:::core
     end
 
-    Check -- "Cloud Allow" --> Cloud
-    Check -- "Local Only" --> Local
-
-    %% 3. ORA CORE
-    subgraph CoreSystem ["💎 ORA CORE System"]
-        direction TB
-        Policy["📡 Policy Router"]:::core
-        Runner["⚙️ Tool Runner\n(Safe/Dedup)"]:::core
-        Mem["💾 Memory"]:::core
+    subgraph Execution ["⚡ Execution Layer"]
+        Dispatcher -->|Local/Cloud| Tools{🧰 Tools}:::tool
+        
+        Tools --> Web[🔍 Search/Save]:::tool
+        Tools --> Vision[👁️ Vision/Screen]:::tool
+        Tools --> Code[💻 Code Execution]:::tool
+        Tools --> Media[🎨 Image/Voice]:::tool
     end
 
-    Cloud --> Policy
-    Local --> Policy
-    Policy --> Runner
-    Policy --> Mem
-
-    %% 4. Tools
-    subgraph Tools ["🛠️ Advanced Tools"]
-        direction LR
-        T_Search["🔍 Search"]:::tool
-        T_Vid["🎥 Video"]:::tool
-        T_Img["🎨 Image"]:::tool
-        T_Voice["🎤 Voice"]:::tool
-    end
-
-    Runner --> T_Search & T_Vid & T_Img & T_Voice
-
-    %% 5. Output
-    Runner --> Response["Final Reply"]:::final
-    Policy -- "Text Only" --> Response
+    Tools --> Memory[(💾 Memory / RAG)]:::core
+    Memory --> Output([✨ Final Reply]):::final
 ```
 
 *   **Smart Routing**: She analyzes prompt length and keywords (e.g., "fix code" -> Codex).

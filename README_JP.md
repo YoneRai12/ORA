@@ -57,73 +57,36 @@ ORAはもはや単なる「Bot」ではありません。あなたのPCに宿る
 ORAは「キーワード」「文脈長」「画像有無」を判断し、**ローカル(無料)** と **クラウド(GPT-5.1)** を使い分けます。
 4oは使いません。常に最高の **GPT-5.1-Codex / GPT-5.1 / GPT-5-mini** を使用します。
 
+### 🔄 System Flow (エージェントの思考プロセス)
+ORAは単なるボットではなく、以下のフローで自律的にツールを使いこなす「エージェント」として動作します。
+
 ```mermaid
 graph TD
     %% Styling
     classDef user fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000
     classDef router fill:#e1f5fe,stroke:#039be5,stroke-width:2px,color:#000
-    classDef cloud fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,color:#000
-    classDef local fill:#212121,stroke:#90a4ae,stroke-width:2px,color:#fff
     classDef core fill:#bbdefb,stroke:#1565c0,stroke-width:3px,color:#000
     classDef tool fill:#fff3e0,stroke:#fb8c00,stroke-width:2px,color:#000
     classDef final fill:#fce4ec,stroke:#f06292,stroke-width:2px,color:#000
+
+    User([👤 ユーザー入力]):::user --> Router{🧠 Omni-Router}:::router
     
-    %% 1. User Input & Decision
-    User["Q: ユーザー"]:::user --> Check{Route Check}:::router
-    Check -.-> Criteria["❓ 判定基準:<br/>- 個人情報 (PII)?<br/>- 画像/トークン数?<br/>- VRAM残量?"]:::router
-
-    %% 2. Resource Manager (VRAM Budget)
-    subgraph Resources ["⚡ Resource Manager (VRAM Budget: 25GB)"]
-        direction TB
-        style Resources fill:#fafafa,stroke:#d32f2f,stroke-width:2px,stroke-dasharray: 5 5
-
-        %% Cloud
-        subgraph Cloud ["☁️ OpenAI API (Cloud)"]
-            direction TB
-            M_Code["💻 Codex"]:::cloud
-            M_Deep["🧠 Deep"]:::cloud
-            M_Mini["👁️ Vision"]:::cloud
-        end
-
-        %% Local
-        subgraph Local ["🏠 Local PC (Priv)"]
-            direction TB
-            L_Deep["🦉 Qwen"]:::local
-            L_Code["💻 Coder"]:::local
-            L_Chat["🌪️ Mistral"]:::local
-        end
+    subgraph CoreSystem ["💎 思考プロセス (Agentic Logic)"]
+        Router -->|意図解析| ToolSelect[🛠️ ツール選択]:::core
+        ToolSelect -->|実行プラン作成| Dispatcher[⚙️ ディスパッチャー]:::core
     end
 
-    Check -- "クラウド許可" --> Cloud
-    Check -- "ローカルのみ" --> Local
-
-    %% 3. ORA CORE
-    subgraph CoreSystem ["💎 ORA CORE System"]
-        direction TB
-        Policy["📡 Policy Router"]:::core
-        Runner["⚙️ Tool Runner\n(Safe/Dedup)"]:::core
-        Mem["💾 Memory"]:::core
+    subgraph Execution ["⚡ 実行レイヤー"]
+        Dispatcher -->|Local/Cloud| Tools{🧰 利用ツール}:::tool
+        
+        Tools --> Web[🔍 Web検索/保存]:::tool
+        Tools --> Vision[👁️ 画像解析]:::tool
+        Tools --> Code[💻 コード実行]:::tool
+        Tools --> Media[🎨 画像生成/音声]:::tool
     end
 
-    Cloud --> Policy
-    Local --> Policy
-    Policy --> Runner
-    Policy --> Mem
-
-    %% 4. Tools
-    subgraph Tools ["🛠️ Advanced Tools"]
-        direction LR
-        T_Search["🔍 Search"]:::tool
-        T_Vid["🎥 Video"]:::tool
-        T_Img["🎨 Image"]:::tool
-        T_Voice["🎤 Voice"]:::tool
-    end
-
-    Runner --> T_Search & T_Vid & T_Img & T_Voice
-
-    %% 5. Output
-    Runner --> Response["最終回答"]:::final
-    Policy -- "Text Only" --> Response
+    Tools --> Memory[(💾 記憶 / RAG)]:::core
+    Memory --> Output([✨ 最終回答]):::final
 ```
 
 ### 📡 Policy Router Rules (決定ロジック)
