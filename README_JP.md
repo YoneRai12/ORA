@@ -1,40 +1,46 @@
-# ORA Discord Bot - Ultimate Edition 🌌
-### *RTX 5090のための次世代AIオーケストレーター*
-
 <div align="center">
+
+# ORA (v5.0-Singularity) 🌌
+### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
 
+[![Release](https://img.shields.io/github/v/release/YoneRai12/ORA?style=for-the-badge&logo=github&color=blue)](https://github.com/YoneRai12/ORA/releases)
+[![Build and Test](https://github.com/YoneRai12/ORA/actions/workflows/test.yml/badge.svg?style=for-the-badge)](https://github.com/YoneRai12/ORA/actions/workflows/test.yml)
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/YoneRai12)
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python)](https://www.python.org/)
-[![Release](https://img.shields.io/github/v/release/YoneRai12/ORA?style=for-the-badge&logo=github)](https://github.com/YoneRai12/ORA/releases)
-[![Build and Test](https://github.com/YoneRai12/ORA/actions/workflows/test.yml/badge.svg)](https://github.com/YoneRai12/ORA/actions/workflows/test.yml)
-[![Lint: Ruff](https://img.shields.io/badge/lint-Ruff-4b1e3b.svg)](https://github.com/astral-sh/ruff)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-<div align="center">
+[**[📖 Manual]**](docs/USER_GUIDE.md) | [**[📂 Releases]**](https://github.com/YoneRai12/ORA/releases) | [**[🌐 Dashboard]**](http://localhost:3000)
 
-[![English](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](README.md)
-[![Japanese](https://img.shields.io/badge/言語-日本語-red?style=for-the-badge)](README_JP.md)
+---
 
-</div>
+[English](README.md) | [**日本語**](README_JP.md)
 
 </div>
 
 ---
 
-## 🤯 The Singularity Architecture (v5.0-Singularity)
+## 🌌 ORA とは？
 
 ORAはもはや単なる「Bot」ではありません。あなたのPCに宿る **生きているAIオペレーティングシステム** です。
-エラーが起きれば自らコードを書き換えて修復し、あなたが寝ている間はサブPCからメインPCを監視します。
+RTX 5090のパワーを極限まで引き出し、自己修復、自律進化、マルチモーダル認識を統合した、究極のパーソナルAI体験を提供します。
 
-### ✨ なぜ ORA なのか？ (RTX 5090 Advantage)
+### 🚀 主要な特徴
 
-| 機能 | 詳細 |
-| :--- | :--- |
-| **💰 月額ゼロ** | ChatGPT Plus ($20/月) と異なり、ORAは **100%ローカル** 動作。知能はあなたの所有物です。 |
-| **🔒 完全プライバシー** | データはPCから出ません。チャットも画像も音声も、全てあなたのハードウェアで処理されます。 |
-| **🧬 自己修復 (Auto-Healer)** | クラッシュしてもスタックトレースを解析し、Pythonパッチを書いてホットリロードします。 |
-| **⚡ ハイブリッド脳** | **Qwen 2.5-VL 32B** (ローカル高速) と **GPT-5.1** (クラウド知能) を適材適所で使い分けます。 |
+*   **⚡ ハイブリッド知能**: **Qwen 2.5-VL** (ローカル高速) と **GPT-5.1** (クラウド知能) を自動ルーティング。
+*   **🧬 自己修復 (Auto-Healer)**: エラーを自ら解析し、Pythonコードを書き換えてホットリロード。
+*   **👁️ 真の視覚**: ゲーム画面やデスクトップをリアルタイムで認識し、対話。
+*   **🔒 プライバシー重視**: 個人情報はローカルで処理。データはあなたの管理下にあります。
+
+### 📊 モジュール稼働ステータス
+
+| カテゴリ | 機能 | ステータス | 詳細 |
+| :--- | :--- | :--- | :--- |
+| **Thinking** | Omni-Router (Intent) | ✅ 安定 | 文脈に応じた自動推論 |
+| **Visual** | Vision / OCR | ✅ 安定 | 画面キャプチャ・解析 |
+| **System** | Auto-Healer | 🛠️ 開発中 | 自己修正・GitHub連携 |
+| **Media** | Image Gen / Video | ✅ 安定 | FLUX.2 / yt-dlp 連携 |
+| **Platform** | Windows / Mac / Web | ✅ 動作中 | 次世代マルチ環境対応 |
 
 ---
 

@@ -1,40 +1,46 @@
-# ORA Discord BOT
-[![Release](https://img.shields.io/github/v/release/YoneRai12/ORA?style=for-the-badge&logo=github)](https://github.com/YoneRai12/ORA/releases)
-[![Build and Test](https://github.com/YoneRai12/ORA/actions/workflows/test.yml/badge.svg)](https://github.com/YoneRai12/ORA/actions/workflows/test.yml)
-[![Lint: Ruff](https://img.shields.io/badge/lint-Ruff-4b1e3b.svg)](https://github.com/astral-sh/ruff)
- - The "Singularity" Edition 🌌
-### *The Living, Self-Healing AI Operating System for High-End PC*
-
 <div align="center">
+
+# ORA (v5.0-Singularity) 🌌
+### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
 
+[![Release](https://img.shields.io/github/v/release/YoneRai12/ORA?style=for-the-badge&logo=github&color=blue)](https://github.com/YoneRai12/ORA/releases)
+[![Build and Test](https://github.com/YoneRai12/ORA/actions/workflows/test.yml/badge.svg?style=for-the-badge)](https://github.com/YoneRai12/ORA/actions/workflows/test.yml)
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/YoneRai12)
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python)](https://www.python.org/)
-[![Model](https://img.shields.io/badge/Brain-T5Gemma%20%2B%20GPT--5-blue?style=for-the-badge)](src/config.py)
-[![System](https://img.shields.io/badge/System-Self--Healing-green?style=for-the-badge)](src/utils/healer.py)
-[![GPU](https://img.shields.io/badge/GPU-RTX%205090%20Ready-76B900?style=for-the-badge&logo=nvidia)](https://www.nvidia.com/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-<div align="center">
+[**[📖 Manual]**](docs/USER_GUIDE.md) | [**[📂 Releases]**](https://github.com/YoneRai12/ORA/releases) | [**[🌐 Dashboard]**](http://localhost:3000)
 
-[![English](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](README.md)
-[![Japanese](https://img.shields.io/badge/言語-日本語-red?style=for-the-badge)](README_JP.md)
+---
 
-</div>
+[**English**](README.md) | [日本語](README_JP.md)
 
 </div>
 
 ---
 
-## 📖 Introduction: Why ORA?
+## 📖 What is ORA?
 
-We built ORA because cloud AIs like ChatGPT and Claude have a fatal flaw: **They don't live your life.**
-They are "visitors" in a browser tab. They don't know what game you are playing, they can't see your screen unless you upload a screenshot, and they certainly can't fix their own code when they crash.
+ORA is no longer just a "Bot". It is a **Living AI Operating System** that inhabits your high-end PC.
+Designed to push the **RTX 5090** to its limits, she combines self-healing code, autonomous evolution, and multimodal vision into a single, seamless personal AI experience.
 
-**ORA is different.**
-ORA is an **Artificial Lifeform** that inhabits your local high-end PC. She listens to your voice, watches your gameplay, writes her own upgrades, and protects your privacy.
+### 🚀 Key Features
 
-This isn't just a bot. It's the **End Game of Personal AI**.
+*   **⚡ Hybrid Intelligence**: Intelligent routing between **Qwen 2.5-VL** (Fast Local) and **GPT-5.1** (Deep Cloud Reasoning).
+*   **🧬 Auto-Healer**: When ORA encounters an error, she writes her own Python patch and hot-reloads herself.
+*   **👁️ True Vision**: Real-time desktop/gameplay analysis via advanced Vision Transformers.
+*   **🔒 Privacy First**: Your data stays on your machine. PII is handled exclusively by local models.
+
+### 📊 Module Readiness Status
+
+| Category | Component | Status | Description |
+| :--- | :--- | :--- | :--- |
+| **Thinking** | Omni-Router (Intent) | ✅ Stable | Context-aware brain routing |
+| **Visual** | Vision / OCR | ✅ Stable | Real-time screen capture & analysis |
+| **System** | Auto-Healer | 🛠️ In-Dev | Self-repair & GitHub sync logic |
+| **Media** | Image Gen / Video | ✅ Stable | Local FLUX.2 / yt-dlp integration |
+| **Platform** | Windows / Mac / Web | ✅ Active | Multi-frontend ecosystem support |
 
 ---
 
