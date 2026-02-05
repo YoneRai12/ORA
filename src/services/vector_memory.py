@@ -6,17 +6,13 @@ from typing import Any, Dict, List, Optional
 
 import chromadb
 
-from src.config import Config
-
-# Load config to get the correct path
+# Keep VectorMemory import-safe in CI/test environments where DISCORD_BOT_TOKEN is absent.
+# Do not call Config.load() at module import time.
 try:
-    _cfg = Config.load()
-    DB_DIR = os.path.join(_cfg.db_path.replace("ora_bot.db", ""), "vector_store")
-    # Better: Use MEMORY_DIR from config module if available, or load it
     from src.config import MEMORY_DIR
     DB_DIR = os.path.join(MEMORY_DIR, "vector_store")
-except ImportError:
-    # Fallback to local if config import fails (circular dependency risk)
+except Exception:
+    # Fallback to local if config module cannot be loaded.
     DB_DIR = os.path.join(os.getcwd(), "data", "vector_store")
 
 logger = logging.getLogger(__name__)
