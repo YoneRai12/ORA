@@ -1,6 +1,6 @@
 <div align="center">
 
-# ORA (v5.0-Singularity) 🌌
+# ORA (v5.1-Singularity) 🌌
 ### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
@@ -64,27 +64,41 @@ ORA は現在、**Hub/Spoke 構成**で動作しています。
 - クライアント側 `ToolHandler` が実行し、`/v1/runs/{id}/results` で Core に返却
 - Core が続行して最終回答を返す
 
-### 🔄 End-to-End フロー図
+### 🔄 End-to-End フロー図（シーケンス）
 ```mermaid
-flowchart LR
-    U[ユーザー Discord/Web] --> C[ChatHandler]
-    C --> RAG[RAGHandler + ToolSelector]
-    RAG --> CORE[ORA Core API]
-    CORE --> SSE[SSE run events]
-    SSE --> DISP[dispatch: tool + args + tool_call_id]
-    DISP --> TH[ToolHandler]
-    TH --> TOOL[web/vision/media/system 実行]
-    TOOL --> SUBMIT[submit_tool_output]
-    SUBMIT --> CORE
-    CORE --> FINAL[final response]
-    FINAL --> C
-    C --> U
+sequenceDiagram
+    participant U as ユーザー
+    participant P as Discord/Web
+    participant C as ChatHandler
+    participant R as RAG + ToolSelector
+    participant O as ORA Core API
+    participant T as ローカルツール
+
+    U->>P: プロンプト + 添付
+    P->>C: 正規化済みリクエスト (source, user, channel)
+    C->>R: 意図判定 + 難易度判定
+    R-->>C: ツール候補 + 実行方針
+    C->>O: POST /v1/messages
+    loop 完了まで Agentic ループ
+        O-->>C: dispatch (tool, args, tool_call_id)
+        C->>T: ツール実行
+        T-->>C: 実行結果 + 生成物
+        C->>O: POST /v1/runs/run_id/results
+    end
+    O-->>C: 最終回答
+    C-->>P: プラットフォーム向け整形
+    P-->>U: 回答 + ファイル/リンク
 ```
 
 ### 🏗️ アーキテクチャ概要図
 ```mermaid
-flowchart TD
-    subgraph Client["Client Layer"]
+flowchart LR
+    subgraph Platform["プラットフォーム"]
+        D[Discord]
+        W[Web]
+    end
+
+    subgraph Client["クライアントプロセス"]
         CH[ChatHandler]
         VH[VisionHandler]
         TS[ToolSelector]
@@ -92,25 +106,37 @@ flowchart TD
         TH[ToolHandler]
     end
 
-    subgraph Core["Core Layer"]
-        MSG["POST /v1/messages"]
-        RUN["MainProcess loop"]
-        EV["GET /v1/runs/{id}/events"]
-        RES["POST /v1/runs/{id}/results"]
-        DB["SQLite: runs/messages/tool_calls"]
+    subgraph Core["Coreプロセス"]
+        API[Core API]
+        RUN[Run Engine]
+        DB[(SQLite)]
     end
 
+    subgraph Tools["ツール実行層"]
+        WEB[web系ツール]
+        MEDIA[media系ツール]
+        SYSTEM[system系ツール]
+    end
+
+    D --> CH
+    W --> CH
     CH --> VH
     CH --> TS
     CH --> RH
-    CH --> MSG
-    MSG --> RUN
+    CH --> API
+    API --> RUN
     RUN --> DB
-    RUN --> EV
-    EV --> CH
+    RUN --> CH
     CH --> TH
-    TH --> RES
-    RES --> RUN
+    TH --> WEB
+    TH --> MEDIA
+    TH --> SYSTEM
+    WEB --> TH
+    MEDIA --> TH
+    SYSTEM --> TH
+    TH --> API
+    CH --> D
+    CH --> W
 ```
 
 ### 実装上のポイント
@@ -247,9 +273,9 @@ pytest tests/test_smoke.py
 3. タグ `vX.Y.Z` を作成して push
 
 ```bash
-python scripts/verify_version.py --tag v5.0.0
-git tag v5.0.0
-git push origin v5.0.0
+python scripts/verify_version.py --tag v5.1.0
+git tag v5.1.0
+git push origin v5.1.0
 ```
 
 `release.yml` はタグと `VERSION` が一致しないと失敗するため、他者でも同じ手順で再現できます。

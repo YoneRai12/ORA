@@ -1,5 +1,24 @@
 # ORA System Changelog
 
+## 🆕 v5.1.0 (2026/02/06) - Diagram Clarity + Release Alignment
+### 📈 Readable Architecture Diagrams
+Reworked README diagrams for practical readability:
+* Switched core flow to **sequence diagrams** (request -> routing -> dispatch -> tool loop -> final response).
+* Replaced dense runtime graph with a simpler layer model:
+  * Platform -> Client Process -> Core Process -> Tool Executors.
+
+### ✅ CI Confidence Pass
+Validated the same checks used by GitHub workflows:
+* `ruff check .`
+* `mypy src/ --ignore-missing-imports`
+* `python -m compileall src/`
+* `pytest tests/test_smoke.py`
+* Core checks (`core_test.yml` equivalent) also verified locally.
+
+### 🏷️ Version Bump
+* Updated `VERSION` to `5.1.0`.
+* README header updated to `v5.1-Singularity`.
+
 ## 🆕 v5.0.0 (2026/02/06) - Core Loop Alignment & Reproducible Release
 ### 🧭 Architecture/Flow Documentation Sync
 Updated `README.md` and `README_JP.md` to match the current implementation:

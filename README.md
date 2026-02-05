@@ -1,6 +1,6 @@
 <div align="center">
 
-# ORA (v5.0-Singularity) 🌌
+# ORA (v5.1-Singularity) 🌌
 ### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
@@ -65,27 +65,41 @@ ORA currently runs as a **Hub/Spoke agent pipeline**:
 - Tool calls are dispatched to the client, executed locally, then submitted back to Core via `/v1/runs/{id}/results`.
 - Core resumes reasoning with tool outputs and emits the final answer.
 
-### 🔄 End-to-End Request Path
+### 🔄 End-to-End Request Path (Sequence)
 ```mermaid
-flowchart LR
-    U[User on Discord/Web] --> C[ChatHandler]
-    C --> RAG[RAGHandler + ToolSelector]
-    RAG --> CORE[ORA Core API]
-    CORE --> SSE[SSE run events]
-    SSE --> DISP[dispatch: tool + args + tool_call_id]
-    DISP --> TH[ToolHandler]
-    TH --> TOOL[web/vision/media/system tools]
-    TOOL --> SUBMIT[submit_tool_output]
-    SUBMIT --> CORE
-    CORE --> FINAL[final response event]
-    FINAL --> C
-    C --> U
+sequenceDiagram
+    participant U as User
+    participant P as Discord/Web
+    participant C as ChatHandler
+    participant R as RAG + ToolSelector
+    participant O as ORA Core API
+    participant T as Local Tools
+
+    U->>P: Prompt + attachments
+    P->>C: Normalized request (source, user, channel)
+    C->>R: classify intent + difficulty
+    R-->>C: tool candidates + plan mode
+    C->>O: POST /v1/messages
+    loop Agentic tool loop until done
+        O-->>C: dispatch (tool, args, tool_call_id)
+        C->>T: execute selected tool
+        T-->>C: result + artifacts
+        C->>O: POST /v1/runs/run_id/results
+    end
+    O-->>C: final response
+    C-->>P: formatted reply
+    P-->>U: answer + files/links
 ```
 
 ### 🏗️ Runtime Architecture (Current)
 ```mermaid
-flowchart TD
-    subgraph Client["Client Layer"]
+flowchart LR
+    subgraph Platform
+        D[Discord]
+        W[Web]
+    end
+
+    subgraph Client["Client Process"]
         CH[ChatHandler]
         VH[VisionHandler]
         TS[ToolSelector]
@@ -93,25 +107,37 @@ flowchart TD
         TH[ToolHandler]
     end
 
-    subgraph Core["Core Layer"]
-        MSG["POST /v1/messages"]
-        RUN["MainProcess loop"]
-        EV["GET /v1/runs/{id}/events"]
-        RES["POST /v1/runs/{id}/results"]
-        DB["SQLite: runs/messages/tool_calls"]
+    subgraph Core["Core Process"]
+        API[Core API]
+        RUN[Run Engine]
+        DB[(SQLite)]
     end
 
+    subgraph Tools["Tool Executors"]
+        WEB[web tools]
+        MEDIA[media tools]
+        SYSTEM[system tools]
+    end
+
+    D --> CH
+    W --> CH
     CH --> VH
     CH --> TS
     CH --> RH
-    CH --> MSG
-    MSG --> RUN
+    CH --> API
+    API --> RUN
     RUN --> DB
-    RUN --> EV
-    EV --> CH
+    RUN --> CH
     CH --> TH
-    TH --> RES
-    RES --> RUN
+    TH --> WEB
+    TH --> MEDIA
+    TH --> SYSTEM
+    WEB --> TH
+    MEDIA --> TH
+    SYSTEM --> TH
+    TH --> API
+    CH --> D
+    CH --> W
 ```
 
 ### Routing & Tooling Notes (As Implemented)
@@ -190,9 +216,9 @@ pytest tests/test_smoke.py
 3. Create a git tag as `vX.Y.Z` and push it.
 
 ```bash
-python scripts/verify_version.py --tag v5.0.0
-git tag v5.0.0
-git push origin v5.0.0
+python scripts/verify_version.py --tag v5.1.0
+git tag v5.1.0
+git push origin v5.1.0
 ```
 
 `release.yml` now fails if tag and `VERSION` do not match, so others can reproduce the same release artifact.
