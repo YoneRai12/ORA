@@ -12,7 +12,11 @@ class LocalLogReader:
     to bypass Discord API Rate Limits.
     """
 
-    LOG_DIR = r"L:\ORA_Logs\guilds"
+    try:
+        from src.config import LOG_DIR as _BASE_LOG_DIR
+        LOG_DIR = os.path.join(_BASE_LOG_DIR, "guilds")
+    except Exception:
+        LOG_DIR = os.path.join(os.getcwd(), "logs", "guilds")
 
     # Regex to parse standard log format:
     # 2025-12-28 14:44:40,395 INFO guild_123 Message from User (123): Hello

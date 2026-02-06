@@ -1,5 +1,9 @@
 # ORA System Changelog
 
+## v5.1.10 (2026-02-06) - Portable Logging Paths
+- Logging now writes to `config.log_dir` (env-driven) instead of hardcoding `L:\\ORA_Logs`.
+- Guild chat logs and LocalLogReader now follow the same portable log directory.
+
 ## v5.1.9 (2026-02-06) - Discord Embed Safety + Release Bump
 - Prevents Discord API 400s by truncating agent-activity embed titles to the 256-char limit.
 - Bumped `VERSION` and README header to match the new tag.

@@ -658,7 +658,7 @@ async def run_bot() -> None:
         print(exc, file=sys.stderr)
         raise SystemExit(99) from exc
 
-    setup_logging(config.log_level)
+    setup_logging(config.log_level, log_dir=config.log_dir)
     logger.info("ORA Discord Botを起動します", extra={"app_id": config.app_id})
 
     # SILENCE DISCORD HTTP LOGS (429 Spam)

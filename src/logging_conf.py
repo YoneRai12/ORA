@@ -8,8 +8,8 @@ import time
 from logging.config import dictConfig
 from typing import Any, Dict
 
-# Base Directory for Logs on L: Drive
-L_LOG_DIR = r"L:\ORA_Logs"
+# Default base directory for logs (legacy). Prefer passing `log_dir=` from Config.
+DEFAULT_LOG_DIR = r"L:\ORA_Logs"
 
 
 class ISO8601UTCFormatter(logging.Formatter):
@@ -38,22 +38,22 @@ class MaxLevelFilter(logging.Filter):
         return record.levelno <= self.level
 
 
-def setup_logging(level: str) -> None:
+def setup_logging(level: str, *, log_dir: str | None = None) -> None:
     """Configure application logging."""
-    global L_LOG_DIR
+    base_dir = (log_dir or "").strip() or os.getenv("ORA_LOG_DIR", "").strip() or DEFAULT_LOG_DIR
 
-    # Ensure L: Drive Log Directory Exists
-    if not os.path.exists(L_LOG_DIR):
+    # Ensure log directory exists (fallback to ./logs if the target isn't writable)
+    if not os.path.exists(base_dir):
         try:
-            os.makedirs(L_LOG_DIR, exist_ok=True)
-            print(f"[Logging] Created Log Directory: {L_LOG_DIR}")
+            os.makedirs(base_dir, exist_ok=True)
+            print(f"[Logging] Created Log Directory: {base_dir}")
         except Exception as e:
-            print(f"[Logging] FAILED to create {L_LOG_DIR}. Fallback to local logs. Error: {e}")
+            print(f"[Logging] FAILED to create {base_dir}. Fallback to local logs. Error: {e}")
             # Fallback path if L: drive is missing/unwritable
             fallback_dir = "logs"
             if not os.path.exists(fallback_dir):
                 os.makedirs(fallback_dir, exist_ok=True)
-            L_LOG_DIR = fallback_dir
+            base_dir = fallback_dir
 
     config: Dict[str, Any] = {
         "version": 1,
@@ -79,7 +79,7 @@ def setup_logging(level: str) -> None:
                 "class": "logging.handlers.RotatingFileHandler",
                 "formatter": "structured",
                 "level": "DEBUG",  # Capture everything
-                "filename": os.path.join(L_LOG_DIR, "ora_all.log"),
+                "filename": os.path.join(base_dir, "ora_all.log"),
                 "maxBytes": 10 * 1024 * 1024,  # 10 MB
                 "backupCount": 5,
                 "encoding": "utf-8",
@@ -89,7 +89,7 @@ def setup_logging(level: str) -> None:
                 "class": "logging.handlers.RotatingFileHandler",
                 "formatter": "structured",
                 "level": "INFO",
-                "filename": os.path.join(L_LOG_DIR, "ora_success.log"),
+                "filename": os.path.join(base_dir, "ora_success.log"),
                 "maxBytes": 5 * 1024 * 1024,  # 5 MB
                 "backupCount": 5,
                 "encoding": "utf-8",
@@ -99,7 +99,7 @@ def setup_logging(level: str) -> None:
                 "class": "logging.handlers.RotatingFileHandler",
                 "formatter": "structured",
                 "level": "ERROR",
-                "filename": os.path.join(L_LOG_DIR, "ora_error.log"),
+                "filename": os.path.join(base_dir, "ora_error.log"),
                 "maxBytes": 5 * 1024 * 1024,
                 "backupCount": 5,
                 "encoding": "utf-8",

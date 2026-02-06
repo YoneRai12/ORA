@@ -11,7 +11,12 @@ class GuildLogger:
     """
 
     _loggers = {}
-    _l_log_dir = r"L:\ORA_Logs\guilds"
+    # Use env-driven log dir (portable). Legacy L: paths break on other machines.
+    try:
+        from src.config import LOG_DIR as _BASE_LOG_DIR
+        _l_log_dir = os.path.join(_BASE_LOG_DIR, "guilds")
+    except Exception:
+        _l_log_dir = os.path.join(os.getcwd(), "logs", "guilds")
 
     @classmethod
     def get_logger(cls, guild_id: int | str) -> logging.Logger:
