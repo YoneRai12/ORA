@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS tool_audit (
   args_json TEXT,
   result_preview TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_tool_audit_ts ON tool_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_tool_audit_actor ON tool_audit(actor_id);
 
 -- Approval requests (idempotent per tool_call_id)
 CREATE TABLE IF NOT EXISTS approval_requests (
@@ -113,6 +115,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
   status TEXT NOT NULL DEFAULT 'pending',
   decided_at INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_approval_requests_created ON approval_requests(created_at);
 
 -- Chat-level events (for tracking empty-final fallbacks, etc.)
 CREATE TABLE IF NOT EXISTS chat_events (
@@ -127,6 +130,7 @@ CREATE TABLE IF NOT EXISTS chat_events (
   detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_chat_events_corr ON chat_events(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_chat_events_ts ON chat_events(ts);
 """
 
 
@@ -363,7 +367,60 @@ class Store:
             )
             await db.commit()
             # scheduled_tasks.id is AUTOINCREMENT.
-            return int(cur.lastrowid or 0)
+            task_id = int(cur.lastrowid or 0)
+
+        # Best-effort housekeeping: keep audit tables bounded so logs don't grow unbounded.
+        try:
+            await self.prune_audit_tables()
+        except Exception:
+            pass
+        return task_id
+
+    async def prune_audit_tables(self) -> None:
+        """Prune audit tables based on env-driven retention limits (best-effort)."""
+        retention_days_raw = os.getenv("ORA_AUDIT_RETENTION_DAYS", "14").strip()
+        max_rows_raw = os.getenv("ORA_AUDIT_MAX_ROWS", "50000").strip()
+        max_chat_rows_raw = os.getenv("ORA_CHAT_EVENTS_MAX_ROWS", "50000").strip()
+
+        try:
+            retention_days = max(1, int(retention_days_raw))
+        except Exception:
+            retention_days = 14
+        try:
+            max_rows = max(1000, int(max_rows_raw))
+        except Exception:
+            max_rows = 50000
+        try:
+            max_chat_rows = max(1000, int(max_chat_rows_raw))
+        except Exception:
+            max_chat_rows = 50000
+
+        now = int(time.time())
+        cutoff = now - (retention_days * 86400)
+
+        async with aiosqlite.connect(self._db_path) as db:
+            # Time-based pruning
+            await db.execute("DELETE FROM tool_audit WHERE ts < ?", (int(cutoff),))
+            await db.execute("DELETE FROM approval_requests WHERE created_at < ?", (int(cutoff),))
+            await db.execute("DELETE FROM chat_events WHERE ts < ?", (int(cutoff),))
+
+            # Size-based pruning (keep newest rows)
+            async def _prune_by_count(table: str, ts_col: str, keep: int) -> None:
+                async with db.execute(f"SELECT COUNT(1) FROM {table}") as cur:
+                    row = await cur.fetchone()
+                total = int(row[0] or 0) if row else 0
+                excess = total - int(keep)
+                if excess <= 0:
+                    return
+                await db.execute(
+                    f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} ORDER BY {ts_col} ASC LIMIT ?)",
+                    (int(excess),),
+                )
+
+            await _prune_by_count("tool_audit", "ts", max_rows)
+            await _prune_by_count("chat_events", "ts", max_chat_rows)
+
+            await db.commit()
 
     async def log_tool_audit(
         self,
@@ -382,6 +439,22 @@ class Store:
         args_json: str,
         result_preview: str,
     ) -> None:
+        from src.utils.redaction import redact_json_string, redact_text
+
+        max_args_chars_raw = os.getenv("ORA_AUDIT_MAX_ARGS_CHARS", "5000").strip()
+        max_result_chars_raw = os.getenv("ORA_AUDIT_MAX_RESULT_CHARS", "2000").strip()
+        try:
+            max_args_chars = max(500, int(max_args_chars_raw))
+        except Exception:
+            max_args_chars = 5000
+        try:
+            max_result_chars = max(200, int(max_result_chars_raw))
+        except Exception:
+            max_result_chars = 2000
+
+        safe_args = redact_json_string(str(args_json or ""), max_chars=max_args_chars)
+        safe_preview = redact_text(str(result_preview or ""))[:max_result_chars]
+
         async with aiosqlite.connect(self._db_path) as db:
             try:
                 await db.execute(
@@ -403,14 +476,159 @@ class Store:
                         str(risk_level or ""),
                         1 if approval_required else 0,
                         str(approval_status) if approval_status else None,
-                        str(args_json or ""),
-                        str(result_preview or "")[:2000],
+                        safe_args,
+                        safe_preview,
                     ),
                 )
                 await db.commit()
             except Exception:
                 # Best-effort; never fail tool execution due to logging.
                 return
+
+    async def update_tool_audit_result(self, *, tool_call_id: str, result_preview: str) -> None:
+        """Update the result preview for an existing tool_call_id (best-effort)."""
+        from src.utils.redaction import redact_text
+
+        if not tool_call_id:
+            return
+        safe_preview = redact_text(str(result_preview or ""))[:2000]
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute(
+                    "UPDATE tool_audit SET result_preview=? WHERE tool_call_id=?",
+                    (safe_preview, str(tool_call_id)),
+                )
+                await db.commit()
+        except Exception:
+            return
+
+    async def get_tool_audit_rows(
+        self,
+        *,
+        limit: int = 200,
+        actor_id: Optional[int] = None,
+        tool_name: Optional[str] = None,
+        since_ts: Optional[int] = None,
+    ) -> list[dict]:
+        limit = max(1, min(1000, int(limit)))
+        where = []
+        params: list[object] = []
+        if actor_id is not None:
+            where.append("actor_id=?")
+            params.append(str(actor_id))
+        if tool_name:
+            where.append("tool_name=?")
+            params.append(str(tool_name))
+        if since_ts is not None:
+            where.append("ts>=?")
+            params.append(int(since_ts))
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        sql = (
+            "SELECT ts, actor_id, guild_id, channel_id, tool_name, tool_call_id, correlation_id, "
+            "risk_score, risk_level, approval_required, approval_status, args_json, result_preview "
+            f"FROM tool_audit{clause} ORDER BY ts DESC LIMIT ?"
+        )
+        params.append(limit)
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(sql, tuple(params)) as cur:
+                rows = await cur.fetchall()
+        out: list[dict] = []
+        for r in rows:
+            out.append(
+                {
+                    "ts": int(r[0]),
+                    "actor_id": r[1],
+                    "guild_id": r[2],
+                    "channel_id": r[3],
+                    "tool_name": r[4],
+                    "tool_call_id": r[5],
+                    "correlation_id": r[6],
+                    "risk_score": r[7],
+                    "risk_level": r[8],
+                    "approval_required": bool(r[9]) if r[9] is not None else False,
+                    "approval_status": r[10],
+                    "args_json": r[11],
+                    "result_preview": r[12],
+                }
+            )
+        return out
+
+    async def get_approval_requests_rows(self, *, limit: int = 200, since_ts: Optional[int] = None) -> list[dict]:
+        limit = max(1, min(1000, int(limit)))
+        where = []
+        params: list[object] = []
+        if since_ts is not None:
+            where.append("created_at>=?")
+            params.append(int(since_ts))
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        sql = (
+            "SELECT tool_call_id, created_at, expires_at, actor_id, tool_name, correlation_id, risk_score, risk_level, "
+            "requires_code, status, decided_at "
+            f"FROM approval_requests{clause} ORDER BY created_at DESC LIMIT ?"
+        )
+        params.append(limit)
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(sql, tuple(params)) as cur:
+                rows = await cur.fetchall()
+        out: list[dict] = []
+        for r in rows:
+            out.append(
+                {
+                    "tool_call_id": r[0],
+                    "created_at": int(r[1]),
+                    "expires_at": int(r[2]),
+                    "actor_id": r[3],
+                    "tool_name": r[4],
+                    "correlation_id": r[5],
+                    "risk_score": r[6],
+                    "risk_level": r[7],
+                    "requires_code": bool(r[8]) if r[8] is not None else False,
+                    "status": r[9],
+                    "decided_at": int(r[10]) if r[10] is not None else None,
+                }
+            )
+        return out
+
+    async def get_chat_events_rows(
+        self,
+        *,
+        limit: int = 200,
+        event_type: Optional[str] = None,
+        since_ts: Optional[int] = None,
+    ) -> list[dict]:
+        limit = max(1, min(1000, int(limit)))
+        where = []
+        params: list[object] = []
+        if event_type:
+            where.append("event_type=?")
+            params.append(str(event_type))
+        if since_ts is not None:
+            where.append("ts>=?")
+            params.append(int(since_ts))
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        sql = (
+            "SELECT ts, actor_id, guild_id, channel_id, correlation_id, run_id, event_type, detail "
+            f"FROM chat_events{clause} ORDER BY ts DESC LIMIT ?"
+        )
+        params.append(limit)
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(sql, tuple(params)) as cur:
+                rows = await cur.fetchall()
+        out: list[dict] = []
+        for r in rows:
+            out.append(
+                {
+                    "ts": int(r[0]),
+                    "actor_id": r[1],
+                    "guild_id": r[2],
+                    "channel_id": r[3],
+                    "correlation_id": r[4],
+                    "run_id": r[5],
+                    "event_type": r[6],
+                    "detail": r[7],
+                }
+            )
+        return out
 
     async def upsert_approval_request(
         self,
@@ -480,7 +698,6 @@ class Store:
                 return str(row[0]) if row[0] is not None else None
             except Exception:
                 return None
-            return int(cur.lastrowid)
 
     async def list_scheduled_tasks(self, *, owner_id: int) -> list[dict]:
         async with aiosqlite.connect(self._db_path) as db:

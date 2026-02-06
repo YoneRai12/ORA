@@ -48,6 +48,27 @@ def _load_mcp_servers_from_env() -> list[dict]:
     return out
 
 
+def _load_deny_patterns() -> list[str]:
+    raw = (os.getenv("ORA_MCP_DENY_TOOL_PATTERNS") or "").strip()
+    if not raw:
+        # Safe defaults: block obvious destructive / execution-ish tools unless explicitly allowed.
+        return [
+            "delete",
+            "remove",
+            "rm",
+            "wipe",
+            "format",
+            "reset",
+            "push",
+            "publish",
+            "deploy",
+            "shell",
+            "exec",
+            "run",
+        ]
+    return [p.strip().lower() for p in raw.split(",") if p.strip()]
+
+
 def _load_mcp_servers_from_yaml() -> list[dict]:
     # Keep this independent of Config to avoid import cycles.
     path = os.path.join(os.getcwd(), "config.yaml")
@@ -128,7 +149,31 @@ class MCPCog(commands.Cog):
                 logger.warning("MCP: failed to list tools for server=%s: %s", name, e)
                 continue
 
+            allowed_tools = s.get("allowed_tools")
+            if isinstance(allowed_tools, str):
+                allowed_tools = [t.strip() for t in allowed_tools.split(",") if t.strip()]
+            if allowed_tools is not None and not isinstance(allowed_tools, list):
+                allowed_tools = None
+            allowed_set = {str(t).strip() for t in (allowed_tools or []) if str(t).strip()}
+
+            allow_dangerous = bool(s.get("allow_dangerous_tools")) or (
+                (os.getenv("ORA_MCP_ALLOW_DANGEROUS", "0").strip().lower() in {"1", "true", "yes", "on"})
+            )
+            deny_patterns = _load_deny_patterns()
+
             for t in tools:
+                remote_name = str(t.name or "").strip()
+                if not remote_name:
+                    continue
+                # If allowlist is provided, register only those tools.
+                if allowed_set and remote_name not in allowed_set:
+                    continue
+                # Deny obvious dangerous tools unless explicitly allowed.
+                low_remote = remote_name.lower()
+                if (not allow_dangerous) and any(p in low_remote for p in deny_patterns):
+                    logger.info("MCP: skipping denied tool server=%s tool=%s", name, remote_name)
+                    continue
+
                 local_name = f"{self.TOOL_PREFIX}{name}__{_safe_name(t.name)}"
                 self._tool_map[local_name] = (name, t.name)
 

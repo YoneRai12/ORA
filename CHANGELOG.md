@@ -2,6 +2,14 @@
 
 See also: `docs/RELEASE_NOTES.md` (curated summary, v5.0.0 -> current).
 
+## v5.1.14 (2026-02-06) - Audit Secrecy + MCP Guardrails + Browser Observability
+- Added centralized redaction helpers for secrets (`src/utils/redaction.py`) and applied them to audit/storage and MCP command logging.
+- Audit DB is now bounded by retention/size limits (env-driven), with periodic pruning to prevent unbounded growth.
+- Tool audit now stores redacted + size-bounded args/result previews and updates the final result preview after tool execution.
+- Hardened MCP tool exposure: deny patterns by default, optional per-server allowlist, and an explicit escape hatch for dangerous tools.
+- Web remote control observability: browser API failures now emit an `error_id`, write structured error context logs, and provide an admin-only endpoint to fetch recent error tails.
+- Fixed duplicate `/system/refresh_profiles` route and restored correct `Store.create_scheduled_task()` return value (CI: ruff/mypy/smoke).
+
 ## v5.1.13 (2026-02-06) - Empty Reply Guard + Less Plan Spam
 - Added a chat-level audit table `chat_events` and logs `empty_final_fallback` occurrences (correlation_id/run_id).
 - When Core returns an empty final response, ORA now sends a traceable fallback (CID/Run short IDs) instead of a vague message.

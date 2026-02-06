@@ -45,6 +45,18 @@ class ToolHandler:
         """Entry point from SSE dispatch event."""
         result = await self.execute(tool_name, args, message, status_manager, correlation_id=correlation_id, tool_call_id=tool_call_id)
 
+        # Best-effort: update audit row with final result preview (even if approval row was created earlier).
+        if tool_call_id and hasattr(self.bot, "store"):
+            try:
+                preview = ""
+                if isinstance(result, dict):
+                    preview = str(result.get("result") or result.get("message") or result)[:600]
+                else:
+                    preview = str(result)[:600]
+                await self.bot.store.update_tool_audit_result(tool_call_id=str(tool_call_id), result_preview=preview)
+            except Exception:
+                pass
+
         visible_text: Optional[str] = None
         if isinstance(result, str):
             visible_text = result

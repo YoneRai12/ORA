@@ -325,6 +325,9 @@
             if (contentType.includes("application/json")) {
                 try {
                     const data = await response.json();
+                    if (data && data.detail) {
+                        return data.detail;
+                    }
                     if (data && data.error) {
                         return data.error;
                     }

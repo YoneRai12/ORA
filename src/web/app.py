@@ -78,6 +78,11 @@ async def on_startup() -> None:
                 cleanup_expired_downloads()
             except Exception:
                 pass
+            try:
+                if store:
+                    await store.prune_audit_tables()
+            except Exception:
+                pass
             await asyncio.sleep(600)  # 10 minutes
 
     app.state._temp_download_cleanup_task = asyncio.create_task(_cleanup_loop())

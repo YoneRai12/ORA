@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, Depends, Header, Query
 from fastapi.responses import RedirectResponse
 from google.auth.transport import requests as g_requests
 from google.oauth2 import id_token
@@ -18,6 +18,38 @@ from sse_starlette.sse import EventSourceResponse
 from src.config import COST_LIMITS
 
 router = APIRouter()
+
+
+def _is_loopback(request: Request) -> bool:
+    host = (request.client.host if request.client else "") or ""
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+async def require_admin(
+    request: Request,
+    x_admin_token: str | None = Header(None),
+    token: str | None = Query(None),
+) -> None:
+    """
+    Admin API guard.
+
+    - If `ADMIN_DASHBOARD_TOKEN` is set: require it (header `x-admin-token` or query `token`).
+    - If not set: allow only loopback requests AND `ALLOW_INSECURE_ADMIN_DASHBOARD=1` (explicit legacy opt-in).
+    """
+    admin_token = (os.getenv("ADMIN_DASHBOARD_TOKEN") or "").strip()
+    allow_legacy = (os.getenv("ALLOW_INSECURE_ADMIN_DASHBOARD") or "").strip().lower() in {"1", "true", "yes", "on"}
+    presented = (x_admin_token or token or "").strip()
+
+    if admin_token:
+        if (not presented) or (not hmac.compare_digest(presented, admin_token)):
+            raise HTTPException(status_code=403, detail="Invalid admin token")
+        return
+
+    if not allow_legacy:
+        raise HTTPException(status_code=503, detail="ADMIN_DASHBOARD_TOKEN is not configured")
+
+    if not _is_loopback(request):
+        raise HTTPException(status_code=403, detail="Admin API only available on loopback without token")
 
 @router.get("/dashboard/summary")
 async def get_dashboard_summary():
@@ -1245,19 +1277,6 @@ async def get_dashboard_users(response: Response):
         return {"ok": False, "error": str(e)}
 
 
-@router.post("/system/refresh_profiles")
-async def trigger_refresh_profiles():
-    """Trigger backend profile optimization via file watcher."""
-    try:
-        trigger_path = "refresh_profiles.trigger"
-        # Touch file
-        with open(trigger_path, "w") as f:
-            f.write("trigger")
-        return {"ok": True, "message": "Triggered profile refresh."}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
 @router.get("/dashboard/users/{user_id}")
 async def get_user_details(user_id: str):
     """Get full details for a specific user (traits, history, context). Supports dual profiles."""
@@ -1303,15 +1322,15 @@ async def get_user_details(user_id: str):
 
 
 @router.post("/system/refresh_profiles")
-async def request_profile_refresh():
+async def request_profile_refresh(_: None = Depends(require_admin)):
     """Trigger profile refresh via file signal for the Bot process."""
     try:
         from pathlib import Path
 
         # Create a trigger file that MemoryCog watches
         trigger_path = Path("refresh_profiles.trigger")
-        trigger_path.touch()
-        return {"ok": True, "message": "Profile refresh requested"}
+        trigger_path.write_text("trigger", encoding="utf-8")
+        return {"ok": True, "message": "Profile refresh requested."}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -1319,7 +1338,7 @@ async def request_profile_refresh():
 
 
 @router.post("/dashboard/users/{user_id}/optimize")
-async def optimize_user(user_id: str):
+async def optimize_user(user_id: str, _: None = Depends(require_admin)):
     """Triggers forced optimization for a user."""
     # Extract real Discord ID from potential UID_GID format
     real_uid = int(user_id.split("_")[0])
@@ -1359,7 +1378,7 @@ async def optimize_user(user_id: str):
 
 
 @router.post("/system/restart")
-async def system_restart():
+async def system_restart(_: None = Depends(require_admin)):
     """Restart the Bot Process (Self-Termination)."""
     # In a managed environment (systemd/Docker), exiting 0 or 1 usually triggers restart.
     import asyncio
@@ -1375,7 +1394,7 @@ async def system_restart():
 
 
 @router.post("/system/shutdown")
-async def system_shutdown():
+async def system_shutdown(_: None = Depends(require_admin)):
     """Shutdown the Bot Process."""
     import asyncio
     import sys
@@ -1392,7 +1411,7 @@ async def system_shutdown():
 
 
 @router.get("/logs/stream")
-async def log_stream():
+async def log_stream(_: None = Depends(require_admin)):
     """Simple Log Stream (Not fully implemented, returns recent logs)."""
     # For a real stream, we'd use WebSocket or SSE.
     # Here, let's just return the last 50 lines of the log file if available.
@@ -1775,3 +1794,43 @@ async def get_admin_dashboard_view(token: str):
     </html>
     """
     return HTMLResponse(content=html, status_code=200)
+
+
+@router.get("/audit/tools")
+async def api_audit_tools(
+    request: Request,
+    limit: int = 200,
+    actor_id: str | None = None,
+    tool_name: str | None = None,
+    since_ts: int | None = None,
+    _: None = Depends(require_admin),
+):
+    store = get_store()
+    aid = int(actor_id) if actor_id and actor_id.isdigit() else None
+    rows = await store.get_tool_audit_rows(limit=limit, actor_id=aid, tool_name=tool_name, since_ts=since_ts)
+    return {"ok": True, "data": rows}
+
+
+@router.get("/audit/approvals")
+async def api_audit_approvals(
+    request: Request,
+    limit: int = 200,
+    since_ts: int | None = None,
+    _: None = Depends(require_admin),
+):
+    store = get_store()
+    rows = await store.get_approval_requests_rows(limit=limit, since_ts=since_ts)
+    return {"ok": True, "data": rows}
+
+
+@router.get("/audit/chat_events")
+async def api_audit_chat_events(
+    request: Request,
+    limit: int = 200,
+    event_type: str | None = None,
+    since_ts: int | None = None,
+    _: None = Depends(require_admin),
+):
+    store = get_store()
+    rows = await store.get_chat_events_rows(limit=limit, event_type=event_type, since_ts=since_ts)
+    return {"ok": True, "data": rows}

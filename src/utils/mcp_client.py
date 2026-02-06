@@ -16,14 +16,16 @@ def _redact_cmd(cmd: list[str]) -> str:
     # Best-effort redaction: never log full tokens/keys even if user passes them in command args.
     sensitive = ("key", "token", "secret", "password", "auth", "bearer")
     out: list[str] = []
+    from src.utils.redaction import redact_text
+
     for part in cmd:
         low = part.lower()
         if any(s in low for s in sensitive):
             out.append("[REDACTED]")
         elif len(part) > 120:
-            out.append(part[:60] + "…" + part[-20:])
+            out.append(redact_text(part[:60] + "…" + part[-20:]))
         else:
-            out.append(part)
+            out.append(redact_text(part))
     return " ".join(out)
 
 
@@ -256,4 +258,3 @@ class MCPStdioClient:
         if not isinstance(res, dict):
             return {"ok": False, "error": "invalid_response", "raw": res}
         return res
-

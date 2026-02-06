@@ -12,23 +12,37 @@ import uuid
 from datetime import datetime, timezone
 
 from src.utils.browser import browser_manager
+from src.utils.redaction import redact_text
 
 router = APIRouter(tags=["browser"])
 logger = logging.getLogger(__name__)
 
 
-def _write_browser_api_error(endpoint: str, exc: Exception) -> str:
+def _browser_log_dir() -> str:
+    # Prefer env-driven log dir (same as config.log_dir) but keep router import-safe.
+    base = (os.getenv("ORA_LOG_DIR") or "").strip() or "logs"
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
+def _write_browser_api_error(endpoint: str, exc: Exception, *, context: Optional[dict] = None) -> str:
     """Persist browser API errors to a dedicated log file for post-mortem debugging."""
     error_id = uuid.uuid4().hex[:10]
-    os.makedirs("logs", exist_ok=True)
     ts = datetime.now(timezone.utc).isoformat()
+    ctx = context if isinstance(context, dict) else {}
+    ctx_text = ""
+    try:
+        ctx_text = json.dumps(ctx, ensure_ascii=False)[:2000]
+    except Exception:
+        ctx_text = ""
     payload = (
         f"[{ts}] endpoint={endpoint} error_id={error_id}\n"
+        f"context={ctx_text}\n"
         f"type={type(exc).__name__}\n"
-        f"message={exc}\n"
+        f"message={redact_text(str(exc))}\n"
         f"{traceback.format_exc()}\n"
     )
-    with open(os.path.join("logs", "browser_api.log"), "a", encoding="utf-8", errors="ignore") as f:
+    with open(os.path.join(_browser_log_dir(), "browser_api.log"), "a", encoding="utf-8", errors="ignore") as f:
         f.write(payload)
     return error_id
 
@@ -76,7 +90,9 @@ async def launch_browser():
         await browser_manager.start()
         return {"status": "started", "headless": browser_manager.headless}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_id = _write_browser_api_error("/launch", e, context={"headless": getattr(browser_manager, "headless", None)})
+        logger.exception("Browser /launch failed (error_id=%s)", error_id)
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e), "error_id": error_id})
 
 @router.post("/action", dependencies=[Depends(verify_token)])
 async def handle_action(req: ActionRequest = Body(...)):
@@ -152,7 +168,14 @@ async def get_screenshot():
         return Response(content=data, media_type="image/jpeg")
     except Exception as e:
         # One hard restart retry helps recover from dead Playwright contexts.
-        first_error_id = _write_browser_api_error("/screenshot", e)
+        ctx = {"headless": getattr(browser_manager, "headless", None)}
+        try:
+            if getattr(browser_manager, "agent", None):
+                obs = await browser_manager.agent.observe()
+                ctx.update({"url": getattr(obs, "url", None), "title": getattr(obs, "title", None)})
+        except Exception:
+            pass
+        first_error_id = _write_browser_api_error("/screenshot", e, context=ctx)
         logger.exception("Browser /screenshot failed (first attempt, error_id=%s)", first_error_id)
         try:
             await browser_manager.close()
@@ -162,11 +185,11 @@ async def get_screenshot():
                 raise RuntimeError("No screenshot bytes returned after browser restart.")
             return Response(content=data, media_type="image/jpeg")
         except Exception as retry_exc:
-            second_error_id = _write_browser_api_error("/screenshot(retry)", retry_exc)
+            second_error_id = _write_browser_api_error("/screenshot(retry)", retry_exc, context=ctx)
             logger.exception("Browser /screenshot failed (retry, error_id=%s)", second_error_id)
-            raise HTTPException(
+            return JSONResponse(
                 status_code=500,
-                detail=f"Screenshot failed (error_id={second_error_id})",
+                content={"ok": False, "error": "Screenshot failed", "error_id": second_error_id, "detail": str(retry_exc)},
             )
 
 @router.post("/mode")
@@ -189,7 +212,37 @@ async def set_mode(req: ModeRequest):
             "session_headless": browser_manager.headless
         }
     except Exception as e:
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+        error_id = _write_browser_api_error("/mode", e, context={"headless": req.headless, "scope": req.scope, "domain": req.domain})
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e), "error_id": error_id})
+
+
+@router.get("/errors", dependencies=[Depends(verify_token)])
+async def get_recent_errors(limit: int = 20):
+    """Return recent browser API errors (tail of browser_api.log)."""
+    limit = max(1, min(200, int(limit)))
+    path = os.path.join(_browser_log_dir(), "browser_api.log")
+    if not os.path.exists(path):
+        return {"ok": True, "data": [], "log_path": os.path.basename(path)}
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.read().splitlines()
+        # Group by blocks starting with '[' timestamp.
+        blocks: list[str] = []
+        current: list[str] = []
+        for line in lines:
+            if line.startswith("[") and "]" in line and "error_id=" in line:
+                if current:
+                    blocks.append("\n".join(current))
+                current = [line]
+            else:
+                if current:
+                    current.append(line)
+        if current:
+            blocks.append("\n".join(current))
+        blocks = blocks[-limit:]
+        return {"ok": True, "data": blocks}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 # Legacy endpoints support (optional, can keep for compatibility if needed)
 @router.post("/navigate")

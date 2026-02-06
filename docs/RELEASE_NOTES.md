@@ -2,7 +2,7 @@
 
 This page is a curated summary of what changed across releases (beyond GitHub’s auto-generated notes).
 
-## v5.0.0 -> v5.1.12 (2026-02-06)
+## v5.0.0 -> v5.1.14 (2026-02-06)
 
 ### Big Picture (What You Actually Got)
 - **Hub/Spoke agent runtime stabilized**: thin client (Discord/Web) delegates the reasoning loop to ORA Core; tools execute locally and results are fed back to Core.
@@ -23,6 +23,9 @@ This page is a curated summary of what changed across releases (beyond GitHub’
 - **MCP client support (stdio)**:
   - ORA can connect to configured MCP servers and expose their tools as ORA tools named like `mcp__<server>__<tool>`.
   - MCP tools are routed through the same approvals/audit gate.
+- **MCP trust boundary tightened (safe-by-default)**:
+  - Default deny patterns for dangerous tool names (delete/remove/wipe/push/publish/exec, etc.).
+  - Optional per-server `allowed_tools` allowlist and an explicit escape hatch for dangerous tools when you really want it.
 - **Router/tool selection hardening**:
   - Caps tool exposure to avoid massive tool lists.
   - Adds categories so “codebase inspection” tools are only exposed when appropriate.
@@ -36,6 +39,8 @@ This page is a curated summary of what changed across releases (beyond GitHub’
 ### Web / Media / UX Fixes That Matter
 - **Discord embed hard limit fix**:
   - Prevents 400 errors caused by embed title length > 256.
+- **Remote browser errors are diagnosable now**:
+  - Browser API failures return an `error_id` and write contextual error logs, so “nothing shows up” can be triaged from logs.
 - **Downloads & screenshots cleanup**:
   - Temp artifacts (screenshots/download files) are deleted after use in tool implementations.
   - Large downloads can be delivered via temporary link pages when Discord limits are exceeded (TTL based).
@@ -44,6 +49,9 @@ This page is a curated summary of what changed across releases (beyond GitHub’
 - **Portable logging paths**:
   - Logging now follows `config.log_dir` (env-driven) rather than hardcoding `L:\...` paths.
   - Guild logs and local log reader follow the same base directory.
+- **Audit log secrecy + retention**:
+  - Audit logs redact secret-like strings and bound args/result sizes.
+  - Audit tables are pruned by retention/row limits (env-driven), with a periodic pruning loop in the web app.
 - **CI/release pipeline made stricter and reproducible**:
   - Release workflow verifies tag == `VERSION`.
   - CI runs `ruff`, `mypy`, `compileall`, smoke tests without requiring real secrets.
@@ -55,6 +63,8 @@ If you previously relied on “startup auto-open” and “startup auto-tunnel�
 - `ORA_TUNNELS_ALLOW_QUICK=1` (only if you explicitly want quick tunnels without a named token)
 
 ## Per-Version Highlights (Quick Index)
+- **v5.1.14**: audit redaction + retention; MCP guardrails; browser error_id + error log endpoint.
+- **v5.1.13**: empty final response fallback + less plan spam.
 - **v5.1.12**: CI mypy fix (`Store.create_scheduled_task()` return).
 - **v5.1.11**: Startup safety defaults (no auto browser/tunnels unless enabled).
 - **v5.1.10**: Portable logging paths (no L:\ hardcoding).
@@ -66,4 +76,3 @@ If you previously relied on “startup auto-open” and “startup auto-tunnel�
 - **v5.1.3**: Owner-only scheduler scaffold (disabled by default).
 - **v5.1.2**: Dynamic task board; cleanup guarantees; download page cleanup loop.
 - **v5.1.0 / v5.0.0**: Architecture diagrams + reproducible release alignment.
-
