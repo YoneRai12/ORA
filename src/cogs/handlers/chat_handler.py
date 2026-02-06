@@ -291,11 +291,8 @@ Interests: {interests}
 - **4K対応**: 高画質要求には `resolution: "4K"` を指定。
 - **自己視覚フィードバック**: 実行したスキルの成果（スクショ等）は即座にフィードバックされます。
 
-[エージェントプロトコル: 実行計画の表示]
-複雑な手順が必要な場合、返答の冒頭に「📋 **エージェント実行計画 (Skill Plan)**:」を提示してください。
-
-[Harness Event Protocol]
-あなたの思考（Thought）と進捗（Progress）は、リアルタイムで Harness ストリームへ送出されます。
+ [Harness Event Protocol]
+ あなたの思考（Thought）と進捗（Progress）は、リアルタイムで Harness ストリームへ送出されます。
 
  [運用ルール: CAPTCHA / Anti-Bot]
  ブラウザ操作中に CAPTCHA や「I'm not a robot / unusual traffic」などの検知が出た場合、
@@ -466,8 +463,19 @@ Interests: {interests}
                     trace_event("swarm.exception", correlation_id=correlation_id, error=str(e))
 
             # If tools were filtered, log it
-            if len(selected_tools) != len(discord_tools):
-                logger.info(f"Tool Selection: {len(discord_tools)} -> {len(selected_tools)} tools")
+                if len(selected_tools) != len(discord_tools):
+                    logger.info(f"Tool Selection: {len(discord_tools)} -> {len(selected_tools)} tools")
+
+            # Only show "Execution Plan" cards when the request is genuinely multi-step or explicitly asked.
+            allow_plan_preview = False
+            try:
+                if route_meta.get("complexity") == "high":
+                    allow_plan_preview = True
+                else:
+                    plan_markers = ["計画", "実行計画", "plan", "手順", "ステップ", "step", "タスク", "task"]
+                    allow_plan_preview = any(m in p_low for m in plan_markers)
+            except Exception:
+                allow_plan_preview = False
 
             bot_cfg = getattr(self.bot, "config", None)
             preferred_model = getattr(bot_cfg, "openai_default_model", "gpt-5-mini")
@@ -504,6 +512,8 @@ Interests: {interests}
             model_name = "ORA Universal Brain"
             download_summaries = []
             tool_feedback_summaries = []
+            last_dispatch_tool = None
+            last_dispatch_tool_call_id = None
             if hasattr(self, "_plan_sent"):
                 del self._plan_sent
 
@@ -515,6 +525,8 @@ Interests: {interests}
                     full_content += ev_data.get("text", "")
 
                     # [VISUALIZATION] Check if content is an Execution Plan (Relaxed Match)
+                    if not allow_plan_preview:
+                        continue
                     has_plan_header = "Execution Plan" in full_content or "実行計画" in full_content
                     if has_plan_header and "1." in full_content and not hasattr(self, "_plan_sent"):
                         # Only send ONCE per run
@@ -522,14 +534,14 @@ Interests: {interests}
                         plan_lines = [line.strip() for line in msg_lines if line.strip().startswith("1.") or line.strip().startswith("2.") or line.strip().startswith("3.") or line.strip().startswith("-")]
 
                         if plan_lines:
-                             embed = discord.Embed(
-                                 title="🤖 Harness Agent Execution Plan",
-                                 description="\n".join(plan_lines),
-                                 color=0x00ffff # Cyan (Codex Style)
-                             )
-                             embed.set_footer(text="OpenAI Codex Harness Architecture")
-                             await message.reply(embed=embed)
-                             self._plan_sent = True
+                              embed = discord.Embed(
+                                  title="🤖 Harness Agent Execution Plan",
+                                  description="\n".join(plan_lines),
+                                  color=0x00ffff # Cyan (Codex Style)
+                              )
+                              embed.set_footer(text="OpenAI Codex Harness Architecture")
+                              await message.reply(embed=embed)
+                              self._plan_sent = True
 
                 elif ev_type == "thought":
                     # Stream thoughts to a separate log or specific UI element
@@ -552,6 +564,8 @@ Interests: {interests}
                     tool_name = ev_data.get("tool")
                     tool_args = ev_data.get("args", {})
                     tool_call_id = ev_data.get("tool_call_id")
+                    last_dispatch_tool = tool_name
+                    last_dispatch_tool_call_id = tool_call_id
                     logger.info(f"🚀 [Dispatch] CID: {correlation_id} | Tool: {tool_name}")
                     await status_manager.set_task_state(2, "running", f"{tool_name} 実行中")
                     await status_manager.add_timeline(f"Dispatch: {tool_name}")
@@ -689,7 +703,39 @@ Interests: {interests}
                 full_content = "\n".join(uniq[-2:])
 
             if not (full_content or "").strip():
-                full_content = "ツール処理は実行されましたが、最終テキスト応答が空でした。必要なら結果を再表示します。"
+                # Hard guarantee: never send an empty reply to Discord.
+                cid_short = (correlation_id or "")[:8] if correlation_id else "N/A"
+                run_short = (run_id or "")[:8] if run_id else "N/A"
+                detail = f"CID={correlation_id} run_id={run_id} last_tool={last_dispatch_tool} tool_call_id={last_dispatch_tool_call_id}"
+                full_content = (
+                    "⚠️ ツール処理は実行されましたが、最終テキスト応答が空でした。\n"
+                    f"CID: `{cid_short}` / Run: `{run_short}`\n"
+                    "必要ならログ確認できます（例: `get_logs` で行数を増やしてCIDで検索）。"
+                )
+                trace_event(
+                    "chat.empty_final_fallback",
+                    correlation_id=correlation_id,
+                    run_id=run_id,
+                    last_tool=last_dispatch_tool,
+                    tool_call_id=last_dispatch_tool_call_id,
+                )
+                try:
+                    store = getattr(self.bot, "store", None)
+                    if store and hasattr(store, "log_chat_event"):
+                        asyncio.create_task(
+                            store.log_chat_event(
+                                ts=int(datetime.datetime.now().timestamp()),
+                                actor_id=message.author.id,
+                                guild_id=message.guild.id if message.guild else None,
+                                channel_id=message.channel.id,
+                                correlation_id=correlation_id,
+                                run_id=run_id,
+                                event_type="empty_final_fallback",
+                                detail=detail[:900],
+                            )
+                        )
+                except Exception:
+                    pass
 
             # Send as Embed Cards
             # Split if > 4000 chars

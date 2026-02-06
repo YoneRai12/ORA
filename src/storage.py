@@ -113,6 +113,20 @@ CREATE TABLE IF NOT EXISTS approval_requests (
   status TEXT NOT NULL DEFAULT 'pending',
   decided_at INTEGER
 );
+
+-- Chat-level events (for tracking empty-final fallbacks, etc.)
+CREATE TABLE IF NOT EXISTS chat_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  actor_id TEXT,
+  guild_id TEXT,
+  channel_id TEXT,
+  correlation_id TEXT,
+  run_id TEXT,
+  event_type TEXT NOT NULL,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chat_events_corr ON chat_events(correlation_id);
 """
 
 
@@ -505,6 +519,42 @@ class Store:
             )
             await db.commit()
             return (cur.rowcount or 0) > 0
+
+    async def log_chat_event(
+        self,
+        *,
+        ts: int,
+        actor_id: Optional[int],
+        guild_id: Optional[int],
+        channel_id: Optional[int],
+        correlation_id: Optional[str],
+        run_id: Optional[str],
+        event_type: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Best-effort chat-level event logging (must never break primary flow)."""
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute(
+                    (
+                        "INSERT INTO chat_events(ts, actor_id, guild_id, channel_id, correlation_id, run_id, event_type, detail) "
+                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
+                    ),
+                    (
+                        int(ts),
+                        str(actor_id) if actor_id is not None else None,
+                        str(guild_id) if guild_id is not None else None,
+                        str(channel_id) if channel_id is not None else None,
+                        correlation_id,
+                        run_id,
+                        event_type,
+                        detail,
+                    ),
+                )
+                await db.commit()
+        except Exception:
+            # Never block chat on logging failures.
+            return
 
     async def set_scheduled_task_enabled(self, *, owner_id: int, task_id: int, enabled: bool) -> bool:
         now = int(time.time())

@@ -2,6 +2,11 @@
 
 See also: `docs/RELEASE_NOTES.md` (curated summary, v5.0.0 -> current).
 
+## v5.1.13 (2026-02-06) - Empty Reply Guard + Less Plan Spam
+- Added a chat-level audit table `chat_events` and logs `empty_final_fallback` occurrences (correlation_id/run_id).
+- When Core returns an empty final response, ORA now sends a traceable fallback (CID/Run short IDs) instead of a vague message.
+- Execution Plan cards are only shown when the request is complex or explicitly asks for a plan.
+
 ## v5.1.12 (2026-02-06) - CI Fix (Mypy)
 - Fixed missing return in `Store.create_scheduled_task()` so `mypy src/` passes in GitHub Actions.
 
