@@ -167,6 +167,14 @@ class Config:
     # Tunnel Hostname (Phase 62)
     tunnel_hostname: Optional[str] = None
 
+    # Swarm Orchestration (2026 Prep)
+    swarm_enabled: bool = False
+    swarm_max_tasks: int = 3
+    swarm_max_workers: int = 3
+    swarm_max_retries: int = 1
+    swarm_subtask_timeout_sec: int = 90
+    swarm_merge_model: str = "gpt-5-mini"
+
     @classmethod
     def load(cls) -> "Config":
         """Load configuration from environment variables."""
@@ -366,6 +374,14 @@ class Config:
         comfy_dir = os.getenv("COMFY_DIR")
         comfy_bat = os.getenv("COMFY_BAT")
 
+        # Swarm Orchestration
+        swarm_enabled = os.getenv("ORA_SWARM_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+        swarm_max_tasks = _parse_optional_int(os.getenv("ORA_SWARM_MAX_TASKS")) or 3
+        swarm_max_workers = _parse_optional_int(os.getenv("ORA_SWARM_MAX_WORKERS")) or 3
+        swarm_max_retries = _parse_optional_int(os.getenv("ORA_SWARM_MAX_RETRIES")) or 1
+        swarm_subtask_timeout_sec = _parse_optional_int(os.getenv("ORA_SWARM_SUBTASK_TIMEOUT_SEC")) or 90
+        swarm_merge_model = os.getenv("ORA_SWARM_MERGE_MODEL", "gpt-5-mini").strip() or "gpt-5-mini"
+
         return cls(
             token=token,
             app_id=app_id,
@@ -418,6 +434,12 @@ class Config:
             model_policies=_external_config.get("model_policies", {}),
             browser_proxy=browser_proxy,
             browser_remote_token=os.getenv("BROWSER_REMOTE_TOKEN"),
+            swarm_enabled=swarm_enabled,
+            swarm_max_tasks=max(1, min(8, swarm_max_tasks)),
+            swarm_max_workers=max(1, min(8, swarm_max_workers)),
+            swarm_max_retries=max(0, min(5, swarm_max_retries)),
+            swarm_subtask_timeout_sec=max(20, min(600, swarm_subtask_timeout_sec)),
+            swarm_merge_model=swarm_merge_model,
         )
 
     def validate(self) -> None:

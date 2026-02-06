@@ -8,6 +8,7 @@ import discord
 
 from src.cogs.handlers.tool_selector import ToolSelector
 from src.cogs.handlers.rag_handler import RAGHandler
+from src.cogs.handlers.swarm_orchestrator import SwarmOrchestrator
 from src.utils.agent_trace import trace_event
 from src.utils.core_client import core_client
 
@@ -20,6 +21,7 @@ class ChatHandler:
         self.bot = cog.bot
         self.tool_selector = ToolSelector(self.bot)
         self.rag_handler = RAGHandler(self.bot)
+        self.swarm = SwarmOrchestrator(self.bot, self.tool_selector.llm_client)
         logger.info("ChatHandler v3.9.2 (RAG Enabled) Initialized")
 
     @staticmethod
@@ -317,6 +319,36 @@ Traits: {traits}
                     "この依頼は複雑です。必ず最初に『📋 エージェント実行計画』を短く提示してから、"
                     "必要なツール呼び出しを開始してください。\n\n"
                 ) + full_prompt_with_rag
+
+            # [SWARM] Optional high-complexity pre-orchestration
+            if self.swarm.should_run(route_meta, prompt):
+                await status_manager.add_timeline("Swarm: タスク分解中")
+                trace_event("swarm.triggered", correlation_id=correlation_id, route_meta=route_meta)
+                try:
+                    swarm_output = await self.swarm.run(
+                        prompt=prompt,
+                        rag_context=rag_context,
+                        provider_id=str(message.author.id),
+                        display_name=message.author.display_name,
+                        context_binding=context_binding,
+                        client_context=client_context,
+                        correlation_id=correlation_id,
+                    )
+                    if swarm_output.get("ok") and swarm_output.get("summary"):
+                        await status_manager.add_timeline("Swarm: 結果統合完了")
+                        summary = swarm_output["summary"]
+                        full_prompt_with_rag = (
+                            "[SWARM PRE-ANALYSIS]\n"
+                            f"{summary}\n\n"
+                            "[Use the above as precomputed parallel analysis context.]\n\n"
+                            + full_prompt_with_rag
+                        )
+                    else:
+                        await status_manager.add_timeline("Swarm: Guardrailsで停止")
+                except Exception as e:
+                    logger.warning(f"Swarm pre-analysis failed: {e}")
+                    await status_manager.add_timeline("Swarm: 失敗 -> 通常処理へ")
+                    trace_event("swarm.exception", correlation_id=correlation_id, error=str(e))
 
             # If tools were filtered, log it
             if len(selected_tools) != len(discord_tools):
