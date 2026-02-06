@@ -69,25 +69,37 @@ ORA currently runs as a **Hub/Spoke agent pipeline**:
 ### 🔄 End-to-End Request Path (Sequence)
 ```mermaid
 sequenceDiagram
+    autonumber
     participant U as User
     participant P as Discord/Web
-    participant C as ChatHandler
-    participant R as RAG + ToolSelector
-    participant O as ORA Core API
-    participant T as Local Tools
+    participant C as ORA Bot (ChatHandler)
+    participant S as Policy Gate (Risk + Approvals + Audit)
+    participant O as ORA Core API (Run Owner)
+    participant T as Local Tools (Skills/MCP)
 
     U->>P: Prompt + attachments
     P->>C: Normalized request (source, user, channel)
-    C->>R: classify intent + difficulty
-    R-->>C: tool candidates + plan mode
-    C->>O: POST /v1/messages
-    loop Agentic tool loop until done
-        O-->>C: dispatch (tool, args, tool_call_id)
-        C->>T: execute selected tool
-        T-->>C: result + artifacts
-        C->>O: POST /v1/runs/run_id/results
+    C->>O: POST /v1/messages (create run)
+    O-->>C: run_id
+    C->>O: GET /v1/runs/<run_id>/events (SSE)
+    loop Core-driven agent loop until done
+        O-->>C: tool_call (tool, args, tool_call_id)
+        C->>S: score risk + require approval?
+        alt approved
+            S-->>C: allow (audit logged)
+            C->>T: execute tool
+            alt tool ok
+                T-->>C: result + artifacts
+            else tool error
+                T-->>C: error (retry semantics vary by tool)
+            end
+            C->>O: POST /v1/runs/<run_id>/results (tool output)
+        else denied/timeout
+            S-->>C: deny
+            C->>O: POST /v1/runs/<run_id>/results (denied/error)
+        end
     end
-    O-->>C: final response
+    O-->>C: final response event
     C-->>P: formatted reply
     P-->>U: answer + files/links
 ```
@@ -100,79 +112,114 @@ flowchart LR
   end
 
   subgraph L2["Client (ORA Bot)"]
-    CH["ChatHandler"] --> RT["RAG + ToolSelector"]
+    CH["ChatHandler"]
+    RT["RAG + ToolSelector (local)"]
+    PG["Policy Gate<br/>risk scoring + approvals"]
     TH["ToolHandler"]
   end
 
   subgraph L3["Core (ORA Core API)"]
     MSG["POST /v1/messages"] --> EV["GET /v1/runs/<id>/events (SSE)"]
     RES["POST /v1/runs/<id>/results"]
+    ENG["Run Engine (owns loop)"]
   end
 
   subgraph L4["Local Executors"]
-    TOOLS["Skills/Tools (web, media, system, etc.)"]
+    TOOLS["Skills/Tools"]
+    MCP["MCP servers (stdio)"]
+  end
+
+  subgraph L5["State & Storage"]
+    DB1[("Client SQLite<br/>ora_bot.db<br/>(audit/approvals/scheduler)")]
+    MEM["Memory JSON<br/>memory/users + memory/guilds"]
+    ART["Temp artifacts<br/>(screenshots/downloads, TTL cleanup)"]
+    LOGS["Logs<br/>(ORA_LOG_DIR)"]
+    VEC["Vector/RAG store<br/>(optional)"]
   end
 
   P --> CH
-  RT --> MSG
-  EV --> CH
-  CH --> TH --> TOOLS --> TH --> RES --> EV
+  CH --> RT --> MSG
+  MSG --> EV --> CH
+  CH --> TH --> PG
+  PG --> TOOLS --> TH --> RES --> ENG --> EV
+  PG --> MCP --> TH
+
+  CH -.context.-> MEM
+  RT -.rag.-> VEC
+  PG -.audit.-> DB1
+  TH -.artifacts.-> ART
+  CH -.logs.-> LOGS
 ```
 
 ### 🏗️ Runtime Architecture (Current)
 ```mermaid
-flowchart LR
-    subgraph Platform
-        D[Discord]
-        W[Web]
-    end
+flowchart TB
+  subgraph Platform["Clients"]
+    D["Discord"]
+    W["Web UI / API client"]
+  end
 
-    subgraph Client["Client Process"]
-        CH[ChatHandler]
-        VH[VisionHandler]
-        TS[ToolSelector]
-        RH[RAGHandler]
-        TH[ToolHandler]
-    end
+  subgraph Client["ORA Bot Process (this repo)"]
+    CH["ChatHandler<br/>(context, routing, SSE)"]
+    VH["VisionHandler"]
+    RT["RAG + ToolSelector (local)"]
+    PG["Policy Gate<br/>(risk + approvals + audit)"]
+    TH["ToolHandler<br/>(exec + cleanup)"]
+    WS["Web Service<br/>(admin/audit/browser endpoints)"]
+    ST[("Client SQLite<br/>ora_bot.db")]
+    MEM["Memory JSON<br/>memory/ (users + guilds)"]
+    LOGS["Logs<br/>(ORA_LOG_DIR)"]
+    ART["Temp artifacts<br/>(TTL cleanup)"]
+  end
 
-    subgraph Core["Core Process"]
-        API[Core API]
-        RUN[Run Engine]
-        DB[(SQLite)]
-    end
+  subgraph Core["ORA Core Process (core/)"]
+    API["Core API"]
+    RUN["Run Engine<br/>(run state owner)"]
+    CDB[("Core DB")]
+  end
 
-    subgraph Tools["Tool Executors"]
-        WEB[web tools]
-        MEDIA[media tools]
-        SYSTEM[system tools]
-    end
+  subgraph Exec["Local Executors"]
+    TOOLS["Tools/Skills"]
+    MCP["MCP Servers (stdio)"]
+    BROW["Browser Agent (Playwright)"]
+  end
 
-    D --> CH
-    W --> CH
-    CH --> VH
-    CH --> TS
-    CH --> RH
-    CH --> API
-    API --> RUN
-    RUN --> DB
-    RUN --> CH
-    CH --> TH
-    TH --> WEB
-    TH --> MEDIA
-    TH --> SYSTEM
-    WEB --> TH
-    MEDIA --> TH
-    SYSTEM --> TH
-    TH --> API
-    CH --> D
-    CH --> W
+  subgraph Obs["Observability IDs"]
+    IDS["correlation_id / run_id / tool_call_id"]
+  end
+
+  D --> CH
+  W --> CH
+
+  CH --> VH
+  CH --> RT
+
+  CH --> API
+  API --> RUN --> CDB
+  RUN --> API --> CH
+
+  CH --> TH --> PG
+  PG --> TOOLS --> TH
+  PG --> MCP --> TH
+  TH --> API
+
+  PG -.audit.-> ST
+  CH -.state.-> MEM
+  CH -.logs.-> LOGS
+  TH -.artifacts.-> ART
+  TH --> BROW
+
+  CH -.trace.-> IDS
+  TH -.trace.-> IDS
 ```
 
 ### Routing & Tooling Notes (As Implemented)
 1. Platform metadata (`source`, guild/channel context, admin flags) is injected before Core call.
-2. Complexity-aware routing is done in `ToolSelector`; high-complexity tasks can force plan-first behavior.
+2. The **agentic loop is Core-driven**: Core owns `run_id` state and emits tool calls; the client executes tools and submits results back.
+3. Complexity-aware routing is done locally (ToolSelector/RAG) to keep tool exposure small and relevant.
 3. Vision attachments are normalized and sent in canonical `image_url` shape for cloud models.
 4. `web_download` supports Discord size-aware delivery and temporary 30-minute download pages.
+5. Safety/permissions are enforced at a single choke point (Policy Gate at ToolHandler): risk scoring, approvals, and audit logging.
 5. CAPTCHA/anti-bot pages are detected and handled by strategy switch, not bypass attempts.
 
 ### 3. 👥 Shadow Clone (Zero Downtime)
