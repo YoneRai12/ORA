@@ -1,6 +1,6 @@
 <div align="center">
 
-# ORA (v5.1.4-Singularity) 🌌
+# ORA (v5.1.5-Singularity) 🌌
 ### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
@@ -88,6 +88,33 @@ sequenceDiagram
     O-->>C: 最終回答
     C-->>P: プラットフォーム向け整形
     P-->>U: 回答 + ファイル/リンク
+```
+
+### 🧭 End-to-End フロー図（スイムレーン）
+```mermaid
+flowchart LR
+  subgraph L1["Platform"]
+    U["User"] --> P["Discord/Web message"]
+  end
+
+  subgraph L2["Client (ORA Bot)"]
+    CH["ChatHandler"] --> RT["RAG + ToolSelector"]
+    TH["ToolHandler"]
+  end
+
+  subgraph L3["Core (ORA Core API)"]
+    MSG["POST /v1/messages"] --> EV["GET /v1/runs/<id>/events (SSE)"]
+    RES["POST /v1/runs/<id>/results"]
+  end
+
+  subgraph L4["Local Executors"]
+    TOOLS["Skills/Tools (web, media, system, etc.)"]
+  end
+
+  P --> CH
+  RT --> MSG
+  EV --> CH
+  CH --> TH --> TOOLS --> TH --> RES --> EV
 ```
 
 ### 🏗️ アーキテクチャ概要図
@@ -273,9 +300,9 @@ pytest tests/test_smoke.py
 3. タグ `vX.Y.Z` を作成して push
 
 ```bash
-python scripts/verify_version.py --tag v5.1.4
-git tag v5.1.4
-git push origin v5.1.4
+python scripts/verify_version.py --tag v5.1.5
+git tag v5.1.5
+git push origin v5.1.5
 ```
 
 `release.yml` はタグと `VERSION` が一致しないと失敗するため、他者でも同じ手順で再現できます。

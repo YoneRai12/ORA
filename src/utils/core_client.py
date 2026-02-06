@@ -6,6 +6,55 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+def extract_text_from_core_data(data: Any) -> Optional[str]:
+    """
+    Core 'final' payload shape is not perfectly stable across versions/providers.
+    Try a handful of common shapes without crashing.
+    """
+    if data is None:
+        return None
+    if isinstance(data, str):
+        return data
+    if isinstance(data, list):
+        parts: list[str] = []
+        for item in data:
+            t = extract_text_from_core_data(item)
+            if isinstance(t, str) and t.strip():
+                parts.append(t.strip())
+        return "\n".join(parts).strip() if parts else None
+    if not isinstance(data, dict):
+        return None
+
+    # Most common (current): {"text": "..."}
+    for k in ("text", "final", "answer", "content", "message"):
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+
+    # OpenAI Responses-like shape:
+    # {"output":[{"content":[{"type":"output_text","text":"..."}]}]}
+    out = data.get("output")
+    if isinstance(out, list):
+        parts: list[str] = []
+        for o in out:
+            if not isinstance(o, dict):
+                continue
+            content = o.get("content")
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and isinstance(c.get("text"), str) and c["text"].strip():
+                        parts.append(c["text"].strip())
+        if parts:
+            return "\n".join(parts).strip()
+
+    # Generic nested dict fallbacks
+    for k in ("data", "result", "response"):
+        t = extract_text_from_core_data(data.get(k))
+        if isinstance(t, str) and t.strip():
+            return t
+
+    return None
+
 class CoreAPIClient:
     """
     Client for ORA Core API (/v1).
@@ -180,7 +229,7 @@ class CoreAPIClient:
         """
         async for event in self.stream_events(run_id, timeout):
             if event.get("event") == "final":
-                return event.get("data", {}).get("text")
+                return extract_text_from_core_data(event.get("data"))
         return None
 
     async def poll_completion(self, run_id: str, timeout: int = 300) -> Optional[str]:

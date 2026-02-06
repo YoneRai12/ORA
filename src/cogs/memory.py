@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 CHANNEL_MEMORY_DIR = os.path.join(MEMORY_DIR, "channels")
 USER_MEMORY_DIR = os.path.join(MEMORY_DIR, "users")
+GUILD_MEMORY_DIR = os.path.join(MEMORY_DIR, "guilds")
 
 
 class SimpleFileLock:
@@ -124,6 +125,8 @@ class MemoryCog(commands.Cog):
         self.message_buffer: Dict[int, list] = {}
         # Channel Buffer: {channel_id: [{"content": str, "timestamp": str, "author": str}, ...]}
         self.channel_buffer: Dict[int, list] = {}
+        # Guild Buffer: {guild_id: [{"content": str, "timestamp": str, "author": str, "channel": str}, ...]}
+        self.guild_buffer: Dict[int, list] = {}
 
         # Concurrency Control (Worker: 50, Main: 20)
         limit = 50 if worker_mode else 10  # Main bot keeps low profile
@@ -259,7 +262,7 @@ class MemoryCog(commands.Cog):
         """Ensure memory directory exists."""
         # NOTE: Some code paths still read/write profiles under MEMORY_DIR directly,
         # but current layout is MEMORY_DIR/{users,channels,...}. Ensure all exist.
-        for d in [MEMORY_DIR, USER_MEMORY_DIR, CHANNEL_MEMORY_DIR]:
+        for d in [MEMORY_DIR, USER_MEMORY_DIR, CHANNEL_MEMORY_DIR, GUILD_MEMORY_DIR]:
             if not os.path.exists(d):
                 try:
                     os.makedirs(d, exist_ok=True)
@@ -554,6 +557,39 @@ class MemoryCog(commands.Cog):
             self.channel_buffer[message.channel.id] = []
             asyncio.create_task(self._analyze_channel_wrapper(message.channel.id, c_msgs))
 
+        # ---------------------------------------------------------
+        # GUILD/SERVER MEMORY BUFFERING (high-level, public only)
+        # ---------------------------------------------------------
+        try:
+            if message.guild and is_pub:
+                gid = message.guild.id
+                if gid not in self.guild_buffer:
+                    self.guild_buffer[gid] = []
+                self.guild_buffer[gid].append(
+                    {
+                        "content": message.content,
+                        "timestamp": datetime.now().isoformat(),
+                        "author": message.author.display_name,
+                        "channel": message.channel.name if hasattr(message.channel, "name") else "unknown",
+                    }
+                )
+                # Heuristic trigger (cheap): every 25 public messages per guild
+                if len(self.guild_buffer[gid]) >= 25:
+                    g_msgs = self.guild_buffer[gid][:]
+                    self.guild_buffer[gid] = []
+                    asyncio.create_task(
+                        self._update_guild_profile_heuristic(
+                            gid,
+                            g_msgs,
+                            guild_name=message.guild.name if message.guild else "",
+                        )
+                    )
+                # Cap buffer in case trigger doesn't run
+                if len(self.guild_buffer[gid]) > 100:
+                    self.guild_buffer[gid].pop(0)
+        except Exception:
+            pass
+
 
         # ---------------------------------------------------------
         # INSTANT NAME UPDATE (Fix for Dashboard "Unknown" Issue)
@@ -824,6 +860,85 @@ class MemoryCog(commands.Cog):
         """Retrieve channel profile (Summary/Topic)."""
         path = self._get_channel_memory_path(channel_id)
         return await self._read_profile_retry(path)
+
+    def _get_guild_memory_path(self, guild_id: int) -> str:
+        """Get path to guild/server memory file."""
+        return os.path.join(GUILD_MEMORY_DIR, f"{guild_id}.json")
+
+    async def get_guild_profile(self, guild_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieve guild/server profile (high-level hint/topics)."""
+        path = self._get_guild_memory_path(guild_id)
+        return await self._read_profile_retry(path)
+
+    async def set_guild_hint(self, guild_id: int, hint: str) -> None:
+        """
+        Set a high-level guild hint. This is meant to disambiguate acronyms and domain context
+        (e.g., "この鯖はVALORANT中心").
+        """
+        if not guild_id:
+            return
+        hint = (hint or "").strip()
+        if not hint:
+            return
+        path = self._get_guild_memory_path(guild_id)
+        current = await self._read_profile_retry(path) or {}
+        if not isinstance(current, dict):
+            current = {}
+        current["guild_id"] = int(guild_id)
+        current["hint"] = hint
+        current["hint_source"] = "manual"
+        current["updated_at"] = datetime.now().isoformat()
+        await self._save_user_profile_atomic(path, current)
+
+    async def _update_guild_profile_heuristic(self, guild_id: int, entries: list[dict], guild_name: str = "") -> None:
+        """
+        Deterministic, low-cost guild profiling.
+        This intentionally avoids LLM calls and only writes safe, high-level aggregate info.
+        """
+        if not guild_id or not entries:
+            return
+
+        text = "\n".join([str(e.get("content") or "") for e in entries])[:20000].lower()
+        if not text.strip():
+            return
+
+        keyword_topics: dict[str, list[str]] = {
+            "VALORANT": ["valorant", "valo", "バロラント", "バロ"],
+            "Apex Legends": ["apex", "エーペックス", "えぺ", "apex legends"],
+            "Fortnite": ["fortnite", "フォートナイト", "フォトナ"],
+            "League of Legends": ["league of legends", "lol", "リーグ", "lol"],
+        }
+
+        counts: dict[str, int] = {}
+        for topic, keys in keyword_topics.items():
+            c = 0
+            for k in keys:
+                if k and k in text:
+                    c += text.count(k)
+            if c > 0:
+                counts[topic] = c
+
+        topics = [t for t, _c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))][:5]
+
+        path = self._get_guild_memory_path(guild_id)
+        current = await self._read_profile_retry(path) or {}
+        if not isinstance(current, dict):
+            current = {}
+
+        current["guild_id"] = int(guild_id)
+        if guild_name:
+            current["guild_name"] = str(guild_name)[:120]
+        if topics:
+            current["topics"] = topics
+
+        # If no manual hint exists, set a simple auto-hint from top topic.
+        if not (current.get("hint") or "").strip() or current.get("hint_source") != "manual":
+            if topics:
+                current["hint"] = f"This server is primarily about {topics[0]}."
+                current["hint_source"] = "auto"
+
+        current["updated_at"] = datetime.now().isoformat()
+        await self._save_user_profile_atomic(path, current)
 
     async def _sanitize_traits(self, traits: List[Any]) -> List[str]:
         """Ensure traits are clean, short strings."""

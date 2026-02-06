@@ -10,7 +10,7 @@ from src.cogs.handlers.tool_selector import ToolSelector
 from src.cogs.handlers.rag_handler import RAGHandler
 from src.cogs.handlers.swarm_orchestrator import SwarmOrchestrator
 from src.utils.agent_trace import trace_event
-from src.utils.core_client import core_client
+from src.utils.core_client import core_client, extract_text_from_core_data
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,7 @@ class ChatHandler:
             # [MEMORY INJECTION] Fetch User Profile
             memory_context = ""
             channel_memory_context = ""
+            guild_memory_context = ""
             try:
                 memory_cog = self.cog.bot.get_cog("MemoryCog")
                 if memory_cog:
@@ -217,6 +218,45 @@ Interests: {interests}
                                 channel_memory_context = "\n[CHANNEL MEMORY]\n" + "\n".join(lines) + "\n"
                     except Exception:
                         pass
+
+                    # Guild/server-level memory (high-level server identity / dominant topics)
+                    try:
+                        if message.guild and hasattr(memory_cog, "get_guild_profile"):
+                            g_profile = await asyncio.wait_for(
+                                memory_cog.get_guild_profile(message.guild.id),
+                                timeout=1.0,
+                            )
+                            if isinstance(g_profile, dict) and g_profile:
+                                g_hint = (g_profile.get("hint") or "").strip()
+                                g_topics = g_profile.get("topics") or []
+                                if not isinstance(g_topics, list):
+                                    g_topics = []
+                                g_topics_s = ", ".join([str(x) for x in g_topics if str(x).strip()])[:250]
+                                lines = []
+                                if g_hint:
+                                    lines.append(f"- Hint: {g_hint[:500]}")
+                                if g_topics_s:
+                                    lines.append(f"- Topics: {g_topics_s}")
+                                if lines:
+                                    guild_memory_context = "\n[GUILD MEMORY]\n" + "\n".join(lines) + "\n"
+                    except Exception:
+                        pass
+
+                    # Light heuristic: if the creator/sub-admin explicitly states server identity
+                    # (e.g., "ここはVALORANTの鯖"), persist it as a guild hint to bias acronym disambiguation.
+                    try:
+                        from src.utils.access_control import is_owner, is_sub_admin
+                        if message.guild and hasattr(memory_cog, "set_guild_hint"):
+                            txt = (message.content or "").strip()
+                            low = txt.lower()
+                            if (("この鯖" in txt) or ("このサーバ" in txt) or ("ここは" in txt)) and any(k in low for k in ["valorant", "valo", "バロ", "バロラント"]):
+                                if is_owner(self.bot, message.author.id) or is_sub_admin(self.bot, message.author.id):
+                                    await memory_cog.set_guild_hint(
+                                        message.guild.id,
+                                        "This server is primarily VALORANT-related (Valorant-focused context).",
+                                    )
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.warning(f"Memory Fetch Failed: {e}")
 
@@ -268,9 +308,10 @@ Interests: {interests}
  [デバイス情報]
  {"[MOBILE] ユーザーはモバイル端末を使用しています。回答は簡潔にまとめ、複雑な表やフォーマットは避けてください。" if is_mobile else "[DESKTOP] ユーザーはPCを使用しています。詳細な解説とリッチなフォーマットが可能です。"}
 
- {memory_context}
- {channel_memory_context}
- """
+  {memory_context}
+  {guild_memory_context}
+  {channel_memory_context}
+  """
 
             # Prepend to prompt
             full_prompt = system_context.strip() + "\n\n" + prompt
@@ -588,7 +629,7 @@ Interests: {interests}
                         )
 
                 elif ev_type == "final":
-                    final_text = ev_data.get("text", "")
+                    final_text = extract_text_from_core_data(ev_data) or ""
                     if isinstance(final_text, str) and final_text.strip():
                         full_content = final_text
                     model_name = ev_data.get("model", model_name)

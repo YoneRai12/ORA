@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 import yaml
@@ -98,7 +98,6 @@ class Config:
     public_base_url: Optional[str]
     dev_guild_id: Optional[int]
     log_level: str
-    log_level: str
     log_dir: str
     state_dir: str  # Added
     memory_dir: str # Added
@@ -156,7 +155,7 @@ class Config:
     auth_strategy: str = "local"
 
     # Model Policies (from YAML)
-    model_policies: Dict[str, List[str]] = None
+    model_policies: Dict[str, List[str]] = field(default_factory=dict)
 
     # Browser Proxy (Software Kill Switch)
     browser_proxy: Optional[str] = None
@@ -181,7 +180,18 @@ class Config:
 
         token = os.getenv("DISCORD_BOT_TOKEN")
         if not token:
-            raise ConfigError("環境変数 DISCORD_BOT_TOKEN が未設定です。")
+            # CI / tests should not require real secrets. This avoids smoke tests failing on imports.
+            allow_missing = os.getenv("ORA_ALLOW_MISSING_SECRETS", "").strip().lower() in {"1", "true", "yes", "on"}
+            is_ci = os.getenv("CI", "").strip().lower() in {"1", "true", "yes", "on"}
+            try:
+                import sys
+                is_pytest = "pytest" in sys.modules
+            except Exception:
+                is_pytest = False
+            if allow_missing or is_ci or is_pytest:
+                token = "ci_dummy_token"
+            else:
+                raise ConfigError("環境変数 DISCORD_BOT_TOKEN が未設定です。")
 
         # Auth Strategy
         auth_strategy = os.getenv("AUTH_STRATEGY", "local").lower()

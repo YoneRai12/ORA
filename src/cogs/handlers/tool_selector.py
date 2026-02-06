@@ -25,7 +25,8 @@ class ToolSelector:
         self.last_route_meta: Dict[str, Any] = {}
         # Use a lightweight but capable model for routing
         # S4: Fetch from bot config with fallback to specific reliable models
-        self.model_name = getattr(self.bot.config, "standard_model", "gpt-5-mini")
+        bot_cfg = getattr(self.bot, "config", None)
+        self.model_name = getattr(bot_cfg, "standard_model", "gpt-5-mini")
         if not self.model_name or self.model_name == "gpt-5-mini":
              # If config says gpt-4o-mini but it fails (404), we might want to track this.
              # In some environments, the user's provider might not support this name.
@@ -33,10 +34,10 @@ class ToolSelector:
              self.model_name = os.getenv("ROUTER_MODEL", self.model_name)
 
         # Access key from bot config
-        api_key = self.bot.config.openai_api_key or os.getenv("OPENAI_API_KEY")
+        api_key = (getattr(bot_cfg, "openai_api_key", None) or os.getenv("OPENAI_API_KEY"))
 
         # Use Configured Base URL
-        base_url = getattr(self.bot.config, "openai_base_url", "https://api.openai.com/v1")
+        base_url = getattr(bot_cfg, "openai_base_url", "https://api.openai.com/v1")
 
         self.llm_client = LLMClient(
             base_url=base_url,
@@ -95,6 +96,10 @@ class ToolSelector:
                 "desc": "Server Management. Ban, Kick, Roles, User Info, Channel Ops.",
                 "tools": []
             },
+            "CODEBASE": {
+                "desc": "Local codebase inspection tools (grep/find/read/tree). Select only for code/repo/debug requests.",
+                "tools": [],
+            },
             "SYSTEM_UTIL": {
                 "desc": "Safe System Utils. Reminders, Memory, Help, Status checks. (SAFE DEFAULT)",
                 "tools": []
@@ -104,6 +109,18 @@ class ToolSelector:
 
         # --- CLASSIFICATION LOGIC (Mapping Tools to Categories) ---
         # Use sorted_tools here to be deterministic
+        safe_system_tools: set[str] = {
+            # Prefer keeping SYSTEM_UTIL small and actually safe.
+            "say",
+            "weather",
+            "read_chat_history",
+            "read_web_page",
+            "get_logs",
+            "system_info",
+            "router_health",
+            "check_privilege",
+        }
+
         for tool in sorted_tools:
             name = tool["name"].lower()
             tags = set(tool.get("tags", []))
@@ -125,13 +142,19 @@ class ToolSelector:
             elif any(x in name for x in ["voice", "speak", "tts", "music", "join", "leave"]) or "vc" in tags:
                  categories["VOICE_AUDIO"]["tools"].append(tool)
 
+            # Codebase / local search
+            elif ("code" in tags) or name.startswith("code_") or any(x in name for x in ["grep", "find", "read", "tree"]):
+                 categories["CODEBASE"]["tools"].append(tool)
+
             # Discord
             elif any(x in name for x in ["ban", "kick", "role", "user", "server", "channel", "wipe"]):
                  categories["DISCORD_SERVER"]["tools"].append(tool)
 
             # System/Default
-            else:
+            elif (name in safe_system_tools) or ("system" in tags) or ("monitor" in tags) or ("health" in tags):
                  categories["SYSTEM_UTIL"]["tools"].append(tool)
+            else:
+                 categories["OTHER"]["tools"].append(tool)
 
         # 2. Build Prompt (S6: Prefix Stabilization)
         # Construct STATIC parts first for KV Cache optimization
@@ -327,6 +350,11 @@ class ToolSelector:
             if wants_screenshot and not wants_browser_control:
                 final_tools = [t for t in final_tools if t.get("name") not in (remote_browser_tools - {"web_screenshot"})]
 
+        # Hard cap tool exposure to avoid "Tool Selection: 72 -> 29 tools" class issues.
+        max_tools = int(os.getenv("ORA_ROUTER_MAX_TOOLS", "10") or "10")
+        if len(final_tools) > max_tools:
+            final_tools = self._cap_tools(final_tools, prompt, max_tools=max_tools)
+
         # S6: Structured Logging (Timing Split)
         end_time_total = time.perf_counter()
         total_ms = round((end_time_total - start_time_total) * 1000, 2)
@@ -355,6 +383,40 @@ class ToolSelector:
             logger.error(f"Failed to push metrics to RouterMonitor: {e}")
 
         return final_tools
+
+    def _cap_tools(self, tools: List[dict], prompt: str, max_tools: int = 10) -> List[dict]:
+        """
+        Keep toolsets small and stable. Prefer the tools that most directly match the user's wording.
+        """
+        p = (prompt or "").lower()
+        want_download = any(k in p for k in ["保存", "ダウンロード", "download", "save", "mp3", "mp4", "record", "録画"])
+        want_screenshot = any(k in p for k in ["スクショ", "スクリーンショット", "screenshot", "キャプチャ"])
+        want_web = any(k in p for k in ["http://", "https://", "web", "ブラウザ", "開いて", "サイト"])
+        want_code = any(k in p for k in ["コード", "repo", "リポジトリ", "github", "gitlab", "バグ", "エラー", "stack trace"])
+
+        def score(t: dict) -> int:
+            name = (t.get("name") or "").lower()
+            tags = set((t.get("tags") or []))
+            s = 0
+            # Primary matches
+            if want_download and ("download" in name or "save" in name or "record" in name):
+                s += 50
+            if want_screenshot and ("screenshot" in name):
+                s += 40
+            if want_web and ("web" in tags or name.startswith("web_") or "web" in name):
+                s += 20
+            if want_code and (name.startswith("code_") or "code" in tags):
+                s += 20
+            # Safety bias
+            if "system" in tags or "monitor" in tags or name in {"say", "weather", "read_web_page", "read_chat_history"}:
+                s += 5
+            # Prefer narrower tools
+            if name in {"web_remote_control", "web_action"}:
+                s -= 10
+            return s
+
+        ranked = sorted(tools, key=lambda t: (-score(t), (t.get("name") or "")))
+        return ranked[: max(1, max_tools)]
 
     def _assess_complexity(self, prompt: str, selected_categories: List[str], selected_tools: List[dict]) -> tuple[str, List[str]]:
         """

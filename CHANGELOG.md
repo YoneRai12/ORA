@@ -1,132 +1,59 @@
 # ORA System Changelog
 
-## 🆕 v5.1.1 (2026/02/06) - CI Fix + Memory/Download Robustness
-### ✅ CI Fix (No Secrets Needed)
-* GitHub Actions smoke test now sets a dummy `DISCORD_BOT_TOKEN` so tests don’t fail on missing secrets.
+## v5.1.5 (2026-02-06) - Stability + Server Context Memory
+### Final Text Robustness
+- Final output now extracts text from multiple Core payload shapes (not only `data.text`), reducing empty replies after tool loops.
 
-### 🧠 Memory Safety
-* Ensures `memory/users/` is created at startup.
-* Prevents **channel memory** files (`memory/channels/<channel_id>.json`) from being misinterpreted as **user** files during cloud-sync.
+### Tool Router Hardening
+- Router no longer dumps most tools into a single "SYSTEM_UTIL" bucket.
+- Added a hard cap (`ORA_ROUTER_MAX_TOOLS`, default 10) to avoid huge tool lists (e.g., 29 tools).
+- Added a `CODEBASE` category so code inspection tools are only exposed for code/repo/debug requests.
 
-### 🎥 Download + 📸 Screenshot Hardening
-* `web_download` no longer crashes on older deployments where `download_video_smart()` doesn’t accept `split_strategy`.
-* `web_screenshot` embed title is now short/stable (`ORA Screenshot`) to avoid Discord’s 256-char title hard limit.
+### Guild/Server Memory (New)
+- Added guild-level memory file `memory/guilds/<guild_id>.json` (public-only aggregation).
+- ChatHandler injects `[GUILD MEMORY]` into the system context to bias acronym/domain disambiguation (e.g., VALORANT servers).
+- Added a deterministic heuristic profiler that updates guild topics periodically (no LLM calls).
 
-## 🆕 v5.1.2 (2026/02/06) - UX/Router Fixes + Cleanup Guarantees
-### 🧾 Task Card Is Now Dynamic
-* The initial “task board” no longer uses a fixed 3-step template; it adapts based on the request (attachments/web/save/logs).
+### CI/Test Reproducibility
+- Tests can run without real secrets (Config falls back to a dummy token in CI/pytest contexts).
+- Added `tests/conftest.py` so `import src...` works without manual `PYTHONPATH` setup.
 
-### 🧭 Stop Unwanted Screenshots
-* Tool router now avoids selecting remote browser/screenshot tools unless the user explicitly asks for “web操作/スクショ”.
+## v5.1.4 (2026-02-06) - Core SSE Robustness
+- Core SSE (`/v1/runs/{id}/events`) stream auto-retries within the timeout window on transient disconnects
+  (e.g., chunked transfer errors), with best-effort de-duplication.
 
-### 🧹 Cleanup Hardening
-* `web_screenshot` now cleans up local screenshot artifacts in a `finally` block (best-effort).
-* Web API now runs a periodic cleanup loop for expired temporary download entries (TTL=30 min).
+## v5.1.3 (2026-02-06) - Secure Automation Scaffold (Owner-Only)
+- Added owner-only scheduled tasks stored in SQLite (`scheduled_tasks`, `scheduled_task_runs`).
+- Scheduler is disabled by default (`ORA_SCHEDULER_ENABLED=0`).
+- Automated runs are LLM-only (`available_tools=[]`) for reproducibility and safety.
 
-### 📚 Basic Repo Hygiene
-* Added explicit “Secrets & .env” rules to `CONTRIBUTING.md`.
-* Ignored `logs/` and local handover notes via `.gitignore`.
+## v5.1.2 (2026-02-06) - UX/Router Fixes + Cleanup Guarantees
+- Task board is dynamic (no fixed 3-step template).
+- Router avoids selecting remote browser/screenshot tools unless explicitly requested.
+- Web API runs a periodic cleanup loop for expired temporary download entries (TTL=30 min).
 
-## 🆕 v5.1.3 (2026/02/06) - Secure Automation Scaffold (Owner-Only)
-### ⏰ Scheduler (Safe-by-Default)
-* Added owner-only scheduled tasks stored in SQLite (`scheduled_tasks`, `scheduled_task_runs`).
-* Scheduler is **disabled by default** (`ORA_SCHEDULER_ENABLED=0`).
-* Automated runs are **LLM-only** (`available_tools=[]`) for reproducibility and safety.
-* Added scheduler management tools (owner-only):
-  * `schedule_task`, `list_scheduled_tasks`, `toggle_scheduled_task`, `delete_scheduled_task`
+## v5.1.1 (2026-02-06) - CI Fix + Memory/Download Robustness
+- GitHub Actions smoke test can run without requiring real secrets.
+- Prevents channel memory files from being treated as user files during cloud sync.
+- `web_download` backward-compat for older `download_video_smart()` signatures.
+- `web_screenshot` embed title is short/stable to avoid Discord's 256-char title hard limit.
 
-### 🧱 Reproducibility + Audit Trail
-* Each scheduled run records start/finish/status/output snippet and Core run_id in DB.
+## v5.1.0 (2026-02-06) - Diagram Clarity + Release Alignment
+- README diagrams updated for readability (sequence diagrams + layered runtime view).
+- Local reproducibility steps documented (`ruff`, `mypy`, `compileall`, `pytest smoke`).
 
-## 🆕 v5.1.4 (2026/02/06) - Core SSE Robustness
-### 🔁 SSE Auto-Retry
-* Core SSE (`/v1/runs/{id}/events`) stream now auto-retries within the timeout window on transient disconnects
-  (e.g. `TransferEncodingError: Not enough data to satisfy transfer length header.`), with best-effort de-duplication.
+## v5.0.0 (2026-02-06) - Core Loop Alignment & Reproducible Release
+- Documented Hub/Spoke runtime flow and Mermaid diagrams.
+- Release workflow enforces `VERSION` + tag consistency.
+- Re-validated secrets are loaded from `.env`/env vars (no hardcoded tokens).
 
-## 🆕 v5.1.0 (2026/02/06) - Diagram Clarity + Release Alignment
-### 📈 Readable Architecture Diagrams
-Reworked README diagrams for practical readability:
-* Switched core flow to **sequence diagrams** (request -> routing -> dispatch -> tool loop -> final response).
-* Replaced dense runtime graph with a simpler layer model:
-  * Platform -> Client Process -> Core Process -> Tool Executors.
+## v4.2 (2026-01-10) - Security Hardening & NERV UI
+- Transitioned to env-driven config (no hardcoded secrets).
+- Added admin override UI improvements (visual red alert mode + telemetry).
+- Healer/system permission checks refactored for multi-host setups.
 
-### ✅ CI Confidence Pass
-Validated the same checks used by GitHub workflows:
-* `ruff check .`
-* `mypy src/ --ignore-missing-imports`
-* `python -m compileall src/`
-* `pytest tests/test_smoke.py`
-* Core checks (`core_test.yml` equivalent) also verified locally.
+## v4.1 (2026-01-05) - Agentic Stability & Self-Evolution
+- Codex stabilization and routing fixes.
+- Context awareness improvements (channel history fallback).
+- Logging + pre-flight health checks improvements.
 
-### 🏷️ Version Bump
-* Updated `VERSION` to `5.1.0`.
-* README header updated to `v5.1-Singularity`.
-
-## 🆕 v5.0.0 (2026/02/06) - Core Loop Alignment & Reproducible Release
-### 🧭 Architecture/Flow Documentation Sync
-Updated `README.md` and `README_JP.md` to match the current implementation:
-* **Hub/Spoke Runtime Flow**: `ChatHandler` -> `ToolSelector/RAG` -> `ORA Core` -> dispatch -> local tool execution -> `/v1/runs/{id}/results`.
-* Added Mermaid diagrams for both **End-to-End Request Path** and **Runtime Architecture**.
-
-### ✅ CI & Reproducibility Hardening
-* Added explicit local verification steps matching CI (`ruff`, `mypy`, `compileall`, `pytest smoke`).
-* Added version verification script: `scripts/verify_version.py`.
-* Updated release workflow to enforce:
-  * tag `vX.Y.Z` and `VERSION` file consistency
-  * deterministic release archive generation based on verified version.
-
-### 🔐 Secret Safety
-* Re-validated token/API-key handling pattern:
-  * credentials loaded from `.env`/environment variables
-  * no new hardcoded secrets introduced by this update.
-
-## 🆕 v4.2 Update (2026/01/10) - Security Hardening & NERV UI
-### 🛡️ Ultimate Security Architecture
-Completed the transition to a fully environment-variable driven configuration.
-*   **Zero Hardcoded Secrets**: All Admin IDs, Channel IDs, and Tokens are now strictly loaded from `.env`.
-*   **Safe-Guard**: Codebase is now completely safe for public GitHub hosting/forking.
-
-### 🚨 NERV-Style Admin Override (Visual Upgrade)
-*   **Red Alert Mode**: When Admin Override is active, the Dashboard background shifts to a dynamic "Hex-Grid Red Alert" state.
-*   **System Telemetry**: Added "Core System Connection" and "Root Injection" sequences to the override animation.
-
-### 🐛 Healer & System Optimization
-*   **Refactored Logic**: `healer.py` and `system.py` permission checks are now dynamic, allowing for seamless transfers between Main and Sub-PCs.
-
----
-
-## 🆕 v4.1 (2026/01/05) - Agentic Stability & Self-Evolution
-### 🤖 High-End Model Restoration (Codex stabilization)
-Stabilized agentic capabilities for the Shared Traffic series.
-*   **gpt-5.1-codex Support**: Correctly routes to the `/responses` endpoint and handles "Tool Call" parsing (flattening & mapping).
-*   **Auto-Parameter Filtering**: Automatically removes incompatible parameters like temperature for O1 and Codex models.
-
-### 🧠 Enhanced Context Awareness
-*   **Channel History Fallback**: ORA now automatically fetches the last 15 messages from the channel if no direct reply is found. No more "forgetting" the previous context!
-
-### 🛠️ Self-Evolution & Reliability
-*   **Healer 2.0**: Interactive UI to apply or dismiss AI-suggested code fixes safely.
-*   **Log Forwarder**: Real-time log streaming to a dedicated Discord channel for remote monitoring.
-*   **Pre-flight Health Checks**: Integrated `health_inspector` to verify system integrity before applying changes.
-
----
-
-## 🆕 v4.0 (2025/12/30) - The Mac Expansion
-### 🍎 ORA Mac Migration Support
-**FULL Support for Apple Silicon (M1/M2/M3/M4).**
-*   **Unified Logic**: Run ORA's Brain on your Windows/Mac.
-*   **Remote Dev Ready**: Includes `MIGRATION_GUIDE.md` for seamless VS Code Remote SSH setups.
-*   **One-Click Setup**: Dedicated `Double_Click_To_Start.command` for Mac users.
-
-### 📐 Automatic Math Rendering
-Native LaTeX/TeX support for beautiful mathematical expressions.
-*   **Auto-Detect**: ORA automatically recognizes math in responses.
-*   **Visual Rendering**: Converts complex equations (integral, matrix, etc.) into transparent PNGs instantly.
-
----
-
-## 🆕 v3.9 (2025/12/26) - Dashboard Refresh
-Implemented a new dashboard UI for at-a-glance system status.
-*   **Active Processing**: Real-time Cyan highlighting for the user currently being processed (Top-Left).
-*   **Token Tracking**: Accurate token usage tracking for all models including GPT-5.1.
-*   **Privacy Safe Mode**: Hides personal information for screenshots.
