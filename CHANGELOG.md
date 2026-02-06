@@ -1,5 +1,7 @@
 # ORA System Changelog
 
+See also: `docs/RELEASE_NOTES.md` (curated summary, v5.0.0 -> current).
+
 ## v5.1.12 (2026-02-06) - CI Fix (Mypy)
 - Fixed missing return in `Store.create_scheduled_task()` so `mypy src/` passes in GitHub Actions.
 
