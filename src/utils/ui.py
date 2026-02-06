@@ -11,6 +11,8 @@ class StatusManager:
     # Custom Emojis (User Uploaded)
     EMOJI_PROCESSING = "<a:rode:1449406298788597812>"
     EMOJI_DONE = "<a:conp:1449406158883389621>"
+    EMOJI_PENDING = "▫️"
+    EMOJI_FAILED = "❌"
 
     def __init__(self, channel: discord.abc.Messageable, existing_message: Optional[discord.Message] = None):
         self.channel = channel
@@ -20,6 +22,7 @@ class StatusManager:
         self._lock = asyncio.Lock()
         self._last_update_time = 0.0
         self._update_task = None
+        self.task_board: Optional[dict] = None
 
     def add_file(self, file_path: str, filename: str, content: str = ""):
         """Buffer a file to be sent later."""
@@ -122,6 +125,43 @@ class StatusManager:
         except Exception:
             pass  # Ignore if permission error etc.
 
+    async def start_task_board(self, title: str, tasks: List[str], footer: str = "ORA Universal Brain"):
+        """Start a numbered task board (1..N) with dynamic status updates."""
+        self.task_board = {
+            "title": title,
+            "footer": footer,
+            "tasks": [{"label": t, "state": "pending", "detail": ""} for t in tasks],
+            "timeline": [],
+        }
+        embed = self._build_embed()
+        try:
+            self.message = await self.channel.send(embed=embed)
+        except Exception:
+            pass
+
+    async def set_task_state(self, index: int, state: str, detail: str = ""):
+        """Set a task status. index is 1-based."""
+        async with self._lock:
+            if not self.message or not self.task_board:
+                return
+            i = index - 1
+            if i < 0 or i >= len(self.task_board["tasks"]):
+                return
+            self.task_board["tasks"][i]["state"] = state
+            if detail:
+                self.task_board["tasks"][i]["detail"] = detail[:120]
+            await self._update(force=True)
+
+    async def add_timeline(self, text: str):
+        """Append a short timeline line to the task board."""
+        async with self._lock:
+            if not self.message or not self.task_board:
+                return
+            line = text[:160]
+            self.task_board["timeline"].append(line)
+            self.task_board["timeline"] = self.task_board["timeline"][-6:]
+            await self._update(force=False)
+
     async def next_step(self, label: str, force: bool = False):
         """Mark current step as done and add a new step. Set force=True for animations."""
         async with self._lock:
@@ -214,6 +254,37 @@ class StatusManager:
             pass
 
     def _build_embed(self) -> discord.Embed:
+        if self.task_board:
+            title = self.task_board["title"]
+            footer = self.task_board["footer"]
+            task_lines = []
+            for idx, task in enumerate(self.task_board["tasks"], start=1):
+                state = task.get("state", "pending")
+                if state == "done":
+                    icon = self.EMOJI_DONE
+                elif state == "running":
+                    icon = self.EMOJI_PROCESSING
+                elif state == "failed":
+                    icon = self.EMOJI_FAILED
+                else:
+                    icon = self.EMOJI_PENDING
+                line = f"{idx}. {icon} **{task.get('label', '')}**"
+                detail = task.get("detail", "")
+                if detail:
+                    line += f"\n　└ {detail}"
+                task_lines.append(line)
+
+            timeline = self.task_board.get("timeline") or []
+            if timeline:
+                task_lines.append("\n**実行ログ**")
+                for item in timeline:
+                    task_lines.append(f"• {item}")
+
+            desc = "\n".join(task_lines)[:3900]
+            embed = discord.Embed(title=title[:250], description=desc, color=0x2ECC71)
+            embed.set_footer(text=footer[:200])
+            return embed
+
         # Build text description
         lines = []
         for step in self.steps:

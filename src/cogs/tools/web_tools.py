@@ -213,7 +213,14 @@ async def screenshot(args: dict, message: discord.Message, status_manager, bot=N
 
         f_obj = discord.File(file_path, filename=filename)
 
-        embed = discord.Embed(title=title, url=current_url, color=0x00ff00)
+        safe_title = (title or "Web Page").strip()
+        if len(safe_title) > 250:
+            safe_title = safe_title[:247] + "..."
+        safe_url = (current_url or "").strip()
+        if len(safe_url) > 2000:
+            safe_url = safe_url[:2000]
+
+        embed = discord.Embed(title=safe_title, url=safe_url or None, color=0x00ff00)
         embed.set_image(url=f"attachment://{filename}")
         embed.set_footer(text=f"ORA Browser • {width or 'Default'}x{height or 'Default'}")
 

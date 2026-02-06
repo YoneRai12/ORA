@@ -8,6 +8,7 @@ import discord
 
 from src.cogs.handlers.tool_selector import ToolSelector
 from src.cogs.handlers.rag_handler import RAGHandler
+from src.utils.agent_trace import trace_event
 from src.utils.core_client import core_client
 
 logger = logging.getLogger(__name__)
@@ -83,9 +84,22 @@ class ChatHandler:
         import uuid
         correlation_id = str(uuid.uuid4())
         logger.info(f"🆕 [Chat] New Request | CorrelationID: {correlation_id} | User: {message.author.id}")
+        trace_event(
+            "chat.request_received",
+            correlation_id=correlation_id,
+            user_id=str(message.author.id),
+            guild_id=str(message.guild.id) if message.guild else None,
+            channel_id=str(message.channel.id),
+            prompt=prompt,
+        )
 
         status_manager = StatusManager(message.channel, existing_message=existing_status_msg)
-        await status_manager.start("📡 ORA Core Brain へ接続中...")
+        await status_manager.start_task_board(
+            "⚡ ORA Universal Brain • 実行ステータス",
+            ["依頼を解析", "ツールを実行", "回答を返す"],
+            footer="Sanitized & Powered by ORA Universal Brain",
+        )
+        await status_manager.set_task_state(1, "running", "Coreへ接続中")
 
         # 2. Determine Context Binding
         kind = "channel"
@@ -287,6 +301,13 @@ Traits: {traits}
                 rag_context=rag_context,
                 correlation_id=correlation_id
             )
+            trace_event(
+                "chat.tools_selected",
+                correlation_id=correlation_id,
+                available=len(discord_tools),
+                selected=len(selected_tools),
+                selected_names=[t.get("name") for t in selected_tools if isinstance(t, dict)],
+            )
 
             # If router judges the request complex, force explicit plan-first behavior.
             route_meta = getattr(self.tool_selector, "last_route_meta", {}) or {}
@@ -323,10 +344,13 @@ Traits: {traits}
             if "error" in response:
                 await status_manager.finish()
                 await message.reply(f"❌ Core API 接続エラー: {response['error']}")
+                trace_event("chat.core_send_error", correlation_id=correlation_id, error=response["error"])
                 return
 
             run_id = response.get("run_id")
-            await status_manager.update_current(f"🧠 ORA Brain が考え中... (ID: {run_id[:8]})")
+            await status_manager.set_task_state(1, "done", f"run_id={run_id[:8] if run_id else 'N/A'}")
+            await status_manager.set_task_state(2, "running", "待機中")
+            trace_event("chat.run_created", correlation_id=correlation_id, run_id=run_id)
 
             # 4. Process SSE Events (Streaming/Incremental Updates)
             full_content = ""
@@ -364,11 +388,14 @@ Traits: {traits}
                     # Stream thoughts to a separate log or specific UI element
                     thought_text = ev_data.get("text", "")
                     logger.info(f"🧠 [Harness Thought] {thought_text[:100]}...")
+                    trace_event("chat.thought", correlation_id=correlation_id, run_id=run_id, text=thought_text)
 
                 elif ev_type == "progress":
                     # Update status bar with Harness Progress
                     status_text = ev_data.get("status", "")
-                    await status_manager.update_current(f"⚡ [Harness] {status_text}")
+                    await status_manager.set_task_state(2, "running", status_text)
+                    await status_manager.add_timeline(f"Progress: {status_text}")
+                    trace_event("chat.progress", correlation_id=correlation_id, run_id=run_id, status=status_text)
 
                 elif ev_type == "meta":
                      model_name = ev_data.get("model", model_name)
@@ -379,7 +406,17 @@ Traits: {traits}
                     tool_args = ev_data.get("args", {})
                     tool_call_id = ev_data.get("tool_call_id")
                     logger.info(f"🚀 [Dispatch] CID: {correlation_id} | Tool: {tool_name}")
+                    await status_manager.set_task_state(2, "running", f"{tool_name} 実行中")
+                    await status_manager.add_timeline(f"Dispatch: {tool_name}")
                     safe_args = self._sanitize_args_for_audit(tool_args if isinstance(tool_args, dict) else {})
+                    trace_event(
+                        "chat.dispatch",
+                        correlation_id=correlation_id,
+                        run_id=run_id,
+                        tool=tool_name,
+                        tool_call_id=tool_call_id,
+                        args=tool_args if isinstance(tool_args, dict) else {},
+                    )
                     asyncio.create_task(
                         self._notify_agent_activity(
                             "🧩 Agent Dispatch",
@@ -415,6 +452,13 @@ Traits: {traits}
                         cleaned = tool_result.replace("[SILENT_COMPLETION]", "").strip()
                         if cleaned:
                             tool_feedback_summaries.append(cleaned)
+                    trace_event(
+                        "chat.tool_result",
+                        correlation_id=correlation_id,
+                        run_id=run_id,
+                        tool=tool_name,
+                        result_preview=str(tool_result)[:400],
+                    )
 
                     # [FIX/AGENTIC] Submit Tool Result back to Core to break deadlock
                     if run_id:
@@ -423,6 +467,14 @@ Traits: {traits}
                             run_id=run_id,
                             tool_name=tool_name,
                             result=tool_result or "[Success]",
+                            tool_call_id=tool_call_id,
+                        )
+                        await status_manager.add_timeline(f"Submitted: {tool_name}")
+                        trace_event(
+                            "chat.tool_submitted",
+                            correlation_id=correlation_id,
+                            run_id=run_id,
+                            tool=tool_name,
                             tool_call_id=tool_call_id,
                         )
                         asyncio.create_task(
@@ -438,11 +490,17 @@ Traits: {traits}
                     if isinstance(final_text, str) and final_text.strip():
                         full_content = final_text
                     model_name = ev_data.get("model", model_name)
+                    await status_manager.set_task_state(2, "done", "ツール連携完了")
+                    await status_manager.set_task_state(3, "running", "最終回答を整形中")
+                    trace_event("chat.final_event", correlation_id=correlation_id, run_id=run_id, model=model_name)
                     break
 
                 elif ev_type == "error":
+                    await status_manager.set_task_state(2, "failed", ev_data.get("message", "error"))
+                    await status_manager.set_task_state(3, "failed", "Coreエラー")
                     await status_manager.finish()
                     await message.reply(f"⚠️ Core Error: {ev_data.get('message', 'Unknown error')}")
+                    trace_event("chat.core_error_event", correlation_id=correlation_id, run_id=run_id, data=ev_data)
                     return
 
             # 5. Final Output Handover
@@ -460,6 +518,7 @@ Traits: {traits}
 
             if not full_content and not response.get("run_id"): # If we had tools, content might be empty but OK
                 await message.reply("❌ 応答を生成できませんでした。")
+                trace_event("chat.empty_response", correlation_id=correlation_id, run_id=run_id)
                 return
 
             # If Core generated only a generic dispatch sentence, replace it with concrete download metadata summary.
@@ -487,11 +546,19 @@ Traits: {traits}
             # Send as Embed Cards
             # Split if > 4000 chars
             remaining = full_content
+            await status_manager.set_task_state(3, "done", "回答完了")
             while remaining:
                 chunk = remaining[:4000]
                 remaining = remaining[4000:]
                 embed = EmbedFactory.create_chat_embed(chunk, model_name=model_name)
                 await message.reply(embed=embed)
+            trace_event(
+                "chat.reply_sent",
+                correlation_id=correlation_id,
+                run_id=run_id,
+                model=model_name,
+                reply_length=len(full_content or ""),
+            )
 
             # 6. Post-Process Actions (Voice, etc.)
             # [MEMORY UPDATE] Inject AI response into MemoryCog buffer
@@ -533,5 +600,6 @@ Traits: {traits}
             logger.error(f"Core API Delegation Failed: {e}", exc_info=True)
             await status_manager.finish()
             await message.reply(f"システムエラー: {e}")
+            trace_event("chat.exception", correlation_id=correlation_id, error=str(e))
 
     # --- END OF THIN CLIENT ---
