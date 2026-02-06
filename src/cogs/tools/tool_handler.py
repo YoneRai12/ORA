@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import aiohttp
 import discord
+import inspect
 
 # S5 Optimization: Removed top-level imports of Skills
 # from src.skills.loader import SkillLoader
@@ -99,9 +100,38 @@ class ToolHandler:
                 # Execute
                 if asyncio.iscoroutinefunction(func):
                     # S5: Pass bot instance explicitly for independent tools
-                    return await func(args, message, status_manager, bot=self.bot)
+                    kwargs = {"bot": self.bot}
+                    try:
+                        sig = inspect.signature(func)
+                        if "tool_name" in sig.parameters:
+                            kwargs["tool_name"] = tool_name
+                        if "correlation_id" in sig.parameters:
+                            kwargs["correlation_id"] = correlation_id
+                    except Exception:
+                        pass
+                    try:
+                        return await func(args, message, status_manager, **kwargs)
+                    except TypeError:
+                        # Back-compat for tools that don't accept extra kwargs
+                        return await func(args, message, status_manager, bot=self.bot)
                 else:
-                    return await self.bot.loop.run_in_executor(None, lambda: func(args, message, status_manager, bot=self.bot))
+                    kwargs = {"bot": self.bot}
+                    try:
+                        sig = inspect.signature(func)
+                        if "tool_name" in sig.parameters:
+                            kwargs["tool_name"] = tool_name
+                        if "correlation_id" in sig.parameters:
+                            kwargs["correlation_id"] = correlation_id
+                    except Exception:
+                        pass
+
+                    def _call():
+                        try:
+                            return func(args, message, status_manager, **kwargs)
+                        except TypeError:
+                            return func(args, message, status_manager, bot=self.bot)
+
+                    return await self.bot.loop.run_in_executor(None, _call)
             except Exception as e:
                 logger.error(f"Lazy Tool Execution Failed ({tool_name}): {e}", exc_info=True)
                 return f"❌ Tool Error ({tool_name}): {e}"

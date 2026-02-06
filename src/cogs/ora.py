@@ -2990,6 +2990,19 @@ class ORACog(commands.Cog):
                  if isinstance(schema, dict) and schema.get("name"):
                      all_tools.append(schema)
 
+        # [MCP] Dynamic MCP tool injection (registered in tool registry)
+        try:
+            from src.cogs.tools.registry import get_tool_schemas as _get_registry_schemas
+            for s in _get_registry_schemas():
+                try:
+                    n = s.get("name")
+                except Exception:
+                    continue
+                if isinstance(n, str) and n.startswith("mcp__"):
+                    all_tools.append(s)
+        except Exception:
+            pass
+
         # De-duplicate by tool name (built-in takes priority)
         deduped_tools = []
         seen = set()

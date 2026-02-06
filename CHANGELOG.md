@@ -1,5 +1,12 @@
 # ORA System Changelog
 
+## v5.1.6 (2026-02-06) - MCP Tool Server Support (Client)
+### MCP Integration (Disabled by Default)
+- Added an MCP stdio client and an `MCPCog` that can connect to MCP servers and expose their tools as ORA tools.
+- MCP tools are registered dynamically as `mcp__<server>__<tool>`.
+- Execution is routed through ORA's ToolHandler with `tool_name` passed through (backward compatible).
+- Config examples: `ORA_MCP_ENABLED=1` and `ORA_MCP_SERVERS_JSON=[{\"name\":\"codex\",\"command\":\"codex mcp-server\"}]`
+
 ## v5.1.5 (2026-02-06) - Stability + Server Context Memory
 ### Final Text Robustness
 - Final output now extracts text from multiple Core payload shapes (not only `data.text`), reducing empty replies after tool loops.
@@ -56,4 +63,3 @@
 - Codex stabilization and routing fixes.
 - Context awareness improvements (channel history fallback).
 - Logging + pre-flight health checks improvements.
-

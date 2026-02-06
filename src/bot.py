@@ -150,6 +150,7 @@ class ORABot(commands.Bot):
             "src.cogs.voice_recv",
             "src.cogs.system",
             "src.cogs.resource_manager",
+            "src.cogs.mcp",
             "src.cogs.memory",
             "src.cogs.scheduler",
             "src.cogs.system_shell",

@@ -356,3 +356,52 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
 def get_tool_impl(tool_name: str) -> str:
     """Returns the implementation path for a tool."""
     return TOOL_REGISTRY.get(tool_name, {}).get("impl")
+
+
+def get_tool_meta(tool_name: str) -> Dict[str, Any]:
+    """Return the raw registry entry for a tool (may include dynamic metadata)."""
+    data = TOOL_REGISTRY.get(tool_name) or {}
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def register_tool(
+    tool_name: str,
+    *,
+    impl: str,
+    schema: Dict[str, Any],
+    tags: List[str] | None = None,
+    capability: str = "dynamic",
+    version: str = "0.0.0",
+    meta: Dict[str, Any] | None = None,
+) -> None:
+    """
+    Register/override a tool entry at runtime (for dynamic sources like MCP).
+    """
+    if not tool_name:
+        return
+    if not isinstance(schema, dict) or not schema.get("name"):
+        return
+
+    TOOL_REGISTRY[tool_name] = {
+        "impl": impl,
+        "tags": list(tags or []),
+        "capability": capability,
+        "version": version,
+        "schema": schema,
+        "meta": dict(meta or {}),
+    }
+
+
+def unregister_tools(prefix: str) -> int:
+    """Remove all tools matching a name prefix. Returns number removed."""
+    if not prefix:
+        return 0
+    to_del = [k for k in TOOL_REGISTRY.keys() if str(k).startswith(prefix)]
+    for k in to_del:
+        try:
+            del TOOL_REGISTRY[k]
+        except Exception:
+            pass
+    return len(to_del)

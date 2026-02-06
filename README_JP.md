@@ -1,6 +1,6 @@
 <div align="center">
 
-# ORA (v5.1.5-Singularity) 🌌
+# ORA (v5.1.6-Singularity) 🌌
 ### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
@@ -300,9 +300,9 @@ pytest tests/test_smoke.py
 3. タグ `vX.Y.Z` を作成して push
 
 ```bash
-python scripts/verify_version.py --tag v5.1.5
-git tag v5.1.5
-git push origin v5.1.5
+python scripts/verify_version.py --tag v5.1.6
+git tag v5.1.6
+git push origin v5.1.6
 ```
 
 `release.yml` はタグと `VERSION` が一致しないと失敗するため、他者でも同じ手順で再現できます。
