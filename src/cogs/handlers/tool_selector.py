@@ -100,6 +100,10 @@ class ToolSelector:
                 "desc": "Local codebase inspection tools (grep/find/read/tree). Select only for code/repo/debug requests.",
                 "tools": [],
             },
+            "MCP": {
+                "desc": "Remote MCP (Model Context Protocol) tools from connected MCP servers.",
+                "tools": [],
+            },
             "SYSTEM_UTIL": {
                 "desc": "Safe System Utils. Reminders, Memory, Help, Status checks. (SAFE DEFAULT)",
                 "tools": []
@@ -124,6 +128,11 @@ class ToolSelector:
         for tool in sorted_tools:
             name = tool["name"].lower()
             tags = set(tool.get("tags", []))
+
+            # MCP remote tools
+            if ("mcp" in tags) or name.startswith("mcp__"):
+                categories["MCP"]["tools"].append(tool)
+                continue
 
             # Web Split
             if name.startswith("web_"):
@@ -181,11 +190,12 @@ class ToolSelector:
             f"- 'Save this video' -> [\"WEB_FETCH\"]\n"
             f"- 'Screenshot this' -> [\"WEB_READ\"]\n"
             f"- 'Who is this user?' -> [\"DISCORD_SERVER\"]\n"
-            f"- 'Play music' -> [\"VOICE_AUDIO\"]\n"
-            f"- '動画を保存して' -> [\"WEB_FETCH\"]\n"
-            f"- 'このページをスクショして' -> [\"WEB_READ\"]\n"
-            f"- 'これをダウンロードして' -> [\"WEB_FETCH\"]\n"
-        )
+             f"- 'Play music' -> [\"VOICE_AUDIO\"]\n"
+             f"- '動画を保存して' -> [\"WEB_FETCH\"]\n"
+             f"- 'このページをスクショして' -> [\"WEB_READ\"]\n"
+             f"- 'これをダウンロードして' -> [\"WEB_FETCH\"]\n"
+             f"- 'Use an MCP tool' -> [\"MCP\"]\n"
+         )
 
         # S6: Prefix Hash for Cache Hit Verification
         prefix_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
@@ -299,6 +309,10 @@ class ToolSelector:
             if (has_url or any(k in lower_p for k in ["動画", "ビデオ", "mp4"])) and any(k in lower_p for k in download_keywords):
                  selected_categories.append("WEB_FETCH")
 
+            # MCP (explicit)
+            if "mcp" in lower_p:
+                selected_categories.append("MCP")
+
             # Voice (Functional)
             if any(k in lower_p for k in ["vc", "join", "leave", "music", "play", "speak", "voice", "歌って", "流して"]):
                  selected_categories.append("VOICE_AUDIO")
@@ -393,6 +407,7 @@ class ToolSelector:
         want_screenshot = any(k in p for k in ["スクショ", "スクリーンショット", "screenshot", "キャプチャ"])
         want_web = any(k in p for k in ["http://", "https://", "web", "ブラウザ", "開いて", "サイト"])
         want_code = any(k in p for k in ["コード", "repo", "リポジトリ", "github", "gitlab", "バグ", "エラー", "stack trace"])
+        want_mcp = "mcp" in p or "model context protocol" in p
 
         def score(t: dict) -> int:
             name = (t.get("name") or "").lower()
@@ -407,6 +422,8 @@ class ToolSelector:
                 s += 20
             if want_code and (name.startswith("code_") or "code" in tags):
                 s += 20
+            if want_mcp and ("mcp" in tags or name.startswith("mcp__")):
+                s += 30
             # Safety bias
             if "system" in tags or "monitor" in tags or name in {"say", "weather", "read_web_page", "read_chat_history"}:
                 s += 5

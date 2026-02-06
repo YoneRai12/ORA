@@ -1,5 +1,8 @@
 # ORA System Changelog
 
+## v5.1.7 (2026-02-06) - MCP Routing Support
+- Tool router now has an `MCP` category so MCP tools can actually be selected when the user asks for MCP usage.
+
 ## v5.1.6 (2026-02-06) - MCP Tool Server Support (Client)
 ### MCP Integration (Disabled by Default)
 - Added an MCP stdio client and an `MCPCog` that can connect to MCP servers and expose their tools as ORA tools.
