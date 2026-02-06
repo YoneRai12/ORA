@@ -1,6 +1,6 @@
 <div align="center">
 
-# ORA (v5.1.8-Singularity) 🌌
+# ORA (v5.1.14-Singularity) 🌌
 ### **The Artificial Lifeform AI System for High-End PC**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
@@ -67,25 +67,37 @@ ORA は現在、**Hub/Spoke 構成**で動作しています。
 ### 🔄 End-to-End フロー図（シーケンス）
 ```mermaid
 sequenceDiagram
+    autonumber
     participant U as ユーザー
     participant P as Discord/Web
-    participant C as ChatHandler
-    participant R as RAG + ToolSelector
-    participant O as ORA Core API
-    participant T as ローカルツール
+    participant C as ORA Bot (ChatHandler)
+    participant S as ポリシーゲート（リスク判定・承認・監査）
+    participant O as ORA Core API（Run Owner）
+    participant T as ローカルツール（Skills/MCP）
 
     U->>P: プロンプト + 添付
     P->>C: 正規化済みリクエスト (source, user, channel)
-    C->>R: 意図判定 + 難易度判定
-    R-->>C: ツール候補 + 実行方針
-    C->>O: POST /v1/messages
-    loop 完了まで Agentic ループ
-        O-->>C: dispatch (tool, args, tool_call_id)
-        C->>T: ツール実行
-        T-->>C: 実行結果 + 生成物
-        C->>O: POST /v1/runs/run_id/results
+    C->>O: POST /v1/messages（run作成）
+    O-->>C: run_id
+    C->>O: GET /v1/runs/<run_id>/events（SSE）
+    loop Core主導の Agentic ループ（完了まで）
+        O-->>C: tool_call（tool, args, tool_call_id）
+        C->>S: 危険度スコアリング + 承認要否判定
+        alt 承認OK
+            S-->>C: allow（監査ログ記録）
+            C->>T: ツール実行
+            alt tool ok
+                T-->>C: 実行結果 + 生成物
+            else tool error
+                T-->>C: エラー（再試行可否はツール依存）
+            end
+            C->>O: POST /v1/runs/<run_id>/results（ツール出力）
+        else deny / timeout
+            S-->>C: deny
+            C->>O: POST /v1/runs/<run_id>/results（deny/エラー）
+        end
     end
-    O-->>C: 最終回答
+    O-->>C: 最終回答イベント
     C-->>P: プラットフォーム向け整形
     P-->>U: 回答 + ファイル/リンク
 ```
@@ -97,81 +109,116 @@ flowchart LR
     U["User"] --> P["Discord/Web message"]
   end
 
-  subgraph L2["Client (ORA Bot)"]
-    CH["ChatHandler"] --> RT["RAG + ToolSelector"]
+  subgraph L2["Client（ORA Bot）"]
+    CH["ChatHandler"]
+    RT["RAG + ToolSelector（local）"]
+    PG["ポリシーゲート<br/>risk scoring + approvals"]
     TH["ToolHandler"]
   end
 
-  subgraph L3["Core (ORA Core API)"]
+  subgraph L3["Core（ORA Core API）"]
     MSG["POST /v1/messages"] --> EV["GET /v1/runs/<id>/events (SSE)"]
     RES["POST /v1/runs/<id>/results"]
+    ENG["Run Engine（ループ主導）"]
   end
 
   subgraph L4["Local Executors"]
-    TOOLS["Skills/Tools (web, media, system, etc.)"]
+    TOOLS["Skills/Tools"]
+    MCP["MCP servers（stdio）"]
+  end
+
+  subgraph L5["State & Storage"]
+    DB1[("Client SQLite<br/>ora_bot.db<br/>(audit/approvals/scheduler)")]
+    MEM["Memory JSON<br/>memory/users + memory/guilds"]
+    ART["一時生成物<br/>(スクショ/DL, TTL cleanup)"]
+    LOGS["Logs<br/>(ORA_LOG_DIR)"]
+    VEC["Vector/RAG store<br/>(任意)"]
   end
 
   P --> CH
-  RT --> MSG
-  EV --> CH
-  CH --> TH --> TOOLS --> TH --> RES --> EV
+  CH --> RT --> MSG
+  MSG --> EV --> CH
+  CH --> TH --> PG
+  PG --> TOOLS --> TH --> RES --> ENG --> EV
+  PG --> MCP --> TH
+
+  CH -.context.-> MEM
+  RT -.rag.-> VEC
+  PG -.audit.-> DB1
+  TH -.artifacts.-> ART
+  CH -.logs.-> LOGS
 ```
 
 ### 🏗️ アーキテクチャ概要図
 ```mermaid
-flowchart LR
-    subgraph Platform["プラットフォーム"]
-        D[Discord]
-        W[Web]
-    end
+flowchart TB
+  subgraph Platform["クライアント"]
+    D["Discord"]
+    W["Web UI / API client"]
+  end
 
-    subgraph Client["クライアントプロセス"]
-        CH[ChatHandler]
-        VH[VisionHandler]
-        TS[ToolSelector]
-        RH[RAGHandler]
-        TH[ToolHandler]
-    end
+  subgraph Client["ORA Bot プロセス（このリポジトリ）"]
+    CH["ChatHandler<br/>(context, routing, SSE)"]
+    VH["VisionHandler"]
+    RT["RAG + ToolSelector（local）"]
+    PG["ポリシーゲート<br/>(risk + approvals + audit)"]
+    TH["ToolHandler<br/>(exec + cleanup)"]
+    WS["Web Service<br/>(admin/audit/browser endpoints)"]
+    ST[("Client SQLite<br/>ora_bot.db")]
+    MEM["Memory JSON<br/>memory/ (users + guilds)"]
+    LOGS["Logs<br/>(ORA_LOG_DIR)"]
+    ART["一時生成物<br/>(TTL cleanup)"]
+  end
 
-    subgraph Core["Coreプロセス"]
-        API[Core API]
-        RUN[Run Engine]
-        DB[(SQLite)]
-    end
+  subgraph Core["ORA Core プロセス（core/）"]
+    API["Core API"]
+    RUN["Run Engine<br/>(run state owner)"]
+    CDB[("Core DB")]
+  end
 
-    subgraph Tools["ツール実行層"]
-        WEB[web系ツール]
-        MEDIA[media系ツール]
-        SYSTEM[system系ツール]
-    end
+  subgraph Exec["ローカル実行層"]
+    TOOLS["Tools/Skills"]
+    MCP["MCP Servers（stdio）"]
+    BROW["Browser Agent（Playwright）"]
+  end
 
-    D --> CH
-    W --> CH
-    CH --> VH
-    CH --> TS
-    CH --> RH
-    CH --> API
-    API --> RUN
-    RUN --> DB
-    RUN --> CH
-    CH --> TH
-    TH --> WEB
-    TH --> MEDIA
-    TH --> SYSTEM
-    WEB --> TH
-    MEDIA --> TH
-    SYSTEM --> TH
-    TH --> API
-    CH --> D
-    CH --> W
+  subgraph Obs["観測可能性（ID）"]
+    IDS["correlation_id / run_id / tool_call_id"]
+  end
+
+  D --> CH
+  W --> CH
+
+  CH --> VH
+  CH --> RT
+
+  CH --> API
+  API --> RUN --> CDB
+  RUN --> API --> CH
+
+  CH --> TH --> PG
+  PG --> TOOLS --> TH
+  PG --> MCP --> TH
+  TH --> API
+
+  PG -.audit.-> ST
+  CH -.state.-> MEM
+  CH -.logs.-> LOGS
+  TH -.artifacts.-> ART
+  TH --> BROW
+
+  CH -.trace.-> IDS
+  TH -.trace.-> IDS
 ```
 
 ### 実装上のポイント
 1. プラットフォーム情報（source/guild/channel/admin など）を Core に明示的に渡す
-2. 高難度判定時は plan-first（先に実行計画）を強制可能
+2. **Agenticループは Core 主導**：Core が `run_id` を保持して tool_call を発行し、クライアントは実行→結果返却に徹する
+3. 高難度判定時は plan-first（先に実行計画）を強制可能
 3. 画像入力は canonical な `image_url` 形式に正規化
 4. `web_download` は Discord 容量上限を考慮し、30分限定DLページ発行に対応
-5. CAPTCHA 検知時は回避ではなく、戦略切替（API検索など）へ移行
+5. 安全性は単一の関門（ポリシーゲート）で統治：risk scoring / approvals / audit を ToolHandler 境界に集約
+6. CAPTCHA 検知時は回避ではなく、戦略切替（API検索など）へ移行
 
 ### 👥 Shadow Clone: Zombie Killer
 Watcherプロセスが強化されました。
