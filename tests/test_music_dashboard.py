@@ -47,7 +47,8 @@ class TestMusicDashboard(unittest.TestCase):
         self.assertIn("Test Song", embed.title)
         self.assertIn("Now Playing: Playing", embed.author.name)
         # Check Progress Bar visual
-        self.assertIn("▬", embed.description)
+        # Current UI uses a diagonal bar with a knob.
+        self.assertIn("🔘", embed.description)
         self.assertIn("0:30 / 2:00", embed.description)
 
     def test_embed_creation_queue_overflow(self):

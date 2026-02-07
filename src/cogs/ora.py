@@ -148,12 +148,8 @@ class ORACog(commands.Cog):
         # Shared Resources
         self.unified_client = UnifiedClient(bot.config, llm, bot.google_client)
         
-        # [Clawdbot] Vector Memory Initialization
-        try:
-            from src.services.vector_memory import VectorMemory
-            self.bot.vector_memory = VectorMemory()
-        except ImportError:
-            logger.warning("ChromaDB not found. Vector Memory disabled.")
+        # Vector memory is initialized in bot.setup_hook() (best-effort). Keep it optional here.
+        if not hasattr(self.bot, "vector_memory"):
             self.bot.vector_memory = None
             
         self.cost_manager = CostManager()

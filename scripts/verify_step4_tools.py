@@ -32,9 +32,13 @@ async def test_phase6_mcp_hardened_final():
     from ora_core.mcp.runner import ToolRunner
 
     # Re-register tools for test (to ensure they exist in this session)
-    async def gpu_handler(args):
+    async def gpu_handler(args, context):
         await asyncio.sleep(2.0)
-        return {"msg": "gpu_done"}
+        return {
+            "ok": True,
+            "content": [{"type": "text", "text": "gpu_done"}],
+            "metrics": {"latency_ms": 0, "cache_hit": False},
+        }
     
     tool_registry.register_tool(
         ToolDefinition(name="gpu_slow", description="Slow GPU tool", parameters={}, gpu_required=True, timeout_sec=5),
@@ -67,10 +71,10 @@ async def test_phase6_mcp_hardened_final():
         print("\nCase 1: Client Authorization...")
         tool_registry.register_tool(
             ToolDefinition(name="admin_only", description="Admin only", parameters={}, allowed_clients=["api"]),
-            lambda x: asyncio.sleep(0)
+            lambda args, context: asyncio.sleep(0)  # should never run in this case
         )
         res1 = await run_in_new_session("call_auth_1", user_id, "admin_only", client="discord")
-        if res1.get("status") == "failed" and "not authorized" in res1.get("error", ""):
+        if res1.get("status") == "failed" and "forbidden" in str(res1.get("error", "")).lower():
             print("SUCCESS: Discord blocked from admin_only.")
             summary["case1_auth"] = "success"
 
@@ -78,7 +82,12 @@ async def test_phase6_mcp_hardened_final():
         print("\nCase 2: Idempotency (Cached)...")
         await run_in_new_session("idem_1", user_id, "echo_tool", args={"text": "first"})
         res2 = await run_in_new_session("idem_1", user_id, "echo_tool", args={"text": "second"})
-        if res2.get("result", {}).get("msg") == "first": # Should return original
+        # echo_tool returns MCP-like content atoms
+        try:
+            txt = (res2.get("result", {}) or {}).get("content", [{}])[0].get("text")
+        except Exception:
+            txt = None
+        if txt == "first": # Should return original
             print("SUCCESS: Cached result returned.")
             summary["case2_idempotency"] = "success"
 
@@ -101,7 +110,17 @@ async def test_phase6_mcp_hardened_final():
         await asyncio.sleep(0.5)
         res_B = await run_in_new_session("poll_1", user_id, "gpu_slow")
         res_A = await task_A
-        if res_B == res_A:
+        try:
+            same = (
+                isinstance(res_A, dict)
+                and isinstance(res_B, dict)
+                and res_A.get("status") == "completed"
+                and res_B.get("status") == "completed"
+                and (res_A.get("result") == res_B.get("result"))
+            )
+        except Exception:
+            same = False
+        if same:
             print("SUCCESS: Polling worker shared result.")
             summary["case5_polling"] = "success"
 

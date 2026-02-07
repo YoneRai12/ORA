@@ -53,8 +53,12 @@ pytz
 
 # Web API (Dashboard/IPC)
 fastapi
+sse-starlette
 uvicorn[standard]
 python-multipart
+
+# Core DB (ora_core/)
+sqlalchemy>=2.0
 
 # Development & Testing (Local only)
 pytest

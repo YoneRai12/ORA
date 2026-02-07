@@ -24,6 +24,11 @@ import os
 def create_app():
     app = FastAPI(title="ORA Core", version="0.1")
 
+    @app.get("/health")
+    async def health() -> dict:
+        # Used by the Bot's ConnectionManager to decide API vs STANDALONE mode.
+        return {"ok": True}
+
     # Load Config
     from src.config import Config
     try:

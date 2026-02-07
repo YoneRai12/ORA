@@ -13,8 +13,12 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 
-class TransientHTTPError(RuntimeError):
+class TransientHTTPError(Exception):
     pass
+
+
+class RetryAfterBudgetExceeded(TransientHTTPError):
+    """Raised when Retry-After cannot fit within the remaining retry budget."""
 
 
 # Global semaphore for rate limiting
@@ -79,11 +83,11 @@ async def robust_json_request(
                             if retry_after > 0:
                                 # Check if we can afford to wait
                                 current_remaining = deadline - _time_func()
-                                if current_remaining < 0:
+                                if retry_after > current_remaining:
                                     logger.warning(
                                         f"Retry-After ({retry_after}s) > Remaining ({current_remaining:.2f}s). Aborting."
                                     )
-                                    raise TransientHTTPError(f"Retry-After {retry_after}s exceeds budget")
+                                    raise RetryAfterBudgetExceeded(f"Retry-After {retry_after}s exceeds budget")
                                 await _sleep_func(retry_after)
                                 continue
 
@@ -103,6 +107,8 @@ async def robust_json_request(
 
                 except asyncio.CancelledError:
                     raise  # Propagate immediately
+                except RetryAfterBudgetExceeded:
+                    raise
                 except RuntimeError as re:
                     # Don't retry RuntimeErrors (which include our 4xx non-retryable errors)
                     raise re
@@ -130,7 +136,10 @@ async def robust_json_request(
             await _sleep_func(sleep_time)
             backoff *= 2.0
 
-    raise last_err or RuntimeError("Max attempts reached")
+    # Exhausted retries.
+    if last_err is not None:
+        raise RuntimeError("Max attempts reached") from last_err
+    raise RuntimeError("Max attempts reached")
 
 
 class LLMClient:

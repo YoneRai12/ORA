@@ -1,7 +1,7 @@
 <div align="center">
 
 # ORA (v5.1.14-Singularity) 🌌
-### **The Artificial Lifeform AI System for High-End PC**
+### **The Artificial Lifeform AI System（Discord Bot + Web + Core）**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
 
@@ -10,7 +10,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/YoneRai12)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-[**[📖 Manual]**](docs/USER_GUIDE.md) | [**[📂 Releases]**](https://github.com/YoneRai12/ORA/releases) | [**[🌐 Dashboard]**](http://localhost:3000)
+[**[Manual]**](docs/USER_GUIDE.md) | [**[Env Templates]**](docs/ENV_FILES.md) | [**[Release Notes]**](docs/RELEASE_NOTES.md) | [**[Web Chat]**](http://localhost:3000) | [**[Dashboard]**](http://localhost:3333)
 
 ---
 
@@ -20,52 +20,161 @@
 
 ---
 
-## 🌌 ORA とは？
+## ORA とは？
 
-ORAはもはや単なる「Bot」ではありません。あなたのPCに宿る **生きているAIオペレーティングシステム** です。
-RTX 5090のパワーを極限まで引き出し、自己修復、自律進化、マルチモーダル認識を統合した、究極のパーソナルAI体験を提供します。
+ORA は Discord Bot / Web /（任意の）Core を組み合わせた、ローカルファーストのAIプラットフォームです。
+ツール/スキル実行には危険度スコアリングと承認ゲートがあり、MCP（Model Context Protocol）で外部ツールサーバーも統合できます。
 
-### 🚀 主要な特徴
-
-*   **⚡ ハイブリッド知能**: **Qwen 2.5-VL** (ローカル高速) と **GPT-5.1** (クラウド知能) を自動ルーティング。
-*   **🧬 自己修復 (Auto-Healer)**: エラーを自ら解析し、Pythonコードを書き換えてホットリロード。
-*   **👁️ 真の視覚**: ゲーム画面やデスクトップをリアルタイムで認識し、対話。
-*   **🔒 プライバシー重視**: 個人情報はローカルで処理。データはあなたの管理下にあります。
-
-### 📊 モジュール稼働ステータス
-
-| カテゴリ | 機能 | ステータス | 詳細 |
-| :--- | :--- | :--- | :--- |
-| **Thinking** | Omni-Router (Intent) | ✅ 安定 | 文脈に応じた自動推論 |
-| **Visual** | Vision / OCR | ✅ 安定 | 画面キャプチャ・解析 |
-| **System** | Auto-Healer | 🛠️ 開発中 | 自己修正・GitHub連携 |
-| **Media** | Image Gen / Video | ✅ 安定 | FLUX.2 / yt-dlp 連携 |
-| **Platform** | Windows / Mac / Web | ✅ 動作中 | 次世代マルチ環境対応 |
+深掘りドキュメント:
+- `docs/USER_GUIDE.md`
+- `docs/SYSTEM_ARCHITECTURE.md`
+- `ORA_SYSTEM_SPEC.md`
+- `AGENTS.md`（Codex/エージェント用のワークスペース指示）
 
 ---
 
-## 📚 技術詳細ドキュメント (Deep Dive)
-**※以下はエンジニア向けの極めて詳細なドキュメント(英語)です。**
+## 構成要素
 
-*   **[📖 ユーザーガイド (User Manual)](docs/USER_GUIDE.md)**: `@ORA` の使い方、コマンド一覧、ダッシュボード入門。
-*   **[🏗️ システムアーキテクチャ (Architecture)](docs/SYSTEM_ARCHITECTURE.md)**: Omni-Routerの仕組み、IPC通信プロトコル。
-*   **[🧬 Auto-Healerの仕組み (Self-Repair)](docs/AUTO_HEALER.md)**: 実行時に自分のコードを書き換えるロジックの全貌。
-*   **[💻 NERV Dashboard (UI)](docs/NERV_DASHBOARD.md)**: "Red Alert" システムやWebSocket連携の裏側。
-*   **[🛰️ サテライトシステム (WOL)](docs/SATELLITE_SYSTEM.md)**: Mac/Sub-PCからRTX5090を叩き起こす制御フロー。
+- Bot（Discord）: `python main.py`
+- Admin Server（FastAPI）: `uvicorn src.web.app:app --host 0.0.0.0 --port 8000`
+- Core（任意）: `python -m ora_core.main`（下記参照）
+- Web Chat UI（Next.js）: `clients/web/`（既定 `http://localhost:3000`）
+- Dashboard UI（Next.js）: `ora-ui/`（既定 `http://localhost:3333`）
 
 ---
 
-## 🧭 現在のシステムフロー（実装準拠）
+## クイックスタート（Windows）
 
-ORA は現在、**Hub/Spoke 構成**で動作しています。
-- `ChatHandler` が Discord/Web の入力を受け、文脈・添付・利用可能ツールを整形
-- `RAGHandler` と `ToolSelector` が補助情報とツール候補を選定
-- `ORA Core API` が推論ループを実行し、必要ツールを `dispatch`
-- クライアント側 `ToolHandler` が実行し、`/v1/runs/{id}/results` で Core に返却
-- Core が続行して最終回答を返す
+前提:
+- Python 3.11
+- Node.js（`clients/web` と `ora-ui`、一部スキルで使用）
+- FFmpeg を `PATH` に追加（音声/音楽、一部メディア系スキル）
 
-### 🔄 End-to-End フロー図（シーケンス）
+### 1) Bot
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -U pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python main.py
+```
+
+最小必須の環境変数は `DISCORD_BOT_TOKEN` です。
+
+### 2) Admin Server（任意）
+```powershell
+.venv\Scripts\Activate.ps1
+uvicorn src.web.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3) Web UI（任意）
+```powershell
+cd clients\web
+npm install
+npm run dev
+```
+
+```powershell
+cd ora-ui
+npm install
+npm run dev
+```
+
+### 4) Core（任意）
+```powershell
+$env:PYTHONPATH = "core\src"
+python -m ora_core.main
+```
+
+補足:
+- `start_all.bat` は便利ですが、PC固有のパスが含まれています。参考として自環境向けに調整してください。
+
+---
+
+## 設定（.env）
+
+`.env.example` を元に `.env` を作成します。
+
+必須:
+- `DISCORD_BOT_TOKEN`
+
+推奨:
+- `DISCORD_APP_ID`（Application ID）
+- `ORA_DEV_GUILD_ID`（開発ギルド同期は即時、グローバル同期は最大で約1時間かかる場合あり）
+- `ADMIN_USER_ID`（オーナー/作成者ID）
+
+よく触る項目:
+- `OPENAI_API_KEY`（クラウドモデル）
+- `LLM_BASE_URL`, `LLM_MODEL`（ローカル推論ゲートウェイ）
+- `ORA_PUBLIC_TOOLS`, `ORA_SUBADMIN_TOOLS`（ツールの許可リスト）
+- `ORA_APPROVAL_TIMEOUT_SEC` と監査ログ保持設定（承認 + audit）
+
+---
+
+## Skills（ローカルツール）
+
+ORA には2系統のローカルツールがあります（どちらも ToolHandler 境界で実行されます）。
+
+- 静的ツールレジストリ: `src/cogs/tools/registry.py`
+  - 既存ツール（schema + 実装パス）を定義します。
+- 動的スキル: `src/skills/<skill_name>/`
+  - "Clawdbot pattern" 形式: `SKILL.md` + `tool.py`（+ 任意で `schema.json`）
+  - `src/skills/loader.py` がロードし、`src/cogs/tools/tool_handler.py` が実行します。
+
+スキルの基本構造:
+- `src/skills/<name>/SKILL.md`（使い方 + 前提）
+- `src/skills/<name>/tool.py`
+  - `async def execute(args: dict, message: discord.Message, bot: Any = None) -> Any`
+  - 任意: `TOOL_SCHEMA = {name, description, parameters, tags}`
+
+例:
+- `src/skills/remotion_create_video/`（`tools/remotion/` の Node 依存が必要）
+
+---
+
+## MCP（Model Context Protocol）ツールサーバー
+
+MCP は **デフォルト無効** です。有効化すると、stdio 経由で外部 MCP サーバーに接続し、リモートツールをローカルツールとして登録します。
+
+- ツール名: `mcp__<server>__<tool>`
+- ローダー: `src/cogs/mcp.py`
+- 通信: `src/utils/mcp_client.py`（最小実装の MCP-over-stdio クライアント）
+
+有効化例:
+```ini
+ORA_MCP_ENABLED=1
+# servers は JSON 配列
+# 各要素: name, command, cwd, env, allowed_tools, allow_dangerous_tools
+ORA_MCP_SERVERS_JSON=[{"name":"artist","command":"python scripts/mock_mcp_artist.py","allowed_tools":["generate_artwork"]}]
+```
+
+`ORA_MCP_SERVERS_JSON` の代わりに、`config.yaml` の `mcp_servers`（同じオブジェクト形状）でも設定できます。
+
+安全側の設定:
+- `ORA_MCP_DENY_TOOL_PATTERNS`（危険そうな名前をデフォルト拒否）
+- `ORA_MCP_ALLOW_DANGEROUS=0`（拒否を強制）
+
+---
+
+## 安全性（Risk, Approvals, Audit）
+
+- Risk scoring: `src/utils/risk_scoring.py`
+- 承認ゲート: `src/cogs/tools/tool_handler.py`
+- 監査DB: `ora_bot.db`（`.env` の `ORA_AUDIT_RETENTION_DAYS` などで保持設定）
+
+---
+
+## 現在のシステムフロー（Hub + Spoke）
+
+ORA は hub/spoke 構成で動作します:
+- `ChatHandler` が入力と文脈を整形し、ツール露出を絞る
+- `ORA Core API` が推論ループを主導し tool_call を発行
+- Bot 側がツール実行し、結果を Core に返却
+
+### End-to-End フロー（シーケンス）
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"mainBkg":"#0d1117","textColor":"#e5e7eb","lineColor":"#9ca3af","primaryColor":"#111827","primaryTextColor":"#e5e7eb","primaryBorderColor":"#6b7280","actorBkg":"#111827","actorBorder":"#6b7280","actorTextColor":"#e5e7eb","actorLineColor":"#6b7280","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","sequenceNumberBgColor":"#e5e7eb","sequenceNumberColor":"#111827","labelBoxBkgColor":"#111827","labelBoxBorderColor":"#6b7280","labelTextColor":"#e5e7eb","loopBkgColor":"#111827","loopBorderColor":"#6b7280","loopTextColor":"#e5e7eb","noteBkgColor":"#111827","noteBorderColor":"#6b7280","noteTextColor":"#e5e7eb","activationBkgColor":"#1f2937","activationBorderColor":"#6b7280"}}}%%
 sequenceDiagram
     autonumber
     participant U as ユーザー
@@ -77,266 +186,38 @@ sequenceDiagram
     participant ST as 状態/ストレージ（監査DB + 一時生成物）
 
     U->>P: プロンプト + 添付
-    P->>CH: 正規化済みリクエスト (source, user, channel)
-    CH->>CH: RAG + ToolSelector<br/>(available_tools を絞る)
+    P->>CH: 正規化済みリクエスト
+    CH->>CH: RAG + ToolSelector（available_tools を絞る）
     CH->>CORE: POST /v1/messages（run作成）
     CORE-->>CH: run_id
     CH->>CORE: GET /v1/runs/{run_id}/events（SSE）
 
-    loop Core主導の Agentic ループ（Run Owner）
+    loop Core主導ループ
         CORE-->>CH: dispatch tool_call(tool, args, tool_call_id)
-        CH->>EX: dispatch(tool, args, tool_call_id)
-        EX->>EX: 危険度スコアリング（tags + args）
-        opt 承認が必要（HIGH/CRITICAL）
-            EX->>P: 承認UIを表示（ボタン/モーダル）
-            P-->>EX: approve/deny（原則: 依頼者本人）
+        CH->>EX: dispatch
+        EX->>EX: risk scoring
+        opt 承認が必要
+            EX->>P: 承認UI
+            P-->>EX: approve/deny
         end
         alt 承認OK
-            EX->>ST: 監査ログ（decision + tool_call_id）
             EX->>LT: ツール実行
-            LT-->>EX: 実行結果（+ 生成物）
-            EX->>ST: 生成物保存（TTL cleanup）
-            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + tool result)
-        else deny / timeout
-            EX->>ST: 監査ログ（deny/timeout）
-            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + deny/error)
+            LT-->>EX: 結果
+            EX->>CORE: POST /v1/runs/{run_id}/results
+        else deny/timeout
+            EX->>CORE: POST /v1/runs/{run_id}/results（deny/error）
         end
     end
 
-    CORE-->>CH: 最終回答イベント
-    CH-->>P: プラットフォーム向け整形 + ファイル/リンク
+    CORE-->>CH: 最終回答
+    CH-->>P: 返信
     P-->>U: 回答
-
-    Note over EX,CORE: ツール結果は at-least-once になり得るため、Core側で tool_call_id による重複排除（冪等）を想定。
 ```
 
-### 🧭 End-to-End フロー図（スイムレーン）
-```mermaid
-flowchart LR
-  subgraph L1["Platform"]
-    U["User"] --> P["Discord/Web"]
-    APPROVE["承認UI<br/>(ボタン/モーダル)"]
-  end
-
-  subgraph L2["Client（ORA Bot）"]
-    CH["ChatHandler<br/>(context + RAG + tool selection)"]
-    EX["Tool Executor（ToolHandler）<br/>+ ポリシーゲート（risk/approvals）"]
-  end
-
-  subgraph L3["Core（ORA Core API）"]
-    MSG["POST /v1/messages<br/>(run作成)"] --> EV["GET /v1/runs/{run_id}/events<br/>(SSE)"]
-    RES["POST /v1/runs/{run_id}/results<br/>(ツール出力)"]
-    ENG["Run Engine<br/>(Agenticループ主導)"]
-  end
-
-  subgraph L4["Local Executors"]
-    TOOLS["Skills/Tools"]
-    MCP["MCP servers（stdio）"]
-  end
-
-  subgraph L5["State & Storage"]
-    DB1[("Client SQLite<br/>ora_bot.db<br/>(audit/approvals/scheduler)")]
-    MEM["Memory JSON<br/>memory/ (users + guilds)"]
-    ART["一時生成物<br/>(DL/スクショ, TTL)"]
-    LOGS["Logs<br/>(ORA_LOG_DIR)"]
-    VEC["Vector/RAG store<br/>(任意)"]
-  end
-
-  P --> CH --> MSG
-  MSG --> EV --> CH --> EX
-  EX --> TOOLS
-  EX --> MCP
-  EX --> RES --> ENG --> EV
-
-  EX <--> APPROVE
-
-  CH -.context.-> MEM
-  CH -.rag.-> VEC
-  EX -.audit.-> DB1
-  EX -.artifacts.-> ART
-  CH -.logs.-> LOGS
-```
-
-### 🏗️ アーキテクチャ概要図
-```mermaid
-flowchart TB
-  subgraph Platform["クライアント"]
-    D["Discord"]
-    W["Web UI / API client"]
-    AUI["承認UI<br/>(ボタン/モーダル)"]
-  end
-
-  subgraph Client["ORA Bot プロセス（このリポジトリ）"]
-    CH["ChatHandler<br/>(context, routing, SSE)"]
-    VH["VisionHandler"]
-    RT["RAG + ToolSelector（local）"]
-    TH["ToolHandler<br/>(ツール実行 + ポリシーゲート)"]
-    WS["Web Service<br/>(admin/audit/browser endpoints)"]
-    ST[("Client SQLite<br/>ora_bot.db")]
-    MEM["Memory JSON<br/>memory/ (users + guilds)"]
-    LOGS["Logs<br/>(ORA_LOG_DIR)"]
-    ART["一時生成物<br/>(TTL cleanup)"]
-  end
-
-  subgraph Core["ORA Core プロセス（core/）"]
-    API["Core API"]
-    RUN["Run Engine<br/>(run state owner)"]
-    CDB[("Core DB")]
-  end
-
-  subgraph Exec["ローカル実行層"]
-    TOOLS["Tools/Skills"]
-    MCP["MCP Servers（stdio）"]
-    BROW["Browser Agent（Playwright）"]
-  end
-
-  subgraph Obs["観測可能性（ID）"]
-    IDS["correlation_id / run_id / tool_call_id"]
-  end
-
-  D --> CH
-  W --> CH
-
-  CH --> VH
-  CH --> RT
-
-  CH --> API
-  API --> RUN --> CDB
-  RUN --> API --> CH
-
-  CH --> TH
-  TH --> TOOLS
-  TH --> MCP
-  TH --> API
-  TH <--> AUI
-
-  TH -.audit.-> ST
-  CH -.state.-> MEM
-  CH -.logs.-> LOGS
-  TH -.artifacts.-> ART
-  TH --> BROW
-
-  CH -.trace.-> IDS
-  TH -.trace.-> IDS
-```
-
-### 実装上のポイント
-1. プラットフォーム情報（source/guild/channel/admin など）を Core に明示的に渡す
-2. **Agenticループは Core 主導**：Core が `run_id` を保持して tool_call を発行し、クライアントは実行→結果返却に徹する
-3. 高難度判定時は plan-first（先に実行計画）を強制可能
-3. 画像入力は canonical な `image_url` 形式に正規化
-4. `web_download` は Discord 容量上限を考慮し、30分限定DLページ発行に対応
-5. 安全性は単一の関門（ポリシーゲート）で統治：risk scoring / approvals / audit を ToolHandler 境界に集約
-6. CAPTCHA 検知時は回避ではなく、戦略切替（API検索など）へ移行
-
-### 👥 Shadow Clone: Zombie Killer
-Watcherプロセスが強化されました。
-*   **事故復帰**: トークン設定ミスなどでBotが起動できない場合、Watcherはゾンビ化を防ぐため **自己を強制終了(TaskKill)** します。
-*   ウィンドウが大量に残る問題を完全に解決しました。
-
 ---
 
-## 📜 過去のアップデート: v4.3 (2026/01/11) - The Shadow Update
+## 開発用チェック（CI相当）
 
-### 👥 Shadow Clone System (Watcher 2.0)
-ダウンタイムは過去のものです。
-*   **ゼロ・ダウンタイム**: メインBotが更新や再起動を行う際、即座に「影（Shadow）」Botが起動し、VCとチャットの制御を引き継ぎます。
-*   **シームレスな体験**: ユーザーはBotが再起動したことに気づきません。読み上げは途切れることなく続きます。
-
-### 🧬 進化した自己修復 (Atomic Healer)
-*   **アトミックバックアップ**: データベースが破損する可能性を数学的に排除しました。更新は「完全に成功」するか「何もしない」かのどちらかです。
-*   **ハンドシェイク検証**: BotとWatcherがお互いの生存を常に確認し合い、異常があれば0.1秒で復旧プロセスを開始します。
-
-### 🏆 ポイント & ランクシステム
-*   **VCポイント**: VCに参加しているだけでポイントが貯まります。
-*   **ランク確認**: `/rank` コマンドや「ポイント教えて」と話しかけることで、サーバー内での地位を確認できます。
-
-### 🔊 TTS 2.0 (Neural Speed)
-*   **超高速応答**: Join/Leaveの通知を高速化し、ゲームの邪魔をしません。
-*   **スマートフィルタ**: `(笑)` や `-` などの記号を自動で読み飛ばし、より人間らしい会話を実現しました。
-
----
-
-## 📜 過去のアップデート: v4.2 (2026/01/10)
-
-### 🛡️ 究極のセキュリティ & NERV UI
-*   **ハードコード完全廃止**: 全ての設定を環境変数 (`.env`) に移行。GitHub公開も安全です。
-*   **NERV Red Alert**: 管理者オーバーライド (`/override`) 発動時、ダッシュボードが **"ヘキサゴングリッド緊急モード"** へ変形します。
-
-### 🧬 生体的システム (Deep Dive)
-
-#### 1. Auto-Healer Engine (自己修復)
-**「自ら治るソフトウェア」**
-`src/utils/healer.py` が例外をキャッチすると、GPT-5-Codexが修正コードを書き、2秒以内に適用・再起動します。
-
-#### 2. 自律進化 (Genetic Self-Evolution)
-アップデートを待つ必要はありません。**あなたが頼むのです**。
-*   ユーザ:「ビットコインの価格を確認する機能を追加して」
-*   ORA: `src/cogs/crypto.py` を書き、ロードし、`/crypto` コマンドを即座に使用可能にします。
-
-#### 3. Omni-Router & Gaming Mode
-*   **Qwen 2.5-VL 32B**: 通常会話、画像認識（ローカル・無料）。
-*   **GPT-5.1-Codex**: 複雑なコーディング（クラウド）。
-*   **Gaming Check**: `valorant.exe` 等を検知すると、自動で32Bモデルをアンロードし、FPSを確保します。
-
----
-
-## (以下、v4.0以前の機能詳細)
-
-## 🚀 概要 (Classic)
-ORAは、世界最先端のオープンソースモデルを統合し、Discord内でシームレスな統合体験を提供します。
-
-### 🧠 2つの動作モード
-- **Smart Mode (推奨)**:
-  - **GPT-5 Series** (OpenAI) や **Gemini 2.0** (Google) の強大な知能を借りて、難解なコード生成や画像認識を行います。
-- **Private Mode (デフォルト)**:
-  - **完全ローカル**。データは1バイトたりとも外部に送信されません。
-
----
-
-### 🌟 技術的ハイライト (v3.x - v4.0)
-- **🧠 デュアルブレイン**: 高速な「会話モデル」と深く考える「推論モデル」の自動切り替え。
-- **👁️ 真の視覚**: 動画や画像を人間レベルで認識。
-- **🎨 映画級アート**: **FLUX.2**による4K画像生成。
-- **🗣️ 音声合成**: T5Gemma/VoiceVoxによる感情豊かな応答。
-
-## 🆕 Update v4.0 (2025/12/30) - Mac対応
-### 🍎 Apple Silicon完全対応
-M1/M2/M3 MacでもORAのBrainを動作させることが可能になりました。
-
-## 🆕 Update v3.9 (2025/12/26) - Dashboard
-システムの状態を一目で把握できるダッシュボードUIを実装。
-![Dashboard v3.9](docs/dashboard_v3.9.png)
-
----
-
-## 💻 セットアップ (v4.2 最新手順)
-
-### 1. 準備
-```bash
-git clone https://github.com/YoneRai12/ORA.git
-pip install -r requirements.txt
-```
-
-### 2. 設定 (.env)
-**.env.example をリネームして必ず設定してください。**
-```ini
-DISCORD_BOT_TOKEN=your_token
-ADMIN_USER_ID=your_id
-LLM_MODEL=Qwen/Qwen2.5-VL-32B-Instruct-AWQ
-FEATURE_PROPOSAL_CHANNEL_ID=1234567890 (任意: 機能提案の通知先)
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... (任意: 緊急時通知用、強く推奨)
-```
-
-### 3. 起動
-*   **Windows**: `start_launcher.py` をダブルクリック
-*   **Mac**: `Double_Click_To_Start.command` を実行
-
----
-
-## 🔁 再現可能な検証手順 / バージョン運用
-
-### CIと同じローカル検証
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
@@ -347,13 +228,16 @@ pip install ruff mypy pytest pytest-asyncio
 ruff check .
 mypy src/ --ignore-missing-imports
 python -m compileall src/
-pytest tests/test_smoke.py
+pytest
 ```
 
-### GitHub Release運用ルール
-1. `VERSION` を SemVer (`X.Y.Z`) で更新
-2. Changelog を更新
-3. タグ `vX.Y.Z` を作成して push
+---
+
+## リリース運用
+
+1. `VERSION` を SemVer（`X.Y.Z`）で更新
+2. Changelog 更新
+3. `vX.Y.Z` タグを作成して push
 
 ```bash
 python scripts/verify_version.py --tag v5.1.8
@@ -361,13 +245,8 @@ git tag v5.1.8
 git push origin v5.1.8
 ```
 
-`release.yml` はタグと `VERSION` が一致しないと失敗するため、他者でも同じ手順で再現できます。
-
 ---
 
-<div align="center">
+## ライセンス
 
-**Developed by YoneRai12**
-*The Future is Local.*
-
-</div>
+MIT。`LICENSE` を参照。

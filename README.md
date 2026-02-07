@@ -1,7 +1,7 @@
 <div align="center">
 
 # ORA (v5.1.14-Singularity) 🌌
-### **The Artificial Lifeform AI System for High-End PC**
+### **The Artificial Lifeform AI System (Discord Bot + Web + Core)**
 
 ![ORA Banner](https://raw.githubusercontent.com/YoneRai12/ORA/main/docs/banner.png)
 
@@ -10,8 +10,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/YoneRai12)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-[**[📖 Manual]**](docs/USER_GUIDE.md) | [**[📂 Releases]**](https://github.com/YoneRai12/ORA/releases) | [**[🌐 Dashboard]**](http://localhost:3000)
-| [**[📝 Release Notes]**](docs/RELEASE_NOTES.md)
+[**[Manual]**](docs/USER_GUIDE.md) | [**[Env Templates]**](docs/ENV_FILES.md) | [**[Release Notes]**](docs/RELEASE_NOTES.md) | [**[Web Chat]**](http://localhost:3000) | [**[Dashboard]**](http://localhost:3333)
 
 ---
 
@@ -21,53 +20,161 @@
 
 ---
 
-## 📖 What is ORA?
+## What Is ORA?
 
-ORA is no longer just a "Bot". It is a **Living AI Operating System** that inhabits your high-end PC.
-Designed to push the **RTX 5090** to its limits, she combines self-healing code, autonomous evolution, and multimodal vision into a single, seamless personal AI experience.
+ORA is a local-first AI platform built around a Discord bot, a web admin server, and an optional Core process.
+It supports tool/skill execution with risk scoring + approvals, and can be extended via MCP (Model Context Protocol) tool servers.
 
-### 🚀 Key Features
-
-*   **⚡ Hybrid Intelligence**: Intelligent routing between **Qwen 2.5-VL** (Fast Local) and **GPT-5.1** (Deep Cloud Reasoning).
-*   **🧬 Auto-Healer**: When ORA encounters an error, she writes her own Python patch and hot-reloads herself.
-*   **👁️ True Vision**: Real-time desktop/gameplay analysis via advanced Vision Transformers.
-*   **🔒 Privacy First**: Your data stays on your machine. PII is handled exclusively by local models.
-
-### 📊 Module Readiness Status
-
-| Category | Component | Status | Description |
-| :--- | :--- | :--- | :--- |
-| **Thinking** | Omni-Router (Intent) | ✅ Stable | Context-aware brain routing |
-| **Visual** | Vision / OCR | ✅ Stable | Real-time screen capture & analysis |
-| **System** | Auto-Healer | 🛠️ In-Dev | Self-repair & GitHub sync logic |
-| **Media** | Image Gen / Video | ✅ Stable | Local FLUX.2 / yt-dlp integration |
-| **Platform** | Windows / Mac / Web | ✅ Active | Multi-frontend ecosystem support |
+If you want the deep docs:
+- `docs/USER_GUIDE.md`
+- `docs/SYSTEM_ARCHITECTURE.md`
+- `ORA_SYSTEM_SPEC.md`
+- `AGENTS.md` (Codex/agent workspace instructions for this repo)
 
 ---
 
-## 🔥 The "Big Three" Core Pillars
+## Components
 
-### 1. 🧬 Immortal Code (Self-Healing)
-**"I fell down, but I fixed my leg and stood up. I am stronger now."**
+- Bot process (Discord): `python main.py`
+- Admin server (FastAPI): `uvicorn src.web.app:app --host 0.0.0.0 --port 8000`
+- Core (optional): `python -m ora_core.main` (see below)
+- Web Chat UI (Next.js): `clients/web/` (default `http://localhost:3000`)
+- Dashboard UI (Next.js): `ora-ui/` (default `http://localhost:3333`)
 
-Most software crashes when it hits a bug. ORA treats bugs as **learning opportunities**.
-When a runtime error occurs (e.g., specific API failure), ORA:
-1.  **Freezes** the crash state.
-2.  **Analyzes** the traceback with her Logic Brain (GPT-5/4o).
-3.  **Writes a Patch**: She edits her own `.py` source code locally.
-4.  **Hot-Reloads**: She restarts *only* the broken component (Cog) without disconnecting from Voice.
+---
 
-> *Result: You can leave ORA running for months, and she will theoretically become more stable over time.*
+## Quickstart (Windows)
 
-### 2. 🧠 Current System Flow (Hub + Spoke)
-ORA currently runs as a **Hub/Spoke agent pipeline**:
-- `ChatHandler` (Discord/Web thin client) builds context, attachments, and selected tool schemas.
-- `ORA Core API` (`/v1/messages`, `/v1/runs/{id}/events`) owns the reasoning loop.
-- Tool calls are dispatched to the client, executed locally, then submitted back to Core via `/v1/runs/{id}/results`.
-- Core resumes reasoning with tool outputs and emits the final answer.
+Prereqs:
+- Python 3.11
+- Node.js (for `clients/web`, `ora-ui`, and some skills)
+- FFmpeg on `PATH` (voice/music and some media skills)
 
-### 🔄 End-to-End Request Path (Sequence)
+### 1) Bot
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -U pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python main.py
+```
+
+Minimum required env var: `DISCORD_BOT_TOKEN`.
+
+### 2) Admin Server (optional)
+```powershell
+.venv\Scripts\Activate.ps1
+uvicorn src.web.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3) Web UIs (optional)
+```powershell
+cd clients\web
+npm install
+npm run dev
+```
+
+```powershell
+cd ora-ui
+npm install
+npm run dev
+```
+
+### 4) Core (optional)
+```powershell
+$env:PYTHONPATH = "core\src"
+python -m ora_core.main
+```
+
+Notes:
+- `start_all.bat` is a convenience launcher, but it contains machine-specific paths. Treat it as an example to adapt.
+
+---
+
+## Configuration (.env)
+
+Start from `.env.example`.
+
+Required:
+- `DISCORD_BOT_TOKEN`
+
+Recommended:
+- `DISCORD_APP_ID` (Application ID)
+- `ORA_DEV_GUILD_ID` (dev guild sync is immediate; global sync can take up to ~1 hour)
+- `ADMIN_USER_ID` (owner/creator identity)
+
+Feature toggles you likely care about:
+- `OPENAI_API_KEY` (cloud models)
+- `LLM_BASE_URL`, `LLM_MODEL` (local gateway)
+- `ORA_PUBLIC_TOOLS`, `ORA_SUBADMIN_TOOLS` (tool allowlists)
+- `ORA_APPROVAL_TIMEOUT_SEC` and audit retention settings (approvals + audit logs)
+
+---
+
+## Skills (Local Tools)
+
+ORA supports two local mechanisms that are both executed through the same ToolHandler boundary:
+
+- Static tool registry: `src/cogs/tools/registry.py`
+  - Built-in tools with an implementation path like `src.cogs.tools.web_tools:navigate`.
+- Dynamic skills: `src/skills/<skill_name>/`
+  - Self-describing skills in the "Clawdbot pattern": `SKILL.md` + `tool.py` (+ optional `schema.json`).
+  - Loaded by `src/skills/loader.py` and executed by `src/cogs/tools/tool_handler.py`.
+
+Skill folder shape:
+- `src/skills/<name>/SKILL.md` (usage + requirements)
+- `src/skills/<name>/tool.py`
+  - `async def execute(args: dict, message: discord.Message, bot: Any = None) -> Any`
+  - optional `TOOL_SCHEMA = {name, description, parameters, tags}`
+
+Example skill:
+- `src/skills/remotion_create_video/` (requires Node deps in `tools/remotion/`)
+
+---
+
+## MCP (Model Context Protocol) Tool Servers
+
+MCP support is **disabled by default**. When enabled, ORA connects to configured MCP servers via stdio and registers each remote tool as a local ORA tool:
+
+- Tool name format: `mcp__<server>__<tool>`
+- Loader: `src/cogs/mcp.py`
+- Transport: `src/utils/mcp_client.py` (minimal MCP-over-stdio client)
+
+Enable MCP:
+```ini
+ORA_MCP_ENABLED=1
+# JSON array of servers
+# Each entry supports: name, command, cwd, env, allowed_tools, allow_dangerous_tools
+ORA_MCP_SERVERS_JSON=[{"name":"artist","command":"python scripts/mock_mcp_artist.py","allowed_tools":["generate_artwork"]}]
+```
+
+Alternatively, configure `mcp_servers` in `config.yaml` (same object shape) instead of `ORA_MCP_SERVERS_JSON`.
+
+Hardening knobs:
+- `ORA_MCP_DENY_TOOL_PATTERNS` (default denies common destructive/execution-ish names)
+- `ORA_MCP_ALLOW_DANGEROUS=0` (keep deny patterns enforced)
+
+---
+
+## Safety (Risk Scoring, Approvals, Audit)
+
+- Risk scoring: `src/utils/risk_scoring.py`
+- Approvals gate: `src/cogs/tools/tool_handler.py` (risk-based approval before execution)
+- Audit DB: `ora_bot.db` (retention controlled by `.env` variables like `ORA_AUDIT_RETENTION_DAYS`)
+
+---
+
+## Current System Flow (Hub + Spoke)
+
+ORA currently runs as a hub/spoke agent pipeline:
+- `ChatHandler` (Discord/Web thin client) builds context, attachments, and a filtered tool list.
+- `ORA Core API` owns the reasoning loop and emits tool calls.
+- The bot executes tools locally and submits results back to Core.
+
+### End-to-End Request Path (Sequence)
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"mainBkg":"#0d1117","textColor":"#e5e7eb","lineColor":"#9ca3af","primaryColor":"#111827","primaryTextColor":"#e5e7eb","primaryBorderColor":"#6b7280","actorBkg":"#111827","actorBorder":"#6b7280","actorTextColor":"#e5e7eb","actorLineColor":"#6b7280","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","sequenceNumberBgColor":"#e5e7eb","sequenceNumberColor":"#111827","labelBoxBkgColor":"#111827","labelBoxBorderColor":"#6b7280","labelTextColor":"#e5e7eb","loopBkgColor":"#111827","loopBorderColor":"#6b7280","loopTextColor":"#e5e7eb","noteBkgColor":"#111827","noteBorderColor":"#6b7280","noteTextColor":"#e5e7eb","activationBkgColor":"#1f2937","activationBorderColor":"#6b7280"}}}%%
 sequenceDiagram
     autonumber
     participant U as User
@@ -80,7 +187,7 @@ sequenceDiagram
 
     U->>P: Prompt + attachments
     P->>CH: Normalized request (source, user, channel)
-    CH->>CH: RAG + ToolSelector<br/>(filter available_tools)
+    CH->>CH: RAG + ToolSelector (filter available_tools)
     CH->>CORE: POST /v1/messages (create run)
     CORE-->>CH: run_id
     CH->>CORE: GET /v1/runs/{run_id}/events (SSE)
@@ -98,10 +205,10 @@ sequenceDiagram
             EX->>LT: execute tool
             LT-->>EX: result (+ artifacts)
             EX->>ST: save artifacts (TTL cleanup)
-            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + tool result)
+            EX->>CORE: POST /v1/runs/{run_id}/results (tool_call_id + tool result)
         else denied/timeout
             EX->>ST: audit log (denied/timeout)
-            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + denied/error)
+            EX->>CORE: POST /v1/runs/{run_id}/results (tool_call_id + denied/error)
         end
     end
 
@@ -112,175 +219,10 @@ sequenceDiagram
     Note over EX,CORE: Tool results are at-least-once. Core should dedupe by tool_call_id (idempotency).
 ```
 
-### 🧭 End-to-End Request Path (Swimlane)
-```mermaid
-flowchart LR
-  subgraph L1["Platform"]
-    U["User"] --> P["Discord/Web"]
-    APPROVE["Approval UI<br/>(buttons/modals)"]
-  end
-
-  subgraph L2["Client (ORA Bot)"]
-    CH["ChatHandler<br/>(context + RAG + tool selection)"]
-    EX["Tool Executor (ToolHandler)<br/>+ Policy Gate (risk/approvals)"]
-  end
-
-  subgraph L3["Core (ORA Core API)"]
-    MSG["POST /v1/messages<br/>(create run)"] --> EV["GET /v1/runs/{run_id}/events<br/>(SSE)"]
-    RES["POST /v1/runs/{run_id}/results<br/>(tool output)"]
-    ENG["Run Engine<br/>(agentic loop owner)"]
-  end
-
-  subgraph L4["Local Executors"]
-    TOOLS["Skills/Tools"]
-    MCP["MCP servers (stdio)"]
-  end
-
-  subgraph L5["State & Storage"]
-    DB1[("Client SQLite<br/>ora_bot.db<br/>(audit/approvals/scheduler)")]
-    MEM["Memory JSON<br/>memory/ (users + guilds)"]
-    ART["Temp artifacts<br/>(downloads/screenshots, TTL)"]
-    LOGS["Logs<br/>(ORA_LOG_DIR)"]
-    VEC["Vector/RAG store<br/>(optional)"]
-  end
-
-  P --> CH --> MSG
-  MSG --> EV --> CH --> EX
-  EX --> TOOLS
-  EX --> MCP
-  EX --> RES --> ENG --> EV
-
-  EX <--> APPROVE
-
-  CH -.context.-> MEM
-  CH -.rag.-> VEC
-  EX -.audit.-> DB1
-  EX -.artifacts.-> ART
-  CH -.logs.-> LOGS
-```
-
-### 🏗️ Runtime Architecture (Current)
-```mermaid
-flowchart TB
-  subgraph Platform["Clients"]
-    D["Discord"]
-    W["Web UI / API client"]
-    AUI["Approval UI<br/>(buttons/modals)"]
-  end
-
-  subgraph Client["ORA Bot Process (this repo)"]
-    CH["ChatHandler<br/>(context, routing, SSE)"]
-    VH["VisionHandler"]
-    RT["RAG + ToolSelector (local)"]
-    TH["ToolHandler<br/>(Tool Executor + Policy Gate)"]
-    WS["Web Service<br/>(admin/audit/browser endpoints)"]
-    ST[("Client SQLite<br/>ora_bot.db")]
-    MEM["Memory JSON<br/>memory/ (users + guilds)"]
-    LOGS["Logs<br/>(ORA_LOG_DIR)"]
-    ART["Temp artifacts<br/>(TTL cleanup)"]
-  end
-
-  subgraph Core["ORA Core Process (core/)"]
-    API["Core API"]
-    RUN["Run Engine<br/>(run state owner)"]
-    CDB[("Core DB")]
-  end
-
-  subgraph Exec["Local Executors"]
-    TOOLS["Tools/Skills"]
-    MCP["MCP Servers (stdio)"]
-    BROW["Browser Agent (Playwright)"]
-  end
-
-  subgraph Obs["Observability IDs"]
-    IDS["correlation_id / run_id / tool_call_id"]
-  end
-
-  D --> CH
-  W --> CH
-
-  CH --> VH
-  CH --> RT
-
-  CH --> API
-  API --> RUN --> CDB
-  RUN --> API --> CH
-
-  CH --> TH
-  TH --> TOOLS
-  TH --> MCP
-  TH --> API
-  TH <--> AUI
-
-  TH -.audit.-> ST
-  CH -.state.-> MEM
-  CH -.logs.-> LOGS
-  TH -.artifacts.-> ART
-  TH --> BROW
-
-  CH -.trace.-> IDS
-  TH -.trace.-> IDS
-```
-
-### Routing & Tooling Notes (As Implemented)
-1. Platform metadata (`source`, guild/channel context, admin flags) is injected before Core call.
-2. The **agentic loop is Core-driven**: Core owns `run_id` state and emits tool calls; the client executes tools and submits results back.
-3. Complexity-aware routing is done locally (ToolSelector/RAG) to keep tool exposure small and relevant.
-3. Vision attachments are normalized and sent in canonical `image_url` shape for cloud models.
-4. `web_download` supports Discord size-aware delivery and temporary 30-minute download pages.
-5. Safety/permissions are enforced at a single choke point (Policy Gate at ToolHandler): risk scoring, approvals, and audit logging.
-5. CAPTCHA/anti-bot pages are detected and handled by strategy switch, not bypass attempts.
-
-### 3. 👥 Shadow Clone (Zero Downtime)
-Updates usually mean "Downtime". Not for ORA.
-When ORA needs to restart (for an update or self-healing), she spawning a **"Shadow Clone"** (Watcher Process).
-*   The Shadow keeps the Voice Connection alive.
-*   The Main Body dies, updates, and reborns.
-*   **Crash Safety**: If the Shadow detects configuration errors (missing tokens), it forcefully kills itself to prevent zombie processes.
-
 ---
 
-## 👁️ True Multimodal I/O (The "Senses")
+## Dev Checks (Same As CI)
 
-ORA processes the world through **Images**, **Sound**, and **Text**.
-
-### 1. Vision (The Eyes) 🖼️
-ORA uses **Qwen 2.5-VL (Visual Language Model)** or **GPT-5-Vision** to "see" images.
-*   **Screenshot Analysis**: Share a screenshot of your game or code, and she understands it.
-
-### 2. Audio (The Ears & Voice) 🎤
-*   **Multi-User Recognition**: ORA distinguishes *who* is speaking within 0.2s.
-*   **Dynamic Tone**: Through prompt engineering, she acts as distinct personas (e.g., Tsundere, Maid) that you configure.
-
-### 3. Generation (The Hands) 🎨
-ORA creates content locally.
-*   **Image Generation**: Uses **FLUX.2** or **Stable Diffusion XL** locally.
-
----
-
-## 🛡️ NERV User Interface
-A dedicated Web Dashboard (`http://localhost:3000`) for monitoring ORA's brain.
-*   **Hex-Grid Visualizer**: See the status of every module.
-*   **Memory Explorer**: View what ORA remembers about you.
-*   **Process Killer**: One-click "Gaming Mode" to kill background bloatware and free up VRAM.
-
----
-
-## ⚙️ Configuration Bible (.env)
-
-| Variable | Description |
-| :--- | :--- |
-| `DISCORD_BOT_TOKEN` | **Required**. Your Bot Token. |
-| `ADMIN_USER_ID` | **Required**. Your Discord User ID. |
-| `OPENAI_API_KEY` | Optional. Required if using `gpt-*` models. |
-| `LLM_BASE_URL` | Endpoint for Local LLM (Default: `http://localhost:8001/v1`). |
-| `GAMING_PROCESSES` | Process names that trigger Gaming Mode (Low VRAM usage). |
-
----
-
-## 🔁 Reproducible Setup & Versioning
-
-### Local Repro Steps (same as CI)
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
@@ -291,10 +233,13 @@ pip install ruff mypy pytest pytest-asyncio
 ruff check .
 mypy src/ --ignore-missing-imports
 python -m compileall src/
-pytest tests/test_smoke.py
+pytest
 ```
 
-### Release/Tag Rules
+---
+
+## Release/Tag Rules
+
 1. Update `VERSION` using SemVer (`X.Y.Z`).
 2. Update changelog entries.
 3. Create a git tag as `vX.Y.Z` and push it.
@@ -305,29 +250,15 @@ git tag v5.1.8
 git push origin v5.1.8
 ```
 
-`release.yml` now fails if tag and `VERSION` do not match, so others can reproduce the same release artifact.
+---
+
+## Contributing
+
+- No hardcoded API keys.
+- Keep tool schemas accurate (skills + MCP tools rely on schemas/tags for routing and risk scoring).
 
 ---
 
-## 🤝 Contributing
-1.  **Fork** the repository.
-2.  **Create** a feature branch.
-3.  **Commit** your changes.
-4.  **Open a PR**.
+## License
 
-**Rules:**
-*   No hardcoded API keys.
-*   Run `tools/debug/check_transformers.py` before submitting.
-
----
-
-## 📜 License
-Project ORA is licensed under **MIT License**.
-You own your data. You own your intelligence.
-
-<div align="center">
-
-**Architected by YoneRai12**
-*A project to blur the line between Software and Life.*
-
-</div>
+MIT. See `LICENSE`.
