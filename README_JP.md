@@ -70,56 +70,63 @@ sequenceDiagram
     autonumber
     participant U as ユーザー
     participant P as Discord/Web
-    participant C as ORA Bot (ChatHandler)
-    participant S as ポリシーゲート（リスク判定・承認・監査）
-    participant O as ORA Core API（Run Owner）
-    participant T as ローカルツール（Skills/MCP）
+    participant CH as ORA Bot（ChatHandler）
+    participant EX as ORA Bot（ツール実行 + ポリシーゲート）
+    participant CORE as ORA Core API（Run Owner）
+    participant LT as ローカルツール（Skills/MCP）
+    participant ST as 状態/ストレージ（監査DB + 一時生成物）
 
     U->>P: プロンプト + 添付
-    P->>C: 正規化済みリクエスト (source, user, channel)
-    C->>O: POST /v1/messages（run作成）
-    O-->>C: run_id
-    C->>O: GET /v1/runs/<run_id>/events（SSE）
-    loop Core主導の Agentic ループ（完了まで）
-        O-->>C: tool_call（tool, args, tool_call_id）
-        C->>S: 危険度スコアリング + 承認要否判定
+    P->>CH: 正規化済みリクエスト (source, user, channel)
+    CH->>CH: RAG + ToolSelector<br/>(available_tools を絞る)
+    CH->>CORE: POST /v1/messages（run作成）
+    CORE-->>CH: run_id
+    CH->>CORE: GET /v1/runs/{run_id}/events（SSE）
+
+    loop Core主導の Agentic ループ（Run Owner）
+        CORE-->>CH: dispatch tool_call(tool, args, tool_call_id)
+        CH->>EX: dispatch(tool, args, tool_call_id)
+        EX->>EX: 危険度スコアリング（tags + args）
+        opt 承認が必要（HIGH/CRITICAL）
+            EX->>P: 承認UIを表示（ボタン/モーダル）
+            P-->>EX: approve/deny（原則: 依頼者本人）
+        end
         alt 承認OK
-            S-->>C: allow（監査ログ記録）
-            C->>T: ツール実行
-            alt tool ok
-                T-->>C: 実行結果 + 生成物
-            else tool error
-                T-->>C: エラー（再試行可否はツール依存）
-            end
-            C->>O: POST /v1/runs/<run_id>/results（ツール出力）
+            EX->>ST: 監査ログ（decision + tool_call_id）
+            EX->>LT: ツール実行
+            LT-->>EX: 実行結果（+ 生成物）
+            EX->>ST: 生成物保存（TTL cleanup）
+            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + tool result)
         else deny / timeout
-            S-->>C: deny
-            C->>O: POST /v1/runs/<run_id>/results（deny/エラー）
+            EX->>ST: 監査ログ（deny/timeout）
+            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + deny/error)
         end
     end
-    O-->>C: 最終回答イベント
-    C-->>P: プラットフォーム向け整形
-    P-->>U: 回答 + ファイル/リンク
+
+    CORE-->>CH: 最終回答イベント
+    CH-->>P: プラットフォーム向け整形 + ファイル/リンク
+    P-->>U: 回答
+
+    Note over EX,CORE: ツール結果は at-least-once になり得るため、Core側で tool_call_id による重複排除（冪等）を想定。
 ```
 
 ### 🧭 End-to-End フロー図（スイムレーン）
 ```mermaid
 flowchart LR
   subgraph L1["Platform"]
-    U["User"] --> P["Discord/Web message"]
+    U["User"] --> P["Discord/Web"]
+    APPROVE["承認UI<br/>(ボタン/モーダル)"]
   end
 
   subgraph L2["Client（ORA Bot）"]
-    CH["ChatHandler"]
-    RT["RAG + ToolSelector（local）"]
-    PG["ポリシーゲート<br/>risk scoring + approvals"]
-    TH["ToolHandler"]
+    CH["ChatHandler<br/>(context + RAG + tool selection)"]
+    EX["Tool Executor（ToolHandler）<br/>+ ポリシーゲート（risk/approvals）"]
   end
 
   subgraph L3["Core（ORA Core API）"]
-    MSG["POST /v1/messages"] --> EV["GET /v1/runs/<id>/events (SSE)"]
-    RES["POST /v1/runs/<id>/results"]
-    ENG["Run Engine（ループ主導）"]
+    MSG["POST /v1/messages<br/>(run作成)"] --> EV["GET /v1/runs/{run_id}/events<br/>(SSE)"]
+    RES["POST /v1/runs/{run_id}/results<br/>(ツール出力)"]
+    ENG["Run Engine<br/>(Agenticループ主導)"]
   end
 
   subgraph L4["Local Executors"]
@@ -129,23 +136,24 @@ flowchart LR
 
   subgraph L5["State & Storage"]
     DB1[("Client SQLite<br/>ora_bot.db<br/>(audit/approvals/scheduler)")]
-    MEM["Memory JSON<br/>memory/users + memory/guilds"]
-    ART["一時生成物<br/>(スクショ/DL, TTL cleanup)"]
+    MEM["Memory JSON<br/>memory/ (users + guilds)"]
+    ART["一時生成物<br/>(DL/スクショ, TTL)"]
     LOGS["Logs<br/>(ORA_LOG_DIR)"]
     VEC["Vector/RAG store<br/>(任意)"]
   end
 
-  P --> CH
-  CH --> RT --> MSG
-  MSG --> EV --> CH
-  CH --> TH --> PG
-  PG --> TOOLS --> TH --> RES --> ENG --> EV
-  PG --> MCP --> TH
+  P --> CH --> MSG
+  MSG --> EV --> CH --> EX
+  EX --> TOOLS
+  EX --> MCP
+  EX --> RES --> ENG --> EV
+
+  EX <--> APPROVE
 
   CH -.context.-> MEM
-  RT -.rag.-> VEC
-  PG -.audit.-> DB1
-  TH -.artifacts.-> ART
+  CH -.rag.-> VEC
+  EX -.audit.-> DB1
+  EX -.artifacts.-> ART
   CH -.logs.-> LOGS
 ```
 
@@ -155,14 +163,14 @@ flowchart TB
   subgraph Platform["クライアント"]
     D["Discord"]
     W["Web UI / API client"]
+    AUI["承認UI<br/>(ボタン/モーダル)"]
   end
 
   subgraph Client["ORA Bot プロセス（このリポジトリ）"]
     CH["ChatHandler<br/>(context, routing, SSE)"]
     VH["VisionHandler"]
     RT["RAG + ToolSelector（local）"]
-    PG["ポリシーゲート<br/>(risk + approvals + audit)"]
-    TH["ToolHandler<br/>(exec + cleanup)"]
+    TH["ToolHandler<br/>(ツール実行 + ポリシーゲート)"]
     WS["Web Service<br/>(admin/audit/browser endpoints)"]
     ST[("Client SQLite<br/>ora_bot.db")]
     MEM["Memory JSON<br/>memory/ (users + guilds)"]
@@ -196,12 +204,13 @@ flowchart TB
   API --> RUN --> CDB
   RUN --> API --> CH
 
-  CH --> TH --> PG
-  PG --> TOOLS --> TH
-  PG --> MCP --> TH
+  CH --> TH
+  TH --> TOOLS
+  TH --> MCP
   TH --> API
+  TH <--> AUI
 
-  PG -.audit.-> ST
+  TH -.audit.-> ST
   CH -.state.-> MEM
   CH -.logs.-> LOGS
   TH -.artifacts.-> ART

@@ -72,56 +72,63 @@ sequenceDiagram
     autonumber
     participant U as User
     participant P as Discord/Web
-    participant C as ORA Bot (ChatHandler)
-    participant S as Policy Gate (Risk + Approvals + Audit)
-    participant O as ORA Core API (Run Owner)
-    participant T as Local Tools (Skills/MCP)
+    participant CH as ORA Bot (ChatHandler)
+    participant EX as ORA Bot (Tool Executor + Policy Gate)
+    participant CORE as ORA Core API (Run Owner)
+    participant LT as Local Tools (Skills/MCP)
+    participant ST as State/Storage (Audit DB + Temp Artifacts)
 
     U->>P: Prompt + attachments
-    P->>C: Normalized request (source, user, channel)
-    C->>O: POST /v1/messages (create run)
-    O-->>C: run_id
-    C->>O: GET /v1/runs/<run_id>/events (SSE)
-    loop Core-driven agent loop until done
-        O-->>C: tool_call (tool, args, tool_call_id)
-        C->>S: score risk + require approval?
+    P->>CH: Normalized request (source, user, channel)
+    CH->>CH: RAG + ToolSelector<br/>(filter available_tools)
+    CH->>CORE: POST /v1/messages (create run)
+    CORE-->>CH: run_id
+    CH->>CORE: GET /v1/runs/{run_id}/events (SSE)
+
+    loop Core-driven agent loop (Run Owner)
+        CORE-->>CH: dispatch tool_call(tool, args, tool_call_id)
+        CH->>EX: dispatch(tool, args, tool_call_id)
+        EX->>EX: risk scoring (tags + args)
+        opt approval required (HIGH/CRITICAL)
+            EX->>P: show approval UI (buttons/modals)
+            P-->>EX: approve/deny (request owner)
+        end
         alt approved
-            S-->>C: allow (audit logged)
-            C->>T: execute tool
-            alt tool ok
-                T-->>C: result + artifacts
-            else tool error
-                T-->>C: error (retry semantics vary by tool)
-            end
-            C->>O: POST /v1/runs/<run_id>/results (tool output)
+            EX->>ST: audit log (decision + tool_call_id)
+            EX->>LT: execute tool
+            LT-->>EX: result (+ artifacts)
+            EX->>ST: save artifacts (TTL cleanup)
+            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + tool result)
         else denied/timeout
-            S-->>C: deny
-            C->>O: POST /v1/runs/<run_id>/results (denied/error)
+            EX->>ST: audit log (denied/timeout)
+            EX->>CORE: POST /v1/runs/{run_id}/results<br/>(tool_call_id + denied/error)
         end
     end
-    O-->>C: final response event
-    C-->>P: formatted reply
-    P-->>U: answer + files/links
+
+    CORE-->>CH: final response event
+    CH-->>P: formatted reply + files/links
+    P-->>U: answer
+
+    Note over EX,CORE: Tool results are at-least-once. Core should dedupe by tool_call_id (idempotency).
 ```
 
 ### 🧭 End-to-End Request Path (Swimlane)
 ```mermaid
 flowchart LR
   subgraph L1["Platform"]
-    U["User"] --> P["Discord/Web message"]
+    U["User"] --> P["Discord/Web"]
+    APPROVE["Approval UI<br/>(buttons/modals)"]
   end
 
   subgraph L2["Client (ORA Bot)"]
-    CH["ChatHandler"]
-    RT["RAG + ToolSelector (local)"]
-    PG["Policy Gate<br/>risk scoring + approvals"]
-    TH["ToolHandler"]
+    CH["ChatHandler<br/>(context + RAG + tool selection)"]
+    EX["Tool Executor (ToolHandler)<br/>+ Policy Gate (risk/approvals)"]
   end
 
   subgraph L3["Core (ORA Core API)"]
-    MSG["POST /v1/messages"] --> EV["GET /v1/runs/<id>/events (SSE)"]
-    RES["POST /v1/runs/<id>/results"]
-    ENG["Run Engine (owns loop)"]
+    MSG["POST /v1/messages<br/>(create run)"] --> EV["GET /v1/runs/{run_id}/events<br/>(SSE)"]
+    RES["POST /v1/runs/{run_id}/results<br/>(tool output)"]
+    ENG["Run Engine<br/>(agentic loop owner)"]
   end
 
   subgraph L4["Local Executors"]
@@ -131,23 +138,24 @@ flowchart LR
 
   subgraph L5["State & Storage"]
     DB1[("Client SQLite<br/>ora_bot.db<br/>(audit/approvals/scheduler)")]
-    MEM["Memory JSON<br/>memory/users + memory/guilds"]
-    ART["Temp artifacts<br/>(screenshots/downloads, TTL cleanup)"]
+    MEM["Memory JSON<br/>memory/ (users + guilds)"]
+    ART["Temp artifacts<br/>(downloads/screenshots, TTL)"]
     LOGS["Logs<br/>(ORA_LOG_DIR)"]
     VEC["Vector/RAG store<br/>(optional)"]
   end
 
-  P --> CH
-  CH --> RT --> MSG
-  MSG --> EV --> CH
-  CH --> TH --> PG
-  PG --> TOOLS --> TH --> RES --> ENG --> EV
-  PG --> MCP --> TH
+  P --> CH --> MSG
+  MSG --> EV --> CH --> EX
+  EX --> TOOLS
+  EX --> MCP
+  EX --> RES --> ENG --> EV
+
+  EX <--> APPROVE
 
   CH -.context.-> MEM
-  RT -.rag.-> VEC
-  PG -.audit.-> DB1
-  TH -.artifacts.-> ART
+  CH -.rag.-> VEC
+  EX -.audit.-> DB1
+  EX -.artifacts.-> ART
   CH -.logs.-> LOGS
 ```
 
@@ -157,14 +165,14 @@ flowchart TB
   subgraph Platform["Clients"]
     D["Discord"]
     W["Web UI / API client"]
+    AUI["Approval UI<br/>(buttons/modals)"]
   end
 
   subgraph Client["ORA Bot Process (this repo)"]
     CH["ChatHandler<br/>(context, routing, SSE)"]
     VH["VisionHandler"]
     RT["RAG + ToolSelector (local)"]
-    PG["Policy Gate<br/>(risk + approvals + audit)"]
-    TH["ToolHandler<br/>(exec + cleanup)"]
+    TH["ToolHandler<br/>(Tool Executor + Policy Gate)"]
     WS["Web Service<br/>(admin/audit/browser endpoints)"]
     ST[("Client SQLite<br/>ora_bot.db")]
     MEM["Memory JSON<br/>memory/ (users + guilds)"]
@@ -198,12 +206,13 @@ flowchart TB
   API --> RUN --> CDB
   RUN --> API --> CH
 
-  CH --> TH --> PG
-  PG --> TOOLS --> TH
-  PG --> MCP --> TH
+  CH --> TH
+  TH --> TOOLS
+  TH --> MCP
   TH --> API
+  TH <--> AUI
 
-  PG -.audit.-> ST
+  TH -.audit.-> ST
   CH -.state.-> MEM
   CH -.logs.-> LOGS
   TH -.artifacts.-> ART
