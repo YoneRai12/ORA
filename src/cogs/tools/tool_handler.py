@@ -618,9 +618,10 @@ class ToolHandler:
                                 # Fallback to Ngrok
                                 return await self._start_ngrok_tunnel(message, status_manager)
 
-                            match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
-                            if match:
-                                public_url = match.group(0)
+                            from src.utils.cloudflare_tunnel import extract_latest_public_tunnel_url
+
+                            public_url = extract_latest_public_tunnel_url(content)
+                            if public_url:
                                 break
                     if public_url: break
             except FileNotFoundError:
@@ -814,10 +815,13 @@ class ToolHandler:
             if not killed_by_pid:
                 # Fallback only when PID file wasn't available.
                 cmd = "Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*localhost:8000*' } | Select-Object -ExpandProperty ProcessId"
-                proc = await asyncio.create_subprocess_shell(
-                    f"powershell -Command \"{cmd}\"",
+                proc = await asyncio.create_subprocess_exec(
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    cmd,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, _ = await proc.communicate()
                 pid = stdout.decode().strip()
@@ -1159,13 +1163,19 @@ class ToolHandler:
 
         # Create temp dir
         with tempfile.TemporaryDirectory() as tmpdirname:
-            # yt-dlp command
-            cmd = f'yt-dlp "{url}" -o "{tmpdirname}/%(title)s.%(ext)s" --no-playlist'
+            yt_bin = "yt-dlp"
+            if os.path.exists("yt-dlp.exe"):
+                yt_bin = os.path.abspath("yt-dlp.exe")
 
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
+            out_tpl = os.path.join(tmpdirname, "%(title)s.%(ext)s")
+            proc = await asyncio.create_subprocess_exec(
+                yt_bin,
+                "-o",
+                out_tpl,
+                "--no-playlist",
+                url,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 
@@ -1284,8 +1294,23 @@ class ToolHandler:
                     # Simple compression using ffmpeg
                     compressed_path = video_path.replace(".webm", "_comp.mp4")
                     # crf 28 is decent compression, preset fast
-                    cmd = f'ffmpeg -i "{video_path}" -vcodec libx264 -crf 30 -preset fast -acodec aac "{compressed_path}"'
-                    proc = await asyncio.create_subprocess_shell(cmd)
+                    proc = await asyncio.create_subprocess_exec(
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        video_path,
+                        "-vcodec",
+                        "libx264",
+                        "-crf",
+                        "30",
+                        "-preset",
+                        "fast",
+                        "-acodec",
+                        "aac",
+                        compressed_path,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
                     await proc.communicate()
 
                     if os.path.exists(compressed_path) and os.path.getsize(compressed_path) < os.path.getsize(video_path):

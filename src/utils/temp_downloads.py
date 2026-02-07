@@ -11,9 +11,9 @@ import subprocess
 from typing import Any, Dict, Optional
 
 from src.config import TEMP_DIR
+from src.utils.cloudflare_tunnel import extract_latest_public_tunnel_url_from_log
 
 _TOKEN_RE = re.compile(r"^[a-zA-Z0-9_-]{8,64}$")
-_TUNNEL_RE = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
 logger = logging.getLogger(__name__)
 
 SHARED_ROOT = os.path.join(TEMP_DIR, "shared_downloads")
@@ -158,17 +158,7 @@ def delete_download_entry(token: str) -> None:
 
 
 def extract_latest_tunnel_url(log_path: str) -> Optional[str]:
-    if not log_path or not os.path.exists(log_path):
-        return None
-    try:
-        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-        matches = _TUNNEL_RE.findall(content)
-        if matches:
-            return matches[-1].rstrip("/")
-    except Exception:
-        return None
-    return None
+    return extract_latest_public_tunnel_url_from_log(log_path)
 
 
 def resolve_public_download_base_url(bot=None) -> Optional[str]:

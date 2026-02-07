@@ -25,9 +25,13 @@ class HardwareManager:
         try:
             # 1. Global Stats
             # name, utilization.gpu, memory.used, memory.total
-            cmd1 = "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits"
-            proc1 = await asyncio.create_subprocess_shell(
-                cmd1, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            cmd1 = [
+                self._nvidia_smi_path,
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ]
+            proc1 = await asyncio.create_subprocess_exec(
+                *cmd1, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             out1, _ = await proc1.communicate()
 
@@ -48,9 +52,13 @@ class HardwareManager:
 
             # 2. Process List
             # pid, process_name
-            cmd2 = "nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader"
-            proc2 = await asyncio.create_subprocess_shell(
-                cmd2, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            cmd2 = [
+                self._nvidia_smi_path,
+                "--query-compute-apps=pid,process_name",
+                "--format=csv,noheader",
+            ]
+            proc2 = await asyncio.create_subprocess_exec(
+                *cmd2, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             out2, _ = await proc2.communicate()
 

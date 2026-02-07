@@ -656,9 +656,15 @@ class LLMClient:
         # 1. Try vLLM (WSL2) Unload
         try:
             # Kill python3 process running vllm
-            cmd = "wsl -d Ubuntu-22.04 pkill -f vllm"
-            proc = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            proc = await asyncio.create_subprocess_exec(
+                "wsl",
+                "-d",
+                "Ubuntu-22.04",
+                "pkill",
+                "-f",
+                "vllm",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
             if proc.returncode == 0:

@@ -463,8 +463,10 @@ class ORABot(commands.Bot):
                     try:
                         with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
-                            # Find all matches (URLs or UUIDs)
-                            url_matches = re.findall(r"(?:https://)?[a-zA-Z0-9.-]+\.trycloudflare\.com|(?:https://)?[a-zA-Z0-9.-]+\.cfargotunnel\.com", content)
+                            # Find all matches (public URLs or UUIDs). Avoid mistaking the API endpoint
+                            # (https://api.trycloudflare.com/tunnel) as a public URL.
+                            from src.utils.cloudflare_tunnel import extract_public_tunnel_urls
+                            url_matches = extract_public_tunnel_urls(content)
                             id_matches = re.findall(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", content)
 
                             if url_matches or id_matches:

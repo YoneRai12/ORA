@@ -14,30 +14,22 @@ class LinkManager(commands.Cog):
     async def _get_tunnel_url(self, service_name: str, fallback: str) -> str:
         """Extracts the latest Quick Tunnel URL from the service's log file with retries."""
         import os
-        import re
         import asyncio
-        
+
         cfg = self.bot.config
         log_dir = cfg.log_dir
         log_path = os.path.join(log_dir, f"cf_{service_name}.log")
 
-        # Support both modern and older domains.
-        url_re = re.compile(
-            r"https://[a-zA-Z0-9-]+\.(?:trycloudflare\.com|cfargotunnel\.com)"
-        )
+        from src.utils.cloudflare_tunnel import extract_latest_public_tunnel_url_from_log
         
         # Cloudflare might take a few seconds to write the URL
         for attempt in range(3):
             if os.path.exists(log_path):
                 try:
-                    with open(log_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        # Find the most recent URL in the log
-                        matches = url_re.findall(content)
-                        if matches:
-                            url = matches[-1]
-                            logger.info(f"✅ Extracted Cloudflare URL for {service_name}: {url}")
-                            return url
+                    url = extract_latest_public_tunnel_url_from_log(log_path)
+                    if url:
+                        logger.info(f"✅ Extracted Cloudflare URL for {service_name}: {url}")
+                        return url
                 except Exception as e:
                     logger.error(f"Failed to parse tunnel log for {service_name}: {e}")
             
