@@ -484,18 +484,26 @@ class ToolHandler:
                 if is_api_running and not api_healthy:
                     # Kill stale process bound to 8000 before restart.
                     try:
-                        out = subprocess.check_output(
-                            "netstat -ano | findstr :8000",
-                            shell=True,
-                            stderr=subprocess.DEVNULL,
-                        ).decode(errors="ignore")
+                        out = subprocess.run(
+                            ["netstat", "-ano"],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        ).stdout or ""
                         pids = set()
                         for line in out.splitlines():
+                            if ":8000" not in line:
+                                continue
                             cols = line.split()
                             if len(cols) >= 5 and cols[-1].isdigit():
                                 pids.add(cols[-1])
                         for pid in pids:
-                            subprocess.run(f"taskkill /PID {pid} /F", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            subprocess.run(
+                                ["taskkill", "/PID", pid, "/F"],
+                                check=False,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                            )
                         await asyncio.sleep(1)
                     except Exception:
                         pass
@@ -541,7 +549,12 @@ class ToolHandler:
                 with open(pid_path, "r", encoding="utf-8", errors="ignore") as f:
                     old_pid = f.read().strip()
                 if old_pid.isdigit():
-                    subprocess.run(f"taskkill /PID {old_pid} /F", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["taskkill", "/PID", old_pid, "/F"],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 try:
                     os.remove(pid_path)
                 except Exception:
@@ -581,9 +594,9 @@ class ToolHandler:
                 cmd = [cf_bin, "tunnel", "--url", "http://localhost:8000"]
                 proc = subprocess.Popen(
                     cmd,
-                    stdout=open(log_path, "w"),
+                    stdout=open(log_path, "w", encoding="utf-8", errors="ignore"),
                     stderr=subprocess.STDOUT,
-                    shell=True, # Using shell=True for windows path handling if needed, but safer
+                    shell=False,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 )
                 try:
@@ -684,7 +697,13 @@ class ToolHandler:
         try:
             # Kill existing ngrok interacting with port 8000?
             # Ngrok doesn't use --url arg like cloudflared, but we can kill all ngrok for now or rely on API check.
-            subprocess.run("taskkill /IM ngrok.exe /F", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/IM", "ngrok.exe", "/F"],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
             # Start fresh
             # Using 'start' to ensure it runs headless/detached properly or just Popen
@@ -692,7 +711,7 @@ class ToolHandler:
                 [ngrok_bin, "http", "8000"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                shell=True,
+                shell=False,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
 
@@ -783,7 +802,7 @@ class ToolHandler:
                     with open(pid_path, "r", encoding="utf-8", errors="ignore") as f:
                         pid = f.read().strip()
                     if pid.isdigit():
-                        subprocess.run(f"taskkill /PID {pid} /F", shell=True)
+                        subprocess.run(["taskkill", "/PID", pid, "/F"], check=False)
                         killed_by_pid = True
                     try:
                         os.remove(pid_path)
@@ -804,7 +823,7 @@ class ToolHandler:
                 pid = stdout.decode().strip()
 
                 if pid:
-                    subprocess.run(f"taskkill /PID {pid} /F", shell=True)
+                    subprocess.run(["taskkill", "/PID", pid, "/F"], check=False)
 
             try:
                 target_id = self.bot.config.ora_web_notify_id

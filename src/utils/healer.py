@@ -6,6 +6,7 @@ import os
 import py_compile
 import shutil
 import subprocess
+import sys
 import time
 import traceback
 from typing import Optional
@@ -389,7 +390,10 @@ class Healer:
             token_2 = os.getenv("DISCORD_TOKEN_2")
             if token_2 and str(token_2).strip():
                 logger.info("启动 ShadowWatcher (Sub-Bot)...")
-                subprocess.Popen('start "ORA Update Guardian" python src/watcher.py', shell=True)
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "ORA Update Guardian", sys.executable, "src/watcher.py"],
+                    shell=False,
+                )
                 
                 # Wait for Watcher Ready (Max 15s)
                 for _ in range(15):
@@ -490,7 +494,7 @@ class Healer:
 
             # --- 4. RESTART (Watcher is guarding) ---
             # Trigger Restart Script
-            subprocess.Popen("restart_ora.bat", shell=True)
+            subprocess.Popen(["cmd", "/c", "restart_ora.bat"], shell=False)
 
             return {
                 "success": True,

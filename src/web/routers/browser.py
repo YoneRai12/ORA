@@ -192,7 +192,7 @@ async def get_screenshot():
                 content={"ok": False, "error": "Screenshot failed", "error_id": second_error_id, "detail": str(retry_exc)},
             )
 
-@router.post("/mode")
+@router.post("/mode", dependencies=[Depends(verify_token)])
 async def set_mode(req: ModeRequest):
     """
     Updates the browser mode (headless/headful).
@@ -245,7 +245,7 @@ async def get_recent_errors(limit: int = 20):
         return {"ok": False, "error": str(e)}
 
 # Legacy endpoints support (optional, can keep for compatibility if needed)
-@router.post("/navigate")
+@router.post("/navigate", dependencies=[Depends(verify_token)])
 async def navigate_legacy(req: ActionRequest):
     # Dummy wrapper if something uses old endpoint, or just remove.
     # For now, let's stick to the new Operator API mainly.

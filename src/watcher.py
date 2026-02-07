@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 
@@ -25,7 +26,7 @@ if not TOKEN or not str(TOKEN).strip():
     logger.error("DISCORD_TOKEN_2 not found! Exiting ShadowWatcher process.")
     print("❌ Critical Error: DISCORD_TOKEN_2 is missing. Closing window forcefully...")
     time.sleep(1)
-    os.system(f"taskkill /F /PID {os.getpid()}")
+    subprocess.run(["taskkill", "/F", "/PID", str(os.getpid())], check=False)
     sys.exit(0)
 
 PROPOSAL_CHANNEL_ID = os.getenv("FEATURE_PROPOSAL_CHANNEL_ID")

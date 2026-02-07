@@ -12,6 +12,7 @@ try:
 except ImportError:  # pragma: no cover - platform specific
     resource = None  # type: ignore
 import asyncio
+import ast
 import random
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -243,12 +244,37 @@ class CoreCog(commands.Cog):
     @app_commands.describe(expression="計算式 (例: 1+1)")
     async def utility_calc(self, interaction: discord.Interaction, expression: str) -> None:
         allowed_chars = "0123456789+-*/(). "
-        if any(c not in allowed_chars for c in expression):
+        if len(expression) > 200 or any(c not in allowed_chars for c in expression):
             await interaction.response.send_message("使用できない文字が含まれています。", ephemeral=True)
             return
         try:
-            # pylint: disable=eval-used
-            result = eval(expression, {"__builtins__": None}, {})
+            tree = ast.parse(expression, mode="eval")
+
+            def _eval(node: ast.AST) -> float:
+                if isinstance(node, ast.Expression):
+                    return _eval(node.body)
+                if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                    return float(node.value)
+                if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                    v = _eval(node.operand)
+                    return v if isinstance(node.op, ast.UAdd) else -v
+                if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
+                    left = _eval(node.left)
+                    right = _eval(node.right)
+                    if isinstance(node.op, ast.Add):
+                        return left + right
+                    if isinstance(node.op, ast.Sub):
+                        return left - right
+                    if isinstance(node.op, ast.Mult):
+                        return left * right
+                    # Div
+                    return left / right
+                raise ValueError("unsupported_expression")
+
+            result = _eval(tree)
+            # Display integers cleanly when possible.
+            if abs(result - int(result)) < 1e-12:
+                result = int(result)
             await interaction.response.send_message(
                 f"{expression} = {result}", ephemeral=await self._get_privacy(interaction.user.id)
             )

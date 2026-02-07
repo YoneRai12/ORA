@@ -51,8 +51,44 @@ async def require_admin(
     if not _is_loopback(request):
         raise HTTPException(status_code=403, detail="Admin API only available on loopback without token")
 
+
+async def require_web_api(
+    request: Request,
+    x_ora_token: str | None = Header(None),
+    authorization: str | None = Header(None),
+    token: str | None = Query(None),
+) -> None:
+    """
+    Web API guard for internet exposure.
+
+    - If `ORA_WEB_API_TOKEN` is set: require it (header `x-ora-token`, Authorization Bearer, or query `token`).
+    - If not set: allow only loopback callers.
+    - If `ORA_REQUIRE_WEB_API_TOKEN=1`: require token even on loopback.
+    """
+    expected = (os.getenv("ORA_WEB_API_TOKEN") or "").strip()
+    require_token = (os.getenv("ORA_REQUIRE_WEB_API_TOKEN") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    bearer = ""
+    if authorization:
+        parts = authorization.strip().split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            bearer = parts[1].strip()
+
+    presented = (x_ora_token or bearer or token or "").strip()
+
+    if expected:
+        if (not presented) or (not hmac.compare_digest(presented, expected)):
+            raise HTTPException(status_code=403, detail="Invalid ORA web API token")
+        return
+
+    if require_token:
+        raise HTTPException(status_code=503, detail="ORA_WEB_API_TOKEN is not configured")
+
+    if not _is_loopback(request):
+        raise HTTPException(status_code=503, detail="ORA_WEB_API_TOKEN is not configured")
+
 @router.get("/dashboard/summary")
-async def get_dashboard_summary():
+async def get_dashboard_summary(_: None = Depends(require_web_api)):
     """Returns summary statistics for the dashboard."""
     import json
     from pathlib import Path
@@ -293,7 +329,7 @@ OpenAI の Codex Harness アーキテクチャに基づき、全ての操作を�
         await queue.put(None)
 
 @router.post("/messages")
-async def create_message(request: Request):
+async def create_message(request: Request, _: None = Depends(require_web_api)):
     """
     Starts a background run and returns a run_id immediately.
     """
@@ -321,7 +357,7 @@ async def create_message(request: Request):
         return {"error": str(e)}
 
 @router.get("/runs/{run_id}/events")
-async def get_run_events(run_id: str, request: Request):
+async def get_run_events(run_id: str, request: Request, _: None = Depends(require_web_api)):
     """
     Stream the events from the background agent loop via SSE.
     """
@@ -351,7 +387,7 @@ async def get_run_events(run_id: str, request: Request):
     return EventSourceResponse(event_generator())
 
 @router.post("/runs/{run_id}/results")
-async def submit_tool_result(run_id: str, result: dict):
+async def submit_tool_result(run_id: str, result: dict, _: None = Depends(require_web_api)):
     """
     Bot submits tool execution results here to continue the loop.
     """
@@ -402,7 +438,32 @@ manager = ConnectionManager()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(None)):
+    # WebSocket auth: match `require_web_api` behavior as closely as possible.
+    expected = (os.getenv("ORA_WEB_API_TOKEN") or "").strip()
+    require_token = (os.getenv("ORA_REQUIRE_WEB_API_TOKEN") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    presented = (token or "").strip()
+    if not presented:
+        presented = (websocket.headers.get("x-ora-token") or "").strip()
+    if not presented:
+        auth = (websocket.headers.get("authorization") or "").strip()
+        parts = auth.split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            presented = parts[1].strip()
+
+    host = (websocket.client.host if websocket.client else "") or ""
+    is_loopback = host in {"127.0.0.1", "::1", "localhost"}
+
+    if expected:
+        if (not presented) or (not hmac.compare_digest(presented, expected)):
+            await websocket.close(code=1008)
+            return
+    else:
+        if require_token or (not is_loopback):
+            await websocket.close(code=1008)
+            return
+
     await manager.connect(websocket)
     try:
         while True:
@@ -508,7 +569,7 @@ async def request_link_code(request: Request):
 
 
 @router.post("/ocr")
-async def ocr_endpoint(request: Request):
+async def ocr_endpoint(request: Request, _: None = Depends(require_web_api)):
     """
     Analyze an uploaded image using the same logic as the ORA Cog.
     Expects multipart/form-data with 'file'.
@@ -538,7 +599,7 @@ async def ocr_endpoint(request: Request):
 
 
 @router.get("/conversations/latest")
-async def get_latest_conversations(user_id: str | None = None, limit: int = 20):
+async def get_latest_conversations(user_id: str | None = None, limit: int = 20, _: None = Depends(require_web_api)):
     """Get recent conversations for a user (Discord ID or Google Sub). If None, returns all."""
     from src.web.app import get_store
 
@@ -552,7 +613,7 @@ async def get_latest_conversations(user_id: str | None = None, limit: int = 20):
 
 
 @router.get("/memory/graph")
-async def get_memory_graph():
+async def get_memory_graph(_: None = Depends(require_web_api)):
     """Get the knowledge graph data."""
     import json
     from pathlib import Path
@@ -569,7 +630,7 @@ async def get_memory_graph():
 
 
 @router.get("/dashboard/usage")
-async def get_dashboard_usage():
+async def get_dashboard_usage(_: None = Depends(require_web_api)):
     """Get global cost usage stats from CostManager state file (Aggregated)."""
     import json
     from pathlib import Path
@@ -752,7 +813,7 @@ async def get_dashboard_usage():
 
 
 @router.get("/dashboard/history")
-async def get_dashboard_history():
+async def get_dashboard_history(_: None = Depends(require_web_api)):
     """Get historical usage data (timeline) and model breakdown."""
     import json
     from pathlib import Path
@@ -904,7 +965,7 @@ async def get_dashboard_history():
 
 
 @router.get("/dashboard/users")
-async def get_dashboard_users(response: Response):
+async def get_dashboard_users(response: Response, _: None = Depends(require_web_api)):
     """Get list of users with display names and stats from Memory JSONs."""
     # Force No-Cache to ensure real-time updates
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
@@ -1278,7 +1339,7 @@ async def get_dashboard_users(response: Response):
 
 
 @router.get("/dashboard/users/{user_id}")
-async def get_user_details(user_id: str):
+async def get_user_details(user_id: str, _: None = Depends(require_web_api)):
     """Get full details for a specific user (traits, history, context). Supports dual profiles."""
     import json
     from pathlib import Path

@@ -749,8 +749,10 @@ class SystemCog(commands.Cog):
                                 "message": "Mac運用時は PC_IP_ADDRESS と PC_SSH_USER の設定が必要です。",
                             }
                         # Run via SSH (Assumes SSH keys are set up)
-                        cmd = f'ssh {ssh_user}@{target_ip} "shutdown /s /t 0"'
-                        subprocess.Popen(cmd, shell=True)
+                        subprocess.Popen(
+                            ["ssh", f"{ssh_user}@{target_ip}", "shutdown /s /t 0"],
+                            shell=False,
+                        )
                     else:
                         # Local Windows
                         subprocess.Popen("shutdown /s /t 0", shell=False)

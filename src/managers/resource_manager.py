@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import time
+from typing import Iterable
 
 # Configure Logger
 logging.basicConfig(level=logging.INFO)
@@ -110,23 +111,23 @@ class ResourceManager:
         logger.info(f"🔪 Attempting to kill process on port {port}...")
 
         # 1. Kill Windows Process (Standard)
-        cmd = f"netstat -ano | findstr :{port}"
         try:
-            # We use synchronous popen/run here for simplicity in utility
-            proc = subprocess.run(cmd, shell=True, capture_output=True)
-            if proc.stdout:
-                lines = proc.stdout.decode().strip().split("\n")
-                pids = set()
-                for line in lines:
-                    parts = line.split()
-                    if len(parts) > 4:
-                        pid = parts[-1]
-                        if pid.isdigit() and int(pid) > 0:
-                            pids.add(pid)
+            proc = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, check=False)
+            pids: set[str] = set()
+            needle = f":{int(port)}"
+            for line in (proc.stdout or "").splitlines():
+                if needle not in line:
+                    continue
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+                pid = parts[-1].strip()
+                if pid.isdigit() and int(pid) > 0:
+                    pids.add(pid)
 
-                for pid in pids:
-                    logger.info(f"Found Windows PID {pid}. Terminating...")
-                    subprocess.run(f"taskkill /F /PID {pid}", shell=True, check=False)
+            for pid in pids:
+                logger.info(f"Found Windows PID {pid}. Terminating...")
+                subprocess.run(["taskkill", "/F", "/PID", pid], check=False, capture_output=True, text=True)
         except Exception as e:
             logger.error(f"Error killing Windows process: {e}")
 
@@ -135,10 +136,14 @@ class ResourceManager:
             try:
                 logger.info("🐧 Scanning WSL distros to kill vLLM...")
                 # Get list of distros
-                proc_list = subprocess.run("wsl -l -q", shell=True, capture_output=True)
-                # Decode properly: UTF-16LE is standard for WSL output
-                raw_output = proc_list.stdout.decode("utf-16-le", errors="ignore")
-                distros = [d.strip() for d in raw_output.split() if d.strip()]
+                proc_list = subprocess.run(["wsl", "-l", "-q"], capture_output=True, check=False)
+                raw = proc_list.stdout or b""
+                # WSL output is often UTF-16LE on Windows, but fallback just in case.
+                try:
+                    raw_output = raw.decode("utf-16-le", errors="ignore")
+                except Exception:
+                    raw_output = raw.decode(errors="ignore")
+                distros = [d.strip() for d in raw_output.splitlines() if d.strip()]
 
                 if not distros:
                     distros = ["Ubuntu", "Ubuntu-22.04", "Debian"]
@@ -148,16 +153,24 @@ class ResourceManager:
                     try:
                         # Command 1: pkill via full path (most reliable)
                         # We use || true to prevent exit code 1 if no process found
-                        kill_cmd = 'wsl -d {} bash -c "/usr/bin/pkill -9 -f vllm || /usr/bin/pkill -9 -f python3 || true"'.format(
-                            distro
-                        )
-                        res = subprocess.run(kill_cmd, shell=True, capture_output=True, text=True)
+                        kill_cmd = [  # no shell: prevent injection through distro name
+                            "wsl",
+                            "-d",
+                            distro,
+                            "bash",
+                            "-c",
+                            "/usr/bin/pkill -9 -f vllm || /usr/bin/pkill -9 -f python3 || true",
+                        ]
+                        res = subprocess.run(kill_cmd, capture_output=True, text=True, check=False)
                         if res.returncode != 0:
                             logger.warning(f"  Result: {res.stderr.strip()}")
                         else:
                             # Also try fuser just in case pkill missed
                             subprocess.run(
-                                f'wsl -d {distro} bash -c "fuser -k -9 8001/tcp || true"', shell=True, check=False
+                                ["wsl", "-d", distro, "bash", "-c", "fuser -k -9 8001/tcp || true"],
+                                check=False,
+                                capture_output=True,
+                                text=True,
                             )
                             logger.info("  Signal sent.")
 
@@ -197,8 +210,7 @@ class ResourceManager:
         logger.info(f"🚀 Starting Orchestrator LLM ({title})...")
 
         # Launch visible window (Foreground)
-        cmd = f'start "{title}" "{script_path}"'
-        subprocess.Popen(cmd, shell=True)
+        subprocess.Popen(["cmd", "/c", "start", title, script_path], shell=False)
 
         # Wait for Port 8001 to be live
         await self.wait_for_port(8001)
@@ -228,7 +240,7 @@ class ResourceManager:
 
         logger.info(f"🎨 Starting ComfyUI ({target_bat})...")
         # Launch minimized
-        subprocess.Popen(f'start /min "ORA_Comfy" "{target_bat}"', shell=True)
+        subprocess.Popen(["cmd", "/c", "start", "/min", "ORA_Comfy", target_bat], shell=False)
         await self.wait_for_port(8188)
 
     async def wait_for_port(self, port: int, timeout=60):

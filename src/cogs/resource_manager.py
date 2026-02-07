@@ -63,7 +63,7 @@ class ResourceManager(commands.Cog):
                     return False
 
                 # Detached launch
-                subprocess.Popen(["start", "cmd", "/c", bat_path], shell=True)
+                subprocess.Popen(["cmd", "/c", "start", "", bat_path], shell=False)
 
                 # 5. Wait for Port
                 print("[ResourceManager] Waiting for vLLM Port 8001...")
