@@ -442,6 +442,18 @@ class ToolSelector:
         reasons: List[str] = []
         p = (prompt or "").lower()
 
+        # Treat "what is this? <url>" as low complexity even if the router selects many safe tools.
+        # This prevents unsolicited "execution plan" behavior for simple URL explanations.
+        try:
+            url_like = ("http://" in p) or ("https://" in p)
+            short = len(p) <= 160
+            ask_what = any(k in p for k in ["これなに", "これ何", "何これ", "what is this", "what's this"])
+            wants_heavy = any(k in p for k in ["保存", "ダウンロード", "download", "save", "スクショ", "screenshot", "web操作", "remote"])
+            if url_like and short and ask_what and not wants_heavy:
+                return "low", ["simple_url_explain"]
+        except Exception:
+            pass
+
         if len(selected_categories) >= 3:
             reasons.append("multi_category(>=3)")
         if len(selected_tools) >= 5:

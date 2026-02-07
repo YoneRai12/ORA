@@ -423,14 +423,9 @@ Interests: {interests}
                 selected_names=[t.get("name") for t in selected_tools if isinstance(t, dict)],
             )
 
-            # If router judges the request complex, force explicit plan-first behavior.
+            # Complexity is used for optional pre-orchestration (Swarm), but we avoid forcing a visible
+            # "execution plan" in the user's reply unless explicitly requested.
             route_meta = getattr(self.tool_selector, "last_route_meta", {}) or {}
-            if route_meta.get("complexity") == "high":
-                full_prompt_with_rag = (
-                    "[ORCHESTRATION POLICY: COMPLEX TASK]\n"
-                    "この依頼は複雑です。必ず最初に『📋 エージェント実行計画』を短く提示してから、"
-                    "必要なツール呼び出しを開始してください。\n\n"
-                ) + full_prompt_with_rag
 
             # [SWARM] Optional high-complexity pre-orchestration
             if self.swarm.should_run(route_meta, prompt):
@@ -466,14 +461,11 @@ Interests: {interests}
                 if len(selected_tools) != len(discord_tools):
                     logger.info(f"Tool Selection: {len(discord_tools)} -> {len(selected_tools)} tools")
 
-            # Only show "Execution Plan" cards when the request is genuinely multi-step or explicitly asked.
+            # Only show "Execution Plan" cards when explicitly asked (avoid unsolicited plan spam).
             allow_plan_preview = False
             try:
-                if route_meta.get("complexity") == "high":
-                    allow_plan_preview = True
-                else:
-                    plan_markers = ["計画", "実行計画", "plan", "手順", "ステップ", "step", "タスク", "task"]
-                    allow_plan_preview = any(m in p_low for m in plan_markers)
+                plan_markers = ["計画", "実行計画", "plan", "手順", "ステップ", "step", "タスク", "task"]
+                allow_plan_preview = any(m in p_low for m in plan_markers)
             except Exception:
                 allow_plan_preview = False
 
