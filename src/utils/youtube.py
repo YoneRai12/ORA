@@ -3,11 +3,44 @@ import logging
 import os
 import tempfile
 import uuid
+import glob
 from typing import Optional, Tuple, Dict, Any
 
 import yt_dlp
 
 logger = logging.getLogger(__name__)
+
+
+def _get_ora_temp_dir() -> str:
+    """
+    ORA uses a configurable temp directory (often on a large drive like L:\\).
+    Avoid writing downloads into the repo root on C:\\, which can silently fill the OS disk.
+    """
+    try:
+        from src.config import TEMP_DIR  # Config constant (respects ORA_TEMP_DIR/ORA_DATA_ROOT)
+        base = TEMP_DIR
+    except Exception:
+        base = os.path.join(os.getcwd(), "data", "temp")
+
+    # Keep yt-dlp artifacts in a dedicated subfolder for easier cleanup.
+    d = os.path.join(base, "yt_dlp")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _cleanup_prefix(temp_dir: str, prefix: str, keep: Optional[str] = None) -> None:
+    """Best-effort cleanup of temp files created by yt-dlp/ffmpeg for a given filename prefix."""
+    try:
+        for p in glob.glob(os.path.join(temp_dir, f"{prefix}*")):
+            if keep and os.path.abspath(p) == os.path.abspath(keep):
+                continue
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 
 def _get_youtube_audio_stream_url_sync(query: str, proxy: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[int]]:
     """
@@ -79,9 +112,7 @@ def _download_youtube_audio_sync(query: str, proxy: Optional[str] = None) -> Tup
     Returns: (file_path, title, duration_seconds)
     """
     # Create a temporary file to store the download
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    temp_dir = os.path.join(project_root, "temp")
-    os.makedirs(temp_dir, exist_ok=True)
+    temp_dir = _get_ora_temp_dir()
 
     fd, temp_path = tempfile.mkstemp(suffix=".mp3", dir=temp_dir)
     os.close(fd)
@@ -124,6 +155,12 @@ def _download_youtube_audio_sync(query: str, proxy: Optional[str] = None) -> Tup
             return None, info.get("title"), info.get("duration")
 
     except Exception as e:
+        # Clean up any partial artifacts for this download, if we can infer an ID.
+        try:
+            if "info" in locals() and isinstance(info, dict) and info.get("id"):
+                _cleanup_prefix(temp_dir, str(info.get("id")))
+        except Exception:
+            pass
         logger.error(f"Error downloading YouTube audio: {e}")
         return None, None, None
 
@@ -157,12 +194,10 @@ def _download_video_smart_sync(
     }
     """
     if not temp_dir:
-        # Use local temp dir for better visibility/cleanup
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        temp_dir = os.path.join(project_root, "temp")
-        os.makedirs(temp_dir, exist_ok=True)
+        temp_dir = _get_ora_temp_dir()
 
     filename_base = f"vid_{uuid.uuid4().hex[:8]}"
+    _cleanup_prefix(temp_dir, filename_base)  # just in case of collision
 
     # 1. Fetch Info first
     ydl_opts_info = {
@@ -266,6 +301,8 @@ def _download_video_smart_sync(
                 downloaded_info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(downloaded_info)
         else:
+            # Clean partials (e.g. .part) to avoid filling disks over time.
+            _cleanup_prefix(temp_dir, filename_base)
             raise
 
     width = downloaded_info.get("width") or info.get("width")
@@ -358,6 +395,7 @@ def _download_video_smart_sync(
                            pass
                       else:
                            logger.warning("Compression failed to reduce enough. Fallback to split.")
+
                            force_split_now = True
                  else:
                       force_split_now = True
@@ -417,6 +455,9 @@ def _download_video_smart_sync(
 
     final_size_bytes = os.path.getsize(final_path) if os.path.exists(final_path) else file_size_bytes
     final_ext = os.path.splitext(final_path)[1].lstrip(".") or downloaded_info.get("ext")
+
+    # Remove stray partials for this prefix (best-effort) while keeping the final artifact.
+    _cleanup_prefix(temp_dir, filename_base, keep=final_path)
 
     return {
         "path": final_path,

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import logging
 import os
+import inspect
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -113,10 +114,25 @@ class SkillLoader:
         if hasattr(skill["module"], "execute"):
              # Support both async and sync execute? Assuming async for now as per ToolHandler
              try:
-                if asyncio.iscoroutinefunction(skill["module"].execute):
-                    return await skill["module"].execute(args, message, bot=bot)
-                else:
-                    return skill["module"].execute(args, message, bot=bot)
+                fn = skill["module"].execute
+                sig = None
+                try:
+                    sig = inspect.signature(fn)
+                except Exception:
+                    sig = None
+
+                call_kwargs: dict[str, Any] = {}
+                if bot is not None and sig is not None:
+                    try:
+                        params = sig.parameters
+                        if "bot" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                            call_kwargs["bot"] = bot
+                    except Exception:
+                        pass
+
+                if asyncio.iscoroutinefunction(fn):
+                    return await fn(args, message, **call_kwargs)
+                return fn(args, message, **call_kwargs)
              except Exception as e:
                  logger.error(f"Error executing skill {tool_name}: {e}")
                  return f"Error: {e}"

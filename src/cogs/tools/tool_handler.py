@@ -103,6 +103,17 @@ class ToolHandler:
 
             meta = get_tool_meta(tool_name)
             tags = meta.get("tags") if isinstance(meta, dict) else []
+            # Dynamic skills (src/skills/*) are not in the central registry, so pull tags from
+            # their TOOL_SCHEMA when available to keep risk scoring accurate.
+            if not tags:
+                try:
+                    schema = self.skill_loader.get_schema(tool_name) if self._skill_loader else None
+                    if isinstance(schema, dict):
+                        stags = schema.get("tags")
+                        if isinstance(stags, list):
+                            tags = stags
+                except Exception:
+                    pass
             ra = score_tool_risk(tool_name, args if isinstance(args, dict) else {}, tags=tags if isinstance(tags, list) else [])
             pol = policy_for(bot=self.bot, actor_id=message.author.id, risk_level=ra.level, risk_score=ra.score)
 

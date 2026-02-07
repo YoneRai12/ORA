@@ -1,0 +1,23 @@
+{
+  "name": "ora-remotion-templates",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "compositions": "remotion compositions src/index.ts",
+    "render": "remotion render src/index.ts OraTitleCard out.mp4 --codec=h264 --overwrite",
+    "studio": "remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.417",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remotion": "4.0.417"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.19",
+    "@types/react": "18.2.48",
+    "@types/react-dom": "18.2.18",
+    "typescript": "5.4.5"
+  }
+}

@@ -188,7 +188,11 @@ class ORABot(commands.Bot):
 
     async def _periodic_backup_loop(self) -> None:
         """Runs backup every 6 hours."""
-        await self.wait_until_ready()
+        try:
+            await self.wait_until_ready()
+        except RuntimeError:
+            # In unit tests the client isn't logged in; avoid noisy background task errors.
+            return
         while not self.is_closed():
             try:
                 await asyncio.sleep(6 * 3600)  # 6 hours
@@ -209,7 +213,11 @@ class ORABot(commands.Bot):
         """
         from src.utils.voice_restore import snapshot_voice_connections, write_snapshot
 
-        await self.wait_until_ready()
+        try:
+            await self.wait_until_ready()
+        except RuntimeError:
+            # In unit tests the client isn't logged in; avoid noisy background task errors.
+            return
         enabled = (os.getenv("ORA_VOICE_RESTORE_SNAPSHOT") or "").strip().lower() in {"1", "true", "yes", "on"}
         if not enabled:
             return
