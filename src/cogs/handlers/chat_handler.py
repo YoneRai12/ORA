@@ -741,6 +741,59 @@ Interests: {interests}
 
             # Send as Embed Cards
             # Split if > 4000 chars
+            # If the model emitted an execution plan, prefer showing it in the status/task card.
+            # Avoid spamming the user with "📋 エージェント実行計画" in the main reply unless explicitly requested.
+            def _strip_execution_plan(text: str) -> str:
+                if not text:
+                    return text
+                t = text.lstrip()
+                if allow_plan_preview:
+                    return text
+
+                # Common headers the model tends to emit.
+                headers = [
+                    "📋 エージェント実行計画",
+                    "📋 エージェント実行計画:",
+                    "📋 エージェント実行計画 (Skill Plan)",
+                    "📋 エージェント実行計画（Skill Plan）",
+                    "Execution Plan",
+                    "Execution Plan:",
+                    "Skill Plan",
+                    "Skill Plan:",
+                ]
+                if not any(h in t for h in headers):
+                    return text
+
+                lines = t.splitlines()
+
+                # Remove a leading plan block: header + bullet/numbered list until first non-list paragraph.
+                out: list[str] = []
+                in_plan = False
+                plan_started = False
+                for line in lines:
+                    s = line.strip()
+                    if not plan_started:
+                        if any(s.startswith(h) for h in headers) or any(h in s for h in headers):
+                            in_plan = True
+                            plan_started = True
+                            continue
+                        out.append(line)
+                        continue
+
+                    if in_plan:
+                        if (not s) or s.startswith(("1)", "2)", "3)", "1.", "2.", "3.", "-", "・", "※")):
+                            continue
+                        # End plan when we hit the first normal paragraph.
+                        in_plan = False
+                        out.append(line)
+                        continue
+
+                    out.append(line)
+
+                cleaned = "\n".join(out).strip()
+                return cleaned if cleaned else text
+
+            full_content = _strip_execution_plan(full_content or "")
             remaining = full_content
             await status_manager.set_task_state(3, "done", "回答完了")
             while remaining:
