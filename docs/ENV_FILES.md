@@ -17,15 +17,14 @@ Most other items are optional and only enable features.
 
 ## 2) Dashboard UI (Next.js) - `ora-ui/`
 
-- Template: `ora-ui/.env.local.example`
+- Template: `ora-ui/.env.example`
 - Your local file: `ora-ui/.env.local` (DO NOT commit)
 
 Used for Discord OAuth login (NextAuth/Auth.js).
 
 ## 3) Web Client (Next.js) - `clients/web/`
 
-- Template: `clients/web/.env.local.example`
+- Template: `clients/web/.env.example`
 - Your local file: `clients/web/.env.local` (DO NOT commit)
 
 Used for Discord OAuth login (NextAuth/Auth.js) and talking to ORA API/Core from the browser.
-
