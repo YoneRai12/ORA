@@ -9,6 +9,7 @@ class LinkManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.sent_on_startup = False
+        self._last_admin_dm_ts: float = 0.0
 
     async def _get_tunnel_url(self, service_name: str, fallback: str) -> str:
         """Extracts the latest Quick Tunnel URL from the service's log file with retries."""
@@ -19,6 +20,11 @@ class LinkManager(commands.Cog):
         cfg = self.bot.config
         log_dir = cfg.log_dir
         log_path = os.path.join(log_dir, f"cf_{service_name}.log")
+
+        # Support both modern and older domains.
+        url_re = re.compile(
+            r"https://[a-zA-Z0-9-]+\.(?:trycloudflare\.com|cfargotunnel\.com)"
+        )
         
         # Cloudflare might take a few seconds to write the URL
         for attempt in range(3):
@@ -27,7 +33,7 @@ class LinkManager(commands.Cog):
                     with open(log_path, "r", encoding="utf-8") as f:
                         content = f.read()
                         # Find the most recent URL in the log
-                        matches = re.findall(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
+                        matches = url_re.findall(content)
                         if matches:
                             url = matches[-1]
                             logger.info(f"✅ Extracted Cloudflare URL for {service_name}: {url}")
@@ -40,6 +46,69 @@ class LinkManager(commands.Cog):
                 await asyncio.sleep(5)
         
         return fallback
+
+    async def _dm_admin_links(self, link_map: dict[int, dict], *, reason: str) -> None:
+        """
+        Best-effort: DM admin a stable place to find the latest external links.
+        This avoids "URL didn't post to channel so I can't access from outside".
+        """
+        import time
+
+        cfg = self.bot.config
+        admin_id = getattr(cfg, "admin_user_id", None)
+        if not admin_id:
+            return
+
+        # Avoid DM spam unless explicitly triggered.
+        now = time.time()
+        if reason == "startup" and (now - self._last_admin_dm_ts) < 600:
+            return
+
+        urls: list[str] = []
+        for _, data in link_map.items():
+            url = (data or {}).get("url")
+            title = (data or {}).get("title")
+            if url:
+                urls.append(f"- {title}: {url}")
+
+        if not urls:
+            urls.append("- (no public URLs found yet)")
+
+        text = (
+            "**ORA Public Links**\n"
+            f"reason={reason}\n"
+            + "\n".join(urls)
+            + "\n\nIf links are missing: check Cloudflare logs under `ORA_LOG_DIR` (cf_*.log) and tunnel settings."
+        )
+
+        try:
+            user = self.bot.get_user(admin_id) or await self.bot.fetch_user(admin_id)
+            await user.send(text)
+            self._last_admin_dm_ts = now
+        except Exception:
+            # Some users block DMs; don't hard-fail startup.
+            logger.warning("Failed to DM admin public links (admin_user_id=%s)", admin_id)
+
+    async def _persist_links(self, link_map: dict[int, dict]) -> None:
+        """Write latest link map to state dir for local recovery/debug."""
+        import json
+        import os
+
+        cfg = self.bot.config
+        state_dir = getattr(cfg, "state_dir", None) or os.path.join(os.getcwd(), "data", "state")
+        try:
+            os.makedirs(state_dir, exist_ok=True)
+            out_path = os.path.join(state_dir, "public_links.json")
+            # Keep only the URL-ish payload.
+            payload = {
+                str(ch_id): {"title": v.get("title"), "url": v.get("url"), "desc": v.get("desc")}
+                for ch_id, v in (link_map or {}).items()
+                if isinstance(v, dict)
+            }
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.debug("Failed to persist public links: %s", e)
 
     async def get_link_map(self):
         """Dynamic link map using latest Cloudflare URLs and Config."""
@@ -162,10 +231,27 @@ class LinkManager(commands.Cog):
         results = await self._broadcast_links()
         await interaction.followup.send("Broadcast Complete:\n" + "\n".join(results))
 
+    @app_commands.command(name="links", description="Show current system links (Quick Tunnel / Named Tunnel).")
+    async def links(self, interaction: discord.Interaction):
+        """Ephemeral: show the latest link map for quick copy/paste."""
+        await interaction.response.defer(ephemeral=True)
+        link_map = await self.get_link_map()
+        lines = []
+        for _, data in link_map.items():
+            url = (data or {}).get("url")
+            title = (data or {}).get("title")
+            if url:
+                lines.append(f"- {title}: {url}")
+        if not lines:
+            lines = ["- (no public URLs found yet)"]
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
+
     async def _broadcast_links(self):
         results = []
         # MUST AWAIT NOW
         link_map = await self.get_link_map()
+
+        await self._persist_links(link_map)
         
         for channel_id, data in link_map.items():
             channel = self.bot.get_channel(channel_id)
@@ -201,6 +287,12 @@ class LinkManager(commands.Cog):
                     results.append(f"❌ Failed to send to {channel.name}: {e}")
             else:
                  results.append(f"⚠️ Channel {channel_id} is not a text channel")
+
+        # Reliable out-of-band delivery: DM admin.
+        try:
+            await self._dm_admin_links(link_map, reason="startup" if not self.sent_on_startup else "manual")
+        except Exception:
+            pass
         return results
 
 async def setup(bot: commands.Bot):
