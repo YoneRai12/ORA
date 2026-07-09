@@ -338,6 +338,7 @@ jobs:
               --github-prerelease auto
           fi
       - name: Run v0.23 cross-repo release gate snapshot
+        if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.YONERAI_RELEASE_GATE_TOKEN || github.token }}
         run: |

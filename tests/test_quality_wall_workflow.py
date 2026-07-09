@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 
 WORKFLOW = Path(".github/workflows/quality-wall.yml")
 REQUIRED_CHECKS = Path("docs/process/REQUIRED_CHECKS.md")
@@ -56,6 +58,21 @@ def test_release_gate_workflow_does_not_publish() -> None:
         in workflow
     )
     assert "releases/manifest|docs/releases/" not in workflow
+
+
+def test_cross_repo_release_gate_token_is_not_exposed_to_pull_request_code() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+    release_gate_steps = workflow["jobs"]["release-gate"]["steps"]
+    cross_repo_gate_step = next(
+        step
+        for step in release_gate_steps
+        if step.get("name") == "Run v0.23 cross-repo release gate snapshot"
+    )
+
+    assert cross_repo_gate_step["if"] == "${{ github.event_name == 'push' }}"
+    assert cross_repo_gate_step["env"]["GH_TOKEN"] == "${{ secrets.YONERAI_RELEASE_GATE_TOKEN || github.token }}"
+    assert "python scripts/yonerai_release_gate.py --release-issue 592" in cross_repo_gate_step["run"]
 
 
 def test_required_checks_doc_lists_quality_wall_jobs() -> None:
