@@ -856,6 +856,7 @@ def _assert_safe_firestore_structured_query(
     body: Mapping[str, object] | None,
     account_id: object,
     limit: int = 10,
+    cursor: str | None = None,
 ) -> None:
     assert method == "POST"
     assert url == "https://firestore.googleapis.com/v1/projects/yonerai-platform-stg-2026/databases/(default)/documents/accounts/acct_public_sync_fixture:runQuery"
@@ -863,7 +864,13 @@ def _assert_safe_firestore_structured_query(
     query = body["structuredQuery"]
     assert isinstance(query, Mapping)
     assert query["from"] == [{"collectionId": "sync_events", "allDescendants": False}]
-    assert query["orderBy"] == [{"field": {"fieldPath": "created_at"}, "direction": "ASCENDING"}]
+    if cursor is None:
+        assert query["orderBy"] == [{"field": {"fieldPath": "created_at"}, "direction": "ASCENDING"}]
+    else:
+        assert query["orderBy"] == [
+            {"field": {"fieldPath": "cursor"}, "direction": "ASCENDING"},
+            {"field": {"fieldPath": "created_at"}, "direction": "ASCENDING"},
+        ]
     assert query["limit"] == limit
     assert "offset" not in query
     where = query["where"]
@@ -886,6 +893,17 @@ def _assert_safe_firestore_structured_query(
             "value": {"booleanValue": False},
         }
     } in filters
+    cursor_filter = {
+        "fieldFilter": {
+            "field": {"fieldPath": "cursor"},
+            "op": "GREATER_THAN",
+            "value": {"stringValue": cursor},
+        }
+    }
+    if cursor is None:
+        assert cursor_filter not in filters
+    else:
+        assert cursor_filter in filters
 
 
 def _jwt_with_uid(uid: str) -> str:
@@ -2436,7 +2454,9 @@ def test_firestore_poll_resumes_after_saved_cursor(tmp_path: Path) -> None:
         if url.startswith("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?"):
             return 200, {"idToken": "firebase_id_token_fixture", "expiresIn": "3600", "localId": claim["account_id"]}, {}
         firestore_requests.append((method, url, body))
-        _assert_safe_firestore_structured_query(method=method, url=url, body=body, account_id=claim["account_id"])
+        _assert_safe_firestore_structured_query(
+            method=method, url=url, body=body, account_id=claim["account_id"], cursor="cursor_public_001"
+        )
         assert "pageToken" not in url
         return 200, _firestore_run_query_payload(event), {}
 

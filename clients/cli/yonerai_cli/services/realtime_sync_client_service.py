@@ -1407,7 +1407,7 @@ def _read_firestore_sync_events(
     safe_project = _safe_firestore_path_segment(project_id)
     safe_database = _safe_firestore_path_segment(database_id, allow_default=True)
     safe_cursor = _safe_firestore_cursor(cursor)
-    body = _firestore_sync_events_structured_query_body(account_id=safe_account_value, limit=safe_limit)
+    body = _firestore_sync_events_structured_query_body(account_id=safe_account_value, limit=safe_limit, cursor=safe_cursor)
     path = f"/v1/projects/{safe_project}/databases/{safe_database}/documents/accounts/{safe_account}:runQuery"
     status_code, payload, _headers = _request_json(
         "POST",
@@ -1435,32 +1435,43 @@ def _read_firestore_sync_events(
     return _sanitize_firestore_run_query_response(payload, linked_account_id=account_id)
 
 
-def _firestore_sync_events_structured_query_body(*, account_id: str, limit: int) -> dict[str, object]:
+def _firestore_sync_events_structured_query_body(*, account_id: str, limit: int, cursor: str | None = None) -> dict[str, object]:
+    filters: list[dict[str, object]] = [
+        {
+            "fieldFilter": {
+                "field": {"fieldPath": "account_id"},
+                "op": "EQUAL",
+                "value": {"stringValue": account_id},
+            }
+        },
+        {
+            "fieldFilter": {
+                "field": {"fieldPath": "body_ref.body_included"},
+                "op": "EQUAL",
+                "value": {"booleanValue": False},
+            }
+        },
+    ]
+    order_by = [{"field": {"fieldPath": "created_at"}, "direction": "ASCENDING"}]
+    if cursor is not None:
+        filters.append(
+            {
+                "fieldFilter": {
+                    "field": {"fieldPath": "cursor"},
+                    "op": "GREATER_THAN",
+                    "value": {"stringValue": cursor},
+                }
+            }
+        )
+        order_by = [
+            {"field": {"fieldPath": "cursor"}, "direction": "ASCENDING"},
+            {"field": {"fieldPath": "created_at"}, "direction": "ASCENDING"},
+        ]
     return {
         "structuredQuery": {
             "from": [{"collectionId": "sync_events", "allDescendants": False}],
-            "where": {
-                "compositeFilter": {
-                    "op": "AND",
-                    "filters": [
-                        {
-                            "fieldFilter": {
-                                "field": {"fieldPath": "account_id"},
-                                "op": "EQUAL",
-                                "value": {"stringValue": account_id},
-                            }
-                        },
-                        {
-                            "fieldFilter": {
-                                "field": {"fieldPath": "body_ref.body_included"},
-                                "op": "EQUAL",
-                                "value": {"booleanValue": False},
-                            }
-                        },
-                    ],
-                }
-            },
-            "orderBy": [{"field": {"fieldPath": "created_at"}, "direction": "ASCENDING"}],
+            "where": {"compositeFilter": {"op": "AND", "filters": filters}},
+            "orderBy": order_by,
             "limit": limit,
         }
     }
