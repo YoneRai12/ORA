@@ -1,4 +1,6 @@
-﻿# YonerAI
+
+
+# YonerAI
 
 > [!WARNING]
 > **Do not treat this README as the single source of truth for the current prerelease state.**
@@ -612,7 +614,7 @@ The current public runnable MVP path is the local Core API smoke path plus crede
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -U pip
-pip install -r requirements.txt
+pip install -r core/requirements.txt
 $env:PYTHONPATH = "$PWD;$PWD\core\src"
 $env:ORA_ALLOW_MISSING_SECRETS = "1"
 python scripts/init_core_db.py
